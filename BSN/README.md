@@ -8,11 +8,11 @@
 
 ```bash
 # One-click installer (installs Bun + BS9)
-curl -fsSL https://raw.githubusercontent.com/your-org/bsn/main/setup.sh | bash
+curl -fsSL https://raw.githubusercontent.com/your-org/bs9/main/setup.sh | bash
 
 # Or manual install
-git clone https://github.com/your-org/bsn.git
-cd bsn
+git clone https://github.com/your-org/bs9.git
+cd bs9
 bun install
 cp bin/bs9 ~/.local/bin/bs9
 chmod +x ~/.local/bin/bs9
@@ -384,8 +384,8 @@ serve({
 ### Setup
 ```bash
 # Clone and install
-git clone https://github.com/xarhang/bsn.git
-cd bsn
+git clone https://github.com/xarhang/bs9.git
+cd bs9
 bun install
 
 # Run CLI in development
@@ -443,11 +443,11 @@ BS9/
 ### Installation
 ```bash
 # One-click install
-curl -fsSL https://raw.githubusercontent.com/bsn/bsn/main/setup.sh | bash
+curl -fsSL https://raw.githubusercontent.com/xarhang/bs9/main/setup.sh | bash
 
 # Manual install
-git clone https://github.com/xarhang/bsn.git
-cd bsn
+git clone https://github.com/xarhang/bs9.git
+cd bs9
 bun install
 cp bin/bs9 ~/.local/bin/bs9
 chmod +x ~/.local/bin/bs9
@@ -526,7 +526,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines.
 
 ## 🔗 Links
 
-- **GitHub**: https://github.com/xarhang/bsn
-- **Issues**: https://github.com/xarhang/bsn/issues
-- **Documentation**: https://github.com/xarhang/bsn/wiki
-- **Discussions**: https://github.com/xarhang/bsn/discussions
+- **GitHub**: https://github.com/xarhang/bs9
+- **Issues**: https://github.com/xarhang/bs9/issues
+- **Documentation**: https://github.com/xarhang/bs9/wiki
+- **Discussions**: https://github.com/xarhang/bs9/discussions
