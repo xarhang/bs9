@@ -1,0 +1,23 @@
+# --- Bun/Node ---
+node_modules/
+bun.lockb
+.bun-build/
+dist/
+
+# --- Environment & Secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Logs & Systemd (Local Testing) ---
+*.log
+logs/
+.systemd_temp/
+
+# --- OS Specific ---
+.DS_Store
+Thumbs.db
+
+# --- BS9 Generated Files (Prevent committing test services) ---
+examples/*.service
+test-results/

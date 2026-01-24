@@ -1,0 +1,30 @@
+{
+  "name": "bs9",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "bin": {
+    "bs9": "./bin/bs9"
+  },
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "build": "bun build ./bin/bs9 --outdir ./dist --target bun",
+    "audit": "bun audit"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/auto-instrumentations-node": "^0.50.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.50.0",
+    "@opentelemetry/resources": "^1.23.0",
+    "@opentelemetry/sdk-node": "^0.50.0",
+    "@opentelemetry/semantic-conventions": "^1.23.0",
+    "pg": "^8.12.0",
+    "pino": "^9.3.1",
+    "prom-client": "^15.1.2",
+    "commander": "^12.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "bun-types": "^1.1.0"
+  }
+}

@@ -1,0 +1,97 @@
+#!/usr/bin/env bun
+
+import { Command } from "commander";
+import { startCommand } from "../src/commands/start.js";
+import { stopCommand } from "../src/commands/stop.js";
+import { restartCommand } from "../src/commands/restart.js";
+import { statusCommand } from "../src/commands/status.js";
+import { logsCommand } from "../src/commands/logs.js";
+import { monitCommand } from "../src/commands/monit.js";
+import { webCommand } from "../src/commands/web.js";
+import { alertCommand } from "../src/commands/alert.js";
+import { exportCommand } from "../src/commands/export.js";
+
+const program = new Command();
+
+program
+  .name("bs9")
+  .description("BS9 (Bun Sentinel 9) — Mission-critical process manager CLI")
+  .version("1.0.0");
+
+program
+  .command("start")
+  .description("Start a process with hardened systemd unit")
+  .argument("<file>", "Script or executable to run")
+  .option("-n, --name <name>", "Service name (defaults to filename)")
+  .option("-p, --port <port>", "Port to expose (for metrics/health)", "3000")
+  .option("--env <env...>", "Environment variables (KEY=VALUE)")
+  .option("--no-otel", "Disable automatic OpenTelemetry injection")
+  .option("--no-prometheus", "Disable automatic Prometheus metrics")
+  .option("--build", "Build TypeScript to optimized JavaScript for production (AOT)")
+  .action(startCommand);
+
+program
+  .command("stop")
+  .description("Stop a managed service")
+  .argument("<name>", "Service name")
+  .action(stopCommand);
+
+program
+  .command("restart")
+  .description("Restart a managed service")
+  .argument("<name>", "Service name")
+  .action(restartCommand);
+
+program
+  .command("status")
+  .description("Show status and SRE metrics for all services")
+  .option("-w, --watch", "Watch mode (refresh every 2s)")
+  .action(statusCommand);
+
+program
+  .command("logs")
+  .description("Show logs for a service (via journalctl)")
+  .argument("<name>", "Service name")
+  .option("-f, --follow", "Follow logs")
+  .option("-n, --lines <number>", "Number of lines", "50")
+  .action(logsCommand);
+
+program
+  .command("monit")
+  .description("Real-time terminal dashboard for all services")
+  .option("-r, --refresh <seconds>", "Refresh interval in seconds", "2")
+  .action(monitCommand);
+
+program
+  .command("web")
+  .description("Start web-based monitoring dashboard")
+  .option("-p, --port <port>", "Port for web dashboard", "8080")
+  .option("-d, --detach", "Run in background")
+  .action(webCommand);
+
+program
+  .command("alert")
+  .description("Configure alert thresholds and webhooks")
+  .option("--enable", "Enable alerts")
+  .option("--disable", "Disable alerts")
+  .option("--webhook <url>", "Set webhook URL for alerts")
+  .option("--cpu <percentage>", "CPU threshold percentage")
+  .option("--memory <percentage>", "Memory threshold percentage")
+  .option("--errorRate <percentage>", "Error rate threshold percentage")
+  .option("--uptime <percentage>", "Uptime threshold percentage")
+  .option("--cooldown <seconds>", "Alert cooldown period in seconds")
+  .option("--service <name>", "Configure alerts for specific service")
+  .option("--list", "List current alert configuration")
+  .option("--test", "Test webhook connectivity")
+  .action(alertCommand);
+
+program
+  .command("export")
+  .description("Export historical metrics data")
+  .option("-f, --format <format>", "Export format (json|csv)", "json")
+  .option("-h, --hours <hours>", "Hours of data to export", "24")
+  .option("-o, --output <file>", "Output file path")
+  .option("-s, --service <name>", "Export specific service metrics")
+  .action(exportCommand);
+
+program.parse();
