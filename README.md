@@ -8,10 +8,10 @@
 
 ```bash
 # One-click installer (installs Bun + BS9)
-curl -fsSL https://raw.githubusercontent.com/your-org/bs9/main/setup.sh | bash
+curl -fsSL https://raw.githubusercontent.com/xarhang/bs9/main/setup.sh | bash
 
 # Or manual install
-git clone https://github.com/your-org/bs9.git
+git clone https://github.com/xarhang/bs9.git
 cd bs9
 bun install
 cp bin/bs9 ~/.local/bin/bs9
