@@ -475,7 +475,7 @@ bs9 alert --cpu 80 --memory 85 --webhook https://hooks.slack.com/...
 ## 🐛 Troubleshooting
 
 ### Service Issues
-```bash
+```bash 
 # Check service status
 systemctl --user status myservice
 
