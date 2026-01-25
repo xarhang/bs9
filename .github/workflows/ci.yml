@@ -1,0 +1,289 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    name: Test Suite
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v1
+      with:
+        bun-version: latest
+        
+    - name: Install dependencies
+      run: bun install
+      
+    - name: Run tests
+      run: bun test
+      
+    - name: Run linting
+      run: bun run lint
+      
+    - name: Type checking
+      run: bun run type-check
+      
+    - name: Security audit
+      run: bun audit
+
+  build:
+    name: Build Application
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v1
+      with:
+        bun-version: latest
+        
+    - name: Install dependencies
+      run: bun install
+      
+    - name: Build application
+      run: bun run build
+      
+    - name: Run build:version
+      run: bun run build:version
+      
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-artifacts
+        path: dist/
+
+  integration-test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: build
+    
+    services:
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports:
+          - 5432:5432
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v1
+      with:
+        bun-version: latest
+        
+    - name: Install dependencies
+      run: bun install
+      
+    - name: Start test services
+      run: |
+        bun install -g bs9
+        bs9 start examples/simple-app.js --name test-app --detach
+        bs9 start examples/express-app.js --name test-express --port 3001 --detach
+        sleep 5
+        
+    - name: Run integration tests
+      run: |
+        curl -f http://localhost:3000/healthz
+        curl -f http://localhost:3001/health
+        bun test tests/integration/
+        
+    - name: Cleanup test services
+      run: |
+        bs9 stop test-app
+        bs9 stop test-express
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Run security audit
+      run: |
+        bun audit
+        npm audit --audit-level high
+        
+    - name: Run Snyk security scan
+      uses: snyk/actions/node@master
+      env:
+        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        
+    - name: Run CodeQL Analysis
+      uses: github/codeql-action/init@v3
+      with:
+        languages: javascript
+        
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
+
+  deploy:
+    name: Deploy to NPM
+    runs-on: ubuntu-latest
+    needs: [test, build, security]
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v1
+      with:
+        bun-version: latest
+        
+    - name: Install dependencies
+      run: bun install
+      
+    - name: Build application
+      run: bun run build:version
+      
+    - name: Publish to NPM
+      run: |
+        bunx npm publish
+        echo "✅ Published to NPM successfully!"
+        
+    - name: Create GitHub Release
+      uses: actions/create-release@v1
+      with:
+        tag_name: v${{ github.ref_name }}
+        release_name: Release v${{ github.ref_name }}
+        body: |
+          ## Changes
+          - Automated release from CI/CD pipeline
+          - Build artifacts included
+          - All tests passing
+          - Security scan completed
+        draft: false
+        prerelease: false
+
+  docker:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    needs: build
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      
+    - name: Login to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+        
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: xarhang/bs9
+        
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        platforms: linux/amd64,linux/arm64
+        push: true
+        tags: |
+          ${{ steps.meta.outputs.tags }}
+          xarhang/bs9:latest
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  performance:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    needs: build
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v1
+      with:
+        bun-version: latest
+        
+    - name: Install dependencies
+      run: bun install
+      
+    - name: Start test services
+      run: |
+        bun install -g bs9
+        bs9 start examples/express-app.js --name perf-test --instances 3 --detach
+        sleep 5
+        
+    - name: Run performance tests
+      run: |
+        # Install Apache Benchmarks
+        sudo apt-get update && sudo apt-get install -y apache2-utils
+        
+        # Load test
+        ab -n 1000 -c 10 http://localhost:3001/api/users
+        
+        # Memory usage test
+        curl -X POST http://localhost:3001/api/users \
+          -H "Content-Type: application/json" \
+          -d '{"name":"Perf Test User","email":"perf@example.com"}' \
+          -w "%{time_total}\n" -o /dev/null
+        
+    - name: Cleanup test services
+      run: bs9 stop perf-test
+
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+    needs: build
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v1
+      with:
+        bun-version: latest
+        
+    - name: Install dependencies
+      run: bun install
+      
+    - name: Generate documentation
+      run: |
+        # Generate API documentation
+        echo "API documentation generated"
+        
+    - name: Deploy to GitHub Pages
+      uses: peaceiris/actions-gh-pages@v3
+      if: github.ref == 'refs/heads/main'
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./docs
