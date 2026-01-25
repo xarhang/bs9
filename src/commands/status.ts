@@ -240,7 +240,7 @@ async function getLinuxServices(): Promise<ServiceStatus[]> {
   const platformInfo = getPlatformInfo();
   
   try {
-    const listOutput = execSync("systemctl --user list-units --type=service --no-pager --no-legend", { encoding: "utf-8" });
+    const listOutput = execSync("systemctl --user list-units --type=service --all --no-pager --no-legend", { encoding: "utf-8" });
     const lines = listOutput.split("\n").filter(line => line.includes(".service"));
     
     for (const line of lines) {
