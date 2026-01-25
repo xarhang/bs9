@@ -484,16 +484,25 @@ BS9/
 - **Disk**: 1GB for metrics storage
 
 ### Installation
+#### One-Click Install (Recommended)
 ```bash
-# One-click install
 curl -fsSL https://raw.githubusercontent.com/xarhang/bs9/main/setup.sh | bash
+```
 
-# Manual install
+#### Manual Install
+```bash
+# Clone the repository
 git clone https://github.com/xarhang/bs9.git
 cd bs9
+
+# Install dependencies
 bun install
-cp bin/bs9 ~/.local/bin/bs9
-chmod +x ~/.local/bin/bs9
+
+# Install globally
+npm install -g .
+
+# Or install from npm directly
+npm install -g bs9
 ```
 
 ### Production Setup
