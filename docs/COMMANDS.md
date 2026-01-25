@@ -2,7 +2,7 @@
 
 ## Overview
 
-BS9 provides 16 powerful CLI commands for managing Bun applications. All commands are designed to be intuitive, secure, and production-ready.
+BS9 provides 19 powerful CLI commands for managing Bun applications. All commands are designed to be intuitive, secure, and production-ready.
 
 ## 🚀 Core Commands
 
@@ -127,7 +127,201 @@ bs9 restart my-app --force
 - `--force, -f`: Force restart
 - `--env, -e`: Update environment variables
 
-### 4. `bs9 status` - Check Service Status
+### 4. `bs9 delete` - Delete Services
+
+Deletes managed services and optionally removes configuration files.
+
+```bash
+# Delete specific service
+bs9 delete my-app
+
+# Delete service and remove configuration files
+bs9 delete my-app --remove
+
+# Delete all services
+bs9 delete --all
+
+# Delete all services and remove configuration files
+bs9 delete --all --remove
+
+# Force delete (ignore errors)
+bs9 delete my-app --force
+bs9 delete --all --force
+
+# Delete with custom graceful shutdown timeout
+bs9 delete my-app --timeout 60
+
+# Delete service with confirmation prompt
+bs9 delete my-app --confirm
+```
+
+**Options:**
+- `--all`: Delete all services
+- `--force, -f`: Force deletion without errors
+- `--remove, -r`: Remove service configuration files
+- `--timeout, -t`: Graceful shutdown timeout in seconds (default: 30)
+- `--confirm, -c`: Show confirmation prompt before deletion
+
+**Security Features:**
+- Service name validation and sanitization
+- Path traversal protection
+- Command injection prevention
+- Safe file operations
+- Cross-platform compatibility
+
+**Examples:**
+```bash
+# Clean up a development service
+bs9 delete dev-app --remove --force
+
+# Remove all test services
+bs9 delete --all --remove --force
+
+# Graceful shutdown with extended timeout
+bs9 delete production-app --timeout 120
+```
+
+### 6. `bs9 delete` - Delete Services
+
+Deletes managed services and optionally removes configuration files.
+
+```bash
+# Delete specific service
+bs9 delete my-app
+
+# Delete service and remove configuration files
+bs9 delete my-app --remove
+
+# Delete all services
+bs9 delete --all
+
+# Delete all services and remove configuration files
+bs9 delete --all --remove
+
+# Force delete (ignore errors)
+bs9 delete my-app --force
+bs9 delete --all --force
+
+# Delete with custom graceful shutdown timeout
+bs9 delete my-app --timeout 60
+
+# Delete service with confirmation prompt
+bs9 delete my-app --confirm
+```
+
+**Options:**
+- `--all`: Delete all services
+- `--force, -f`: Force deletion without errors
+- `--remove, -r`: Remove service configuration files
+- `--timeout, -t`: Graceful shutdown timeout in seconds (default: 30)
+- `--confirm, -c`: Show confirmation prompt before deletion
+
+**Security Features:**
+- Service name validation and sanitization
+- Path traversal protection
+- Command injection prevention
+- Safe file operations
+- Cross-platform compatibility
+
+**Examples:**
+```bash
+# Clean up a development service
+bs9 delete dev-app --remove --force
+
+# Remove all test services
+bs9 delete --all --remove --force
+
+# Graceful shutdown with extended timeout
+bs9 delete production-app --timeout 120
+```
+
+### 7. `bs9 save` - Save Service Configurations
+
+Saves service configurations to backup files for later restoration.
+
+```bash
+# Save specific service
+bs9 save my-app
+
+# Save all services
+bs9 save --all
+
+# Save with timestamped backup
+bs9 save my-app --backup
+
+# Force save (ignore errors)
+bs9 save my-app --force
+```
+
+**Options:**
+- `--all, -a`: Save all services
+- `--force, -f`: Force save without errors
+- `--backup, -b`: Create timestamped backup
+
+**Backup Location:**
+- Linux: `~/.config/bs9/backups/`
+- macOS: `~/Library/Application Support/BS9/backups/`
+- Windows: `%APPDATA%/BS9/backups/`
+
+**Backup Format:**
+```json
+{
+  "name": "my-app",
+  "file": "/path/to/app.js",
+  "port": 3000,
+  "host": "localhost",
+  "env": ["NODE_ENV=production"],
+  "otel": true,
+  "prometheus": true,
+  "build": false,
+  "https": false,
+  "savedAt": "2026-01-25T12:00:00.000Z",
+  "platform": "linux"
+}
+```
+
+### 8. `bs9 resurrect` - Restore Services from Backup
+
+Restores services from previously saved backup configurations.
+
+```bash
+# Restore specific service
+bs9 resurrect my-app
+
+# Restore all services
+bs9 resurrect --all
+
+# Force restore (ignore errors)
+bs9 resurrect my-app --force
+
+# Restore with custom configuration
+bs9 resurrect my-app --config custom-config.json
+```
+
+**Options:**
+- `--all, -a`: Restore all services
+- `--force, -f`: Force restoration without errors
+- `--config, -c`: Custom configuration file to use
+
+**Restoration Process:**
+1. Load backup configuration
+2. Validate service file exists
+3. Start service with saved parameters
+4. Verify service is running
+
+**Examples:**
+```bash
+# Restore development environment
+bs9 resurrect --all
+
+# Restore specific service with custom settings
+bs9 resurrect my-app --config production-config.json
+
+# Quick restore after system reboot
+bs9 resurrect --all --force
+```
+
+### 9. `bs9 status` - Check Service Status
 
 Displays detailed status information about services.
 
@@ -180,7 +374,7 @@ bs9 status --sre
 
 ## 📊 Monitoring Commands
 
-### 5. `bs9 monit` - Real-time Monitoring Dashboard
+### 10. `bs9 monit` - Real-time Monitoring Dashboard
 
 Launches a real-time monitoring dashboard in the terminal.
 
@@ -230,7 +424,7 @@ bs9 monit --layout compact
 - Log streaming
 - Performance metrics
 
-### 6. `bs9 logs` - View Application Logs
+### 11. `bs9 logs` - View Application Logs
 
 Displays and filters application logs.
 
@@ -277,7 +471,7 @@ bs9 logs --system
 - `--export, -e`: Export logs to file
 - `--system`: Show system logs
 
-### 7. `bs9 web` - Web Dashboard
+### 12. `bs9 web` - Web Dashboard
 
 Launches a web-based monitoring dashboard.
 
@@ -333,7 +527,7 @@ bs9 web --api
 
 ## 🔧 Management Commands
 
-### 8. `bs9 update` - Update BS9
+### 13. `bs9 update` - Update BS9
 
 Updates BS9 to the latest version or specific version.
 
@@ -380,7 +574,7 @@ bs9 update --registry https://registry.npmjs.org
 5. Verify installation
 6. Update configuration if needed
 
-### 9. `bs9 profile` - Performance Profiling
+### 14. `bs9 profile` - Performance Profiling
 
 Profiles application performance and identifies bottlenecks.
 
@@ -426,7 +620,7 @@ bs9 profile my-app --top 10
 - Execution time analysis
 - Performance bottlenecks
 
-### 10. `bs9 deps` - Dependency Management
+### 15. `bs9 deps` - Dependency Management
 
 Manages and analyzes application dependencies.
 
@@ -467,7 +661,7 @@ bs9 deps my-app --lock
 
 ## 🔍 Advanced Commands
 
-### 11. `bs9 alert` - Alert Management
+### 16. `bs9 alert` - Alert Management
 
 Manages alerting rules and notifications.
 
@@ -509,7 +703,7 @@ bs9 alert config --email admin@example.com
 - `--channels`: List alert channels
 - `--config`: Configure alert settings
 
-### 12. `bs9 export` - Data Export
+### 17. `bs9 export` - Data Export
 
 Exports metrics, logs, and configuration data.
 
@@ -555,7 +749,7 @@ bs9 export --compress
 
 ## 🌐 Platform-Specific Commands
 
-### 13. `bs9 windows` - Windows Service Management
+### 18. `bs9 windows` - Windows Service Management
 
 Manages BS9 as Windows services.
 
@@ -597,7 +791,7 @@ bs9 windows disable --name MyBS9Service
 - `--working-dir`: Working directory
 - `--env`: Environment variables
 
-### 14. `bs9 macos` - macOS Service Management
+### 19. `bs9 macos` - macOS Service Management
 
 Manages BS9 as macOS LaunchDaemons/LaunchAgents.
 
@@ -641,7 +835,7 @@ bs9 macos disable --name MyBS9Service
 
 ## 🔧 Utility Commands
 
-### 15. `bs9 doctor` - Health Check
+### 20. `bs9 doctor` - Health Check
 
 Performs comprehensive health checks on BS9 installation.
 
@@ -683,7 +877,7 @@ bs9 doctor --verbose
 - System resources
 - Configuration validity
 
-### 16. `bs9 version` - Version Information
+### 21. `bs9 version` - Version Information
 
 Displays BS9 version and system information.
 

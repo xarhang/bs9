@@ -118,7 +118,7 @@ async function deleteAllServices(platformInfo: any, options: DeleteOptions): Pro
       for (const line of lines) {
         const match = line.match(/^(?:\s*([●\s○]))?\s*([^\s]+)\.service\s+([^\s]+)\s+([^\s]+)\s+(.+)$/);
         if (match) {
-          const [, serviceName] = match;
+          const [, , serviceName] = match; // Skip the status symbol, capture service name
           
           // Only process BS9 services
           if (match[5].includes("Bun Service:") || match[5].includes("BS9 Service:")) {

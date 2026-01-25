@@ -1,7 +1,7 @@
 # BS9 (Bun Sentinel 9) 🚀
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-1.3.5-blue.svg)](https://github.com/xarhang/bs9)
+[![Version](https://img.shields.io/badge/version-1.3.7-blue.svg)](https://github.com/xarhang/bs9)
 [![Security](https://img.shields.io/badge/security-Enterprise-green.svg)](SECURITY.md)
 [![Production Ready](https://img.shields.io/badge/production-Ready-brightgreen.svg)](PRODUCTION.md)
 [![Cross-Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](https://github.com/bs9/bs9)
@@ -98,6 +98,20 @@ bs9 alert --test                   # Test webhook
 bs9 export --format json --hours 24 # Export metrics
 bs9 export --service myapp --format csv --hours 24
 bs9 export --service myapp --format csv
+
+# Service management
+bs9 delete myapp                    # Delete specific service
+bs9 delete myapp --remove           # Delete and remove config files
+bs9 delete --all                    # Delete all services
+bs9 delete --all --force           # Force delete all services
+bs9 delete myapp --timeout 60      # Custom graceful shutdown timeout
+
+# Backup and restore
+bs9 save myapp                     # Save service configuration
+bs9 save --all                     # Save all services
+bs9 save myapp --backup            # Save with timestamped backup
+bs9 resurrect myapp                # Restore from backup
+bs9 resurrect --all               # Restore all services
 ```
 
 ---
@@ -122,6 +136,22 @@ bs9 export --service myapp --format csv
 - **Service-specific Configs**: Per-service alert settings
 - **Cooldown Period**: Prevent alert spam
 - **Alert Testing**: Webhook connectivity validation
+
+### 🗑️ Service Deletion & Cleanup
+- **Individual Service Deletion**: Delete specific services by name
+- **Bulk Deletion**: Remove all BS9 services at once
+- **Configuration Cleanup**: Remove service configuration files
+- **Force Deletion**: Ignore errors during deletion
+- **Graceful Shutdown**: Configurable timeout for clean termination
+- **Cross-Platform Support**: Works on Linux, macOS, and Windows
+
+### 💾 Backup & Restore System
+- **Service Configuration Backup**: Save service configurations to JSON
+- **Bulk Backup**: Save all services at once
+- **Timestamped Backups**: Create multiple backup versions
+- **Service Resurrection**: Restore services from backup
+- **Configuration Management**: Manage service configurations
+- **Disaster Recovery**: Quick service restoration
 
 ### 🐳 Container & Orchestration
 - **Docker Support**: Complete Dockerfile and docker-compose setup
@@ -303,6 +333,9 @@ kubectl get pods -n bs9-system
 | - | `bs9 web` | Web-based dashboard |
 | - | `bs9 alert` | Alert system with webhooks |
 | - | `bs9 export` | Historical metrics |
+| - | `bs9 delete` | Service deletion and cleanup |
+| - | `bs9 save` | Service configuration backup |
+| - | `bs9 resurrect` | Service restoration from backup |
 
 ---
 
@@ -453,6 +486,9 @@ BS9/
 │   │   ├── monit.ts        # Terminal dashboard
 │   │   ├── web.ts          # Web dashboard
 │   │   ├── alert.ts        # Alert management
+│   │   ├── delete.ts       # Service deletion
+│   │   ├── save.ts         # Service backup
+│   │   ├── resurrect.ts    # Service restoration
 │   │   └── export.ts       # Data export
 │   ├── web/                # Web dashboard
 │   │   └── dashboard.ts    # Web server
