@@ -6,34 +6,101 @@ import { execSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
+import { getPlatformInfo } from "../platform/detect.js";
+
+// Security: Host validation function
+function isValidHost(host: string): boolean {
+  // Allow localhost, 0.0.0.0, and valid IP addresses
+  const localhostRegex = /^(localhost|127\.0\.0\.1|::1)$/;
+  const anyIPRegex = /^(0\.0\.0\.0|::)$/;
+  const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
+  const ipv6Regex = /^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$/;
+  const hostnameRegex = /^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$/;
+  
+  if (localhostRegex.test(host) || anyIPRegex.test(host)) {
+    return true;
+  }
+  
+  if (ipv4Regex.test(host)) {
+    const parts = host.split('.');
+    return parts.every(part => {
+      const num = parseInt(part, 10);
+      return num >= 0 && num <= 255;
+    });
+  }
+  
+  if (ipv6Regex.test(host)) {
+    return true;
+  }
+  
+  if (hostnameRegex.test(host) && host.length <= 253) {
+    return true;
+  }
+  
+  return false;
+}
 
 interface StartOptions {
   name?: string;
   port?: string;
+  host?: string;
   env?: string[];
   otel?: boolean;
   prometheus?: boolean;
   build?: boolean;
+  https?: boolean;
 }
 
 export async function startCommand(file: string, options: StartOptions): Promise<void> {
+  const platformInfo = getPlatformInfo();
+  
+  // Security: Validate and sanitize file path
   const fullPath = resolve(file);
   if (!existsSync(fullPath)) {
     console.error(`❌ File not found: ${fullPath}`);
     process.exit(1);
   }
-
-  const serviceName = options.name || basename(fullPath, fullPath.endsWith('.ts') ? '.ts' : '.js').replace(/[^a-zA-Z0-9-_]/g, "_");
+  
+  // Security: Prevent directory traversal and ensure file is within allowed paths
+  const allowedPaths = [process.cwd(), homedir()];
+  const isAllowedPath = allowedPaths.some(allowed => fullPath.startsWith(allowed));
+  if (!isAllowedPath) {
+    console.error(`❌ Security: File path outside allowed directories: ${fullPath}`);
+    process.exit(1);
+  }
+  
+  // Security: Validate and sanitize service name
+  const rawServiceName = options.name || basename(fullPath, fullPath.endsWith('.ts') ? '.ts' : '.js');
+  const serviceName = rawServiceName.replace(/[^a-zA-Z0-9-_]/g, "_").replace(/^[^a-zA-Z]/, "_").substring(0, 64);
+  
+  // Security: Validate port number
   const port = options.port || "3000";
+  const portNum = Number(port);
+  if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
+    console.error(`❌ Security: Invalid port number: ${port}. Must be 1-65535`);
+    process.exit(1);
+  }
+  
+  // Security: Validate host
+  const host = options.host || "localhost";
+  if (!isValidHost(host)) {
+    console.error(`❌ Security: Invalid host: ${host}`);
+    process.exit(1);
+  }
+  
+  const protocol = options.https ? "https" : "http";
 
   // Port warning for privileged ports
-  const portNum = Number(port);
   if (portNum < 1024) {
     console.warn(`⚠️  Port ${port} is privileged (< 1024).`);
     console.warn("   Options:");
     console.warn("   - Use port >= 1024 (recommended)");
-    console.warn("   - Run with sudo (not recommended for user services)");
-    console.warn("   - Use port forwarding: `sudo iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 3000`");
+    if (platformInfo.isWindows) {
+      console.warn("   - Run as Administrator (not recommended)");
+    } else {
+      console.warn("   - Run with sudo (not recommended for user services)");
+      console.warn("   - Use port forwarding: `sudo iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 3000`");
+    }
   }
 
   // Handle TypeScript files and build option
@@ -77,43 +144,137 @@ export async function startCommand(file: string, options: StartOptions): Promise
     auditResult.warning.forEach(issue => console.warn(`  - ${issue}`));
   }
 
+  // Platform-specific service creation
+  if (platformInfo.isLinux) {
+    await createLinuxService(serviceName, execPath, host, port, protocol, options);
+  } else if (platformInfo.isMacOS) {
+    await createMacOSService(serviceName, execPath, host, port, protocol, options);
+  } else if (platformInfo.isWindows) {
+    await createWindowsService(serviceName, execPath, host, port, protocol, options);
+  } else {
+    console.error(`❌ Platform ${platformInfo.platform} is not supported`);
+    process.exit(1);
+  }
+}
+
+async function createLinuxService(serviceName: string, execPath: string, host: string, port: string, protocol: string, options: StartOptions): Promise<void> {
   // Phase 1: Generate hardened systemd unit
   const unitContent = generateSystemdUnit({
     serviceName,
     fullPath: execPath,
+    host,
     port,
+    protocol,
     env: options.env || [],
     otel: options.otel ?? true,
     prometheus: options.prometheus ?? true,
   });
 
-  const unitPath = join(homedir(), ".config/systemd/user", `${serviceName}.service`);
+  const platformInfo = getPlatformInfo();
+  const unitPath = join(platformInfo.serviceDir, `${serviceName}.service`);
   
   // Create user systemd directory if it doesn't exist
-  const userSystemdDir = join(homedir(), ".config/systemd/user");
-  if (!existsSync(userSystemdDir)) {
-    mkdirSync(userSystemdDir, { recursive: true });
-    console.log(`📁 Created user systemd directory: ${userSystemdDir}`);
+  if (!existsSync(platformInfo.serviceDir)) {
+    mkdirSync(platformInfo.serviceDir, { recursive: true });
+    console.log(`📁 Created user systemd directory: ${platformInfo.serviceDir}`);
   }
   
   try {
-    writeFileSync(unitPath, unitContent, { encoding: "utf-8" });
+    writeFileSync(unitPath, unitContent);
     console.log(`✅ Systemd user unit written to: ${unitPath}`);
-  } catch (err) {
-    console.error(`❌ Failed to write systemd user unit: ${err}`);
+    
+    execSync("systemctl --user daemon-reload");
+    execSync(`systemctl --user enable ${serviceName}`);
+    execSync(`systemctl --user start ${serviceName}`);
+    
+    console.log(`🚀 Service '${serviceName}' started successfully`);
+    console.log(`   Health: ${protocol}://${host}:${port}/healthz`);
+    console.log(`   Metrics: ${protocol}://${host}:${port}/metrics`);
+  } catch (error) {
+    console.error(`❌ Failed to start service: ${error}`);
     process.exit(1);
   }
+}
 
-  // Reload and start using user systemd
+async function createMacOSService(serviceName: string, execPath: string, host: string, port: string, protocol: string, options: StartOptions): Promise<void> {
+  const { launchdCommand } = await import("../macos/launchd.js");
+  
+  const envVars: Record<string, string> = {
+    PORT: port,
+    HOST: host,
+    PROTOCOL: protocol,
+    NODE_ENV: "production",
+    SERVICE_NAME: serviceName,
+    ...(options.env || []).reduce((acc, env) => {
+      const [key, value] = env.split('=');
+      if (key && value) acc[key] = value;
+      return acc;
+    }, {} as Record<string, string>)
+  };
+  
+  if (options.otel) {
+    envVars.OTEL_SERVICE_NAME = serviceName;
+    envVars.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = "http://localhost:4318/v1/traces";
+  }
+  
   try {
-    execSync("systemctl --user daemon-reload", { stdio: "inherit" });
-    execSync(`systemctl --user enable ${serviceName}`, { stdio: "inherit" });
-    execSync(`systemctl --user start ${serviceName}`, { stdio: "inherit" });
+    await launchdCommand('create', {
+      name: `bs9.${serviceName}`,
+      file: execPath,
+      workingDir: dirname(execPath),
+      env: JSON.stringify(envVars),
+      autoStart: true,
+      keepAlive: true,
+      logOut: `${getPlatformInfo().logDir}/${serviceName}.out.log`,
+      logErr: `${getPlatformInfo().logDir}/${serviceName}.err.log`
+    });
+    
     console.log(`🚀 Service '${serviceName}' started successfully`);
-    console.log(`   Health: http://localhost:${port}/healthz`);
-    console.log(`   Metrics: http://localhost:${port}/metrics`);
-  } catch (err) {
-    console.error(`❌ Failed to start user service: ${err}`);
+    console.log(`   Health: ${protocol}://${host}:${port}/healthz`);
+    console.log(`   Metrics: ${protocol}://${host}:${port}/metrics`);
+  } catch (error) {
+    console.error(`❌ Failed to start macOS service: ${error}`);
+    process.exit(1);
+  }
+}
+
+async function createWindowsService(serviceName: string, execPath: string, host: string, port: string, protocol: string, options: StartOptions): Promise<void> {
+  const { windowsCommand } = await import("../windows/service.js");
+  
+  const envVars: Record<string, string> = {
+    PORT: port,
+    HOST: host,
+    PROTOCOL: protocol,
+    NODE_ENV: "production",
+    SERVICE_NAME: serviceName,
+    ...(options.env || []).reduce((acc, env) => {
+      const [key, value] = env.split('=');
+      if (key && value) acc[key] = value;
+      return acc;
+    }, {} as Record<string, string>)
+  };
+  
+  if (options.otel) {
+    envVars.OTEL_SERVICE_NAME = serviceName;
+    envVars.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = "http://localhost:4318/v1/traces";
+  }
+  
+  try {
+    await windowsCommand('create', {
+      name: `BS9_${serviceName}`,
+      file: execPath,
+      displayName: `BS9 Service: ${serviceName}`,
+      description: `BS9 managed service: ${serviceName}`,
+      workingDir: dirname(execPath),
+      args: ['run', execPath],
+      env: JSON.stringify(envVars)
+    });
+    
+    console.log(`🚀 Service '${serviceName}' started successfully`);
+    console.log(`   Health: ${protocol}://${host}:${port}/healthz`);
+    console.log(`   Metrics: ${protocol}://${host}:${port}/metrics`);
+  } catch (error) {
+    console.error(`❌ Failed to start Windows service: ${error}`);
     process.exit(1);
   }
 }
@@ -140,6 +301,9 @@ async function securityAudit(filePath: string): Promise<SecurityAuditResult> {
     { pattern: /child_process\.exec\s*\(/, msg: "Unsafe child_process.exec() detected" },
     { pattern: /require\s*\(\s*["']fs["']\s*\)/, msg: "Direct fs module usage (potential file system access)" },
     { pattern: /process\.env\.\w+\s*\+\s*["']/, msg: "Potential command injection via env concatenation" },
+    { pattern: /require\s*\(\s*["']child_process["']\s*\)/, msg: "Child process module usage detected" },
+    { pattern: /spawn\s*\(/, msg: "Process spawning detected" },
+    { pattern: /execSync\s*\(/, msg: "Synchronous execution detected" },
   ];
 
   for (const { pattern, msg } of dangerousPatterns) {
@@ -164,7 +328,9 @@ async function securityAudit(filePath: string): Promise<SecurityAuditResult> {
 interface SystemdUnitOptions {
   serviceName: string;
   fullPath: string;
+  host: string;
   port: string;
+  protocol: string;
   env: string[];
   otel: boolean;
   prometheus: boolean;
@@ -173,6 +339,8 @@ interface SystemdUnitOptions {
 function generateSystemdUnit(opts: SystemdUnitOptions): string {
   const envVars = [
     `PORT=${opts.port}`,
+    `HOST=${opts.host}`,
+    `PROTOCOL=${opts.protocol}`,
     `NODE_ENV=production`,
     `SERVICE_NAME=${opts.serviceName}`,
     ...opts.env,
@@ -190,6 +358,7 @@ function generateSystemdUnit(opts: SystemdUnitOptions): string {
   return `[Unit]
 Description=BS9 Service: ${opts.serviceName}
 After=network.target
+Documentation=https://github.com/bs9/bs9
 
 [Service]
 Type=simple
@@ -200,6 +369,17 @@ TimeoutStopSec=30s
 WorkingDirectory=${workingDir}
 ExecStart=${bunPath} run ${opts.fullPath}
 ${envSection}
+
+# Security hardening (user systemd compatible)
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=${workingDir}
+UMask=0022
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
 
 [Install]
 WantedBy=default.target

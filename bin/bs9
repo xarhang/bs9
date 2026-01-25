@@ -10,6 +10,12 @@ import { monitCommand } from "../src/commands/monit.js";
 import { webCommand } from "../src/commands/web.js";
 import { alertCommand } from "../src/commands/alert.js";
 import { exportCommand } from "../src/commands/export.js";
+import { depsCommand } from "../src/commands/deps.js";
+import { profileCommand } from "../src/commands/profile.js";
+import { loadbalancerCommand } from "../src/loadbalancer/manager.js";
+import { windowsCommand } from "../src/windows/service.js";
+import { launchdCommand } from "../src/macos/launchd.js";
+import { dbpoolCommand } from "../src/database/pool.js";
 
 const program = new Command();
 
@@ -21,13 +27,15 @@ program
 program
   .command("start")
   .description("Start a process with hardened systemd unit")
-  .argument("<file>", "Script or executable to run")
-  .option("-n, --name <name>", "Service name (defaults to filename)")
-  .option("-p, --port <port>", "Port to expose (for metrics/health)", "3000")
-  .option("--env <env...>", "Environment variables (KEY=VALUE)")
-  .option("--no-otel", "Disable automatic OpenTelemetry injection")
-  .option("--no-prometheus", "Disable automatic Prometheus metrics")
-  .option("--build", "Build TypeScript to optimized JavaScript for production (AOT)")
+  .argument("<file>", "Application file to start")
+  .option("-n, --name <name>", "Service name")
+  .option("-p, --port <port>", "Port number", "3000")
+  .option("-h, --host <host>", "Host address", "localhost")
+  .option("--https", "Use HTTPS protocol")
+  .option("-e, --env <env>", "Environment variables (can be used multiple times)", (value, previous) => [...(previous || []), value])
+  .option("--otel", "Enable OpenTelemetry instrumentation", true)
+  .option("--prometheus", "Enable Prometheus metrics", true)
+  .option("--build", "Build TypeScript to JavaScript before starting")
   .action(startCommand);
 
 program
@@ -93,5 +101,48 @@ program
   .option("-o, --output <file>", "Output file path")
   .option("-s, --service <name>", "Export specific service metrics")
   .action(exportCommand);
+
+program
+  .command("deps")
+  .description("Visualize service dependencies")
+  .option("-f, --format <format>", "Output format (text|dot|json)", "text")
+  .option("-o, --output <file>", "Output file path")
+  .action(depsCommand);
+
+program
+  .command("profile")
+  .description("Performance profiling for services")
+  .option("-d, --duration <seconds>", "Profiling duration", "60")
+  .option("-i, --interval <ms>", "Sampling interval", "1000")
+  .option("-s, --service <name>", "Service name to profile")
+  .option("-o, --output <file>", "Output file path")
+  .action(profileCommand);
+
+program
+  .command("loadbalancer")
+  .description("Load balancer management")
+  .argument("<action>", "Action to perform")
+  .option("-p, --port <port>", "Load balancer port", "8080")
+  .option("-a, --algorithm <type>", "Load balancing algorithm", "round-robin")
+  .option("-b, --backends <list>", "Backend servers (host:port,host:port)")
+  .option("--health-check", "Enable health checking", true)
+  .option("--health-path <path>", "Health check path", "/healthz")
+  .option("--health-interval <ms>", "Health check interval", "10000")
+  .action(loadbalancerCommand);
+
+program
+  .command("dbpool")
+  .description("Database connection pool management")
+  .argument("<action>", "Action to perform")
+  .option("--host <host>", "Database host", "localhost")
+  .option("--port <port>", "Database port", "5432")
+  .option("--database <name>", "Database name", "testdb")
+  .option("--username <user>", "Database username", "user")
+  .option("--password <pass>", "Database password", "password")
+  .option("--max-connections <num>", "Maximum connections", "10")
+  .option("--min-connections <num>", "Minimum connections", "2")
+  .option("--concurrency <num>", "Test concurrency", "10")
+  .option("--iterations <num>", "Test iterations", "100")
+  .action(dbpoolCommand);
 
 program.parse();

@@ -1,6 +1,12 @@
-# BS9 (Bun Sentinel 9)
+# BS9 (Bun Sentinel 9) 🚀
 
-> Mission-critical process manager CLI with real-time monitoring dashboard, historical metrics storage, alert system, container support, and enterprise-grade security.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/bs9/bs9)
+[![Security](https://img.shields.io/badge/security-Enterprise-green.svg)](SECURITY.md)
+[![Production Ready](https://img.shields.io/badge/production-Ready-brightgreen.svg)](PRODUCTION.md)
+[![Cross-Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](https://github.com/bs9/bs9)
+
+**Enterprise-grade, mission-critical process manager for Bun applications with built-in security, monitoring, and observability. Works on Windows, macOS, and Linux.**
 
 ---
 
@@ -8,7 +14,7 @@
 
 ```bash
 # One-click installer (installs Bun + BS9)
-curl -fsSL https://raw.githubusercontent.com/xarhang/bs9/main/setup.sh | bash
+curl -fsSL https://raw.githubusercontent.com/xarhang/bs9/setup.sh | bash
 
 # Or manual install
 git clone https://github.com/xarhang/bs9.git
@@ -20,14 +26,43 @@ chmod +x ~/.local/bin/bs9
 
 ---
 
+### Platform Support
+
+BS9 supports all major platforms with native service management:
+
+#### 🐧 Linux
+- **Service Manager**: Systemd (user-mode)
+- **Features**: Advanced security hardening, resource limits, sandboxing
+- **Commands**: All standard commands available
+
+#### 🍎 macOS  
+- **Service Manager**: Launchd
+- **Features**: Native macOS integration, automatic recovery
+- **Commands**: Standard commands + `bs9 macos` for launchd management
+
+#### 🪟 Windows
+- **Service Manager**: Windows Services
+- **Features**: PowerShell automation, event log integration
+- **Commands**: Standard commands + `bs9 windows` for service management
+
+```bash
+# Check your platform
+bs9 platform
+
+# Platform-specific service management
+bs9 macos create --name my-app --file app.js  # macOS
+bs9 windows create --name my-app --file app.js # Windows
+```
+
 ## 📋 Complete CLI Commands
 
 ### Service Management
 ```bash
-# Start service with TypeScript JIT/AOT support
-bs9 start app.js                    # JavaScript app
-bs9 start app.ts --build          # TypeScript AOT compilation
-bs9 start app.ts --name myapp --port 8080 --env NODE_ENV=production
+# Start service with flexible host and protocol options
+bs9 start app.js                                    # Default: localhost:3000, HTTP
+bs9 start app.js --host 0.0.0.0 --port 8080        # Custom host and port
+bs9 start app.js --host 192.168.1.100 --https      # Custom host with HTTPS
+bs9 start app.ts --build --name myapp --port 8080 --env NODE_ENV=production --host 0.0.0.0 --https
 
 # Service lifecycle
 bs9 stop myapp
@@ -234,8 +269,8 @@ docker-compose up -d
 kubectl apply -f src/k8s/bs9-deployment.yaml
 
 # Check deployment
+kubectl get deployments -n bs9-system
 kubectl get pods -n bs9-system
-kubectl get services -n bs9-system
 ```
 
 ### K8s Features
@@ -528,5 +563,58 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines.
 
 - **GitHub**: https://github.com/xarhang/bs9
 - **Issues**: https://github.com/xarhang/bs9/issues
-- **Documentation**: https://github.com/xarhang/bs9/wiki
 - **Discussions**: https://github.com/xarhang/bs9/discussions
+- **Security**: security@bs9.dev
+- **Enterprise**: enterprise@bs9.dev
+
+## 🔒 Security
+
+BS9 is built with security as a primary concern:
+
+### Built-in Security Features
+- **Input Validation**: Path traversal protection, command injection prevention
+- **Runtime Security**: Process isolation, resource limits, security auditing
+- **Platform Hardening**: Native security integration (systemd, launchd, Windows services)
+- **Web Security**: Session token authentication, XSS protection
+- **Database Security**: SQL injection prevention, connection validation
+- **Network Security**: Header sanitization, rate limiting
+
+### Security Best Practices
+```bash
+# Use secure service names
+bs9 start app.js --name my-secure-app
+
+# Bind to specific interfaces
+bs9 start app.js --host 127.0.0.1 --port 3000
+
+# Use HTTPS in production
+bs9 start app.js --https --host 0.0.0.0 --port 8443
+
+# Enable security auditing
+export BS9_AUDIT_LOGGING=true
+bs9 start app.js
+
+# Secure web dashboard
+bs9 web --port 8080  # Generates secure session token
+```
+
+### Security Documentation
+- **[Security Policy](SECURITY.md)** - Complete security documentation
+- **[Production Security Guide](PRODUCTION.md#security-hardening)** - Production security hardening
+
+### Security Checklist
+- [ ] Review service configurations
+- [ ] Enable security audit logging
+- [ ] Use proper file permissions
+- [ ] Configure network firewalls
+- [ ] Monitor security logs
+- [ ] Regular security updates
+
+## 📚 Documentation
+
+- **[Production Guide](PRODUCTION.md)** - Production deployment and operations
+- **[Security Policy](SECURITY.md)** - Security features and vulnerability reporting
+- **[Architecture](ARCHITECTURE.md)** - System architecture and design
+- **[Installation Guide](INSTALL.md)** - Detailed installation instructions
+- **[Contributing](CONTRIBUTING.md)** - Development and contribution guidelines
+- **[Changelog](CHANGELOG.md)** - Version history and roadmap
