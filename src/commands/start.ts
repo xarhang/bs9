@@ -281,11 +281,21 @@ async function createLinuxService(serviceName: string, execPath: string, host: s
   }
   
   try {
-    writeFileSync(unitPath, unitContent);
-    console.log(`✅ Systemd user unit written to: ${unitPath}`);
+    // Check if service already exists
+    const serviceExists = existsSync(unitPath);
     
-    execSync("systemctl --user daemon-reload");
-    execSync(`systemctl --user enable ${serviceName}`);
+    if (!serviceExists) {
+      // First time: Create service file
+      writeFileSync(unitPath, unitContent);
+      console.log(`✅ Systemd user unit written to: ${unitPath}`);
+      execSync("systemctl --user daemon-reload");
+      execSync(`systemctl --user enable ${serviceName}`);
+      console.log(`🔧 Service '${serviceName}' created and enabled`);
+    } else {
+      console.log(`📋 Service '${serviceName}' already exists, starting...`);
+    }
+    
+    // Always start the service
     execSync(`systemctl --user start ${serviceName}`);
     
     console.log(`🚀 Service '${serviceName}' started successfully`);
