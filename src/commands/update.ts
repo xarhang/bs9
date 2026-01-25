@@ -51,13 +51,22 @@ class BS9Updater {
   
   private getCurrentVersion(): string {
     try {
-      // Use the actual package.json path from the project root
-      const packageJson = join(process.cwd(), 'package.json');
-      const content = fs.readFileSync(packageJson, 'utf8');
-      const pkg = JSON.parse(content);
+      // Get version from the CLI binary directly
+      const binaryPath = join(homedir(), '.bun', 'bin', 'bs9');
+      const content = fs.readFileSync(binaryPath, 'utf8');
+      const versionMatch = content.match(/version\("([^"]+)"\)/);
+      
+      if (versionMatch && versionMatch[1]) {
+        return versionMatch[1];
+      }
+      
+      // Fallback to package.json in global installation
+      const packageJson = join(homedir(), '.bun', 'install', 'global', 'node_modules', 'bs9', 'package.json');
+      const pkgContent = fs.readFileSync(packageJson, 'utf8');
+      const pkg = JSON.parse(pkgContent);
       return pkg.version;
     } catch {
-      return '1.3.3'; // Fallback version
+      return '1.3.4'; // Fallback version
     }
   }
   
@@ -68,7 +77,7 @@ class BS9Updater {
       return data.version;
     } catch (error) {
       console.warn('⚠️  Failed to fetch latest version from npm, using fallback');
-      return '1.3.3'; // Return current version as fallback
+      return '1.3.4'; // Return current version as fallback
     }
   }
   
@@ -151,7 +160,7 @@ class BS9Updater {
       return;
     }
     
-    console.log(`� Updating from ${currentVersion} to ${latestVersion}`);
+    console.log(`📦 Updating from ${currentVersion} to ${latestVersion}`);
     
     // Use npm to update globally
     console.log('📦 Installing latest version...');
@@ -159,6 +168,14 @@ class BS9Updater {
       execSync(`bun install -g bs9@${latestVersion}`, { stdio: 'inherit' });
       console.log('✅ BS9 updated successfully!');
       console.log(`   Version: ${latestVersion}`);
+      
+      // Verify the update
+      const updatedVersion = this.getCurrentVersion();
+      if (updatedVersion === latestVersion) {
+        console.log('✅ Update verified successfully!');
+      } else {
+        console.log('⚠️  Update may require manual verification');
+      }
     } catch (error) {
       console.error('❌ Failed to update BS9:', error);
       console.log('💡 Try: bun install -g bs9@latest');
