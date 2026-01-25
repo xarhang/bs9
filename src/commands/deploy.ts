@@ -237,12 +237,6 @@ function showDeploymentSummary(serviceName: string, options: DeployOptions): voi
   console.log(`  bs9 delete ${serviceName}`);
   console.log(`  bs9 save ${serviceName}`);
   
-  console.log("\n🌟 KILLER FEATURES:");
-  console.log("  ✅ Zero-config systemd setup");
-  console.log("  ✅ Built-in health checks & restart policies");
-  console.log("  ✅ Hot reload with environment updates");
-  console.log("  ✅ Automatic metrics & observability");
-  console.log("  ✅ One-command deployment");
-  
+
   console.log("\n🚀 Your service is now running in production mode!");
 }

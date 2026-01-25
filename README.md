@@ -1,7 +1,7 @@
 # BS9 (Bun Sentinel 9) 🚀
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-1.4.5-blue.svg)](https://github.com/xarhang/bs9)
+[![Version](https://img.shields.io/badge/version-1.5.0-blue.svg)](https://github.com/xarhang/bs9)
 [![Security](https://img.shields.io/badge/security-Enterprise-green.svg)](SECURITY.md)
 [![Production Ready](https://img.shields.io/badge/production-Ready-brightgreen.svg)](PRODUCTION.md)
 [![Cross-Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](https://github.com/bs9/bs9)
@@ -90,6 +90,22 @@ bs9 start app.js                                    # Default: localhost:3000, H
 bs9 start app.js --host 0.0.0.0 --port 8080        # Custom host and port
 bs9 start app.js --host 192.168.1.100 --https      # Custom host with HTTPS
 bs9 start app.ts --build --name myapp --port 8080 --env NODE_ENV=production --host 0.0.0.0 --https
+
+# 🆕 Multi-Service Management (NEW!)
+bs9 start [app1, app2, app3]                       # Start multiple services
+bs9 start [app-*]                                   # Start services matching pattern
+bs9 start all                                      # Start all services
+bs9 stop [app1, app2]                              # Stop multiple services
+bs9 stop [web-*]                                   # Stop services matching pattern
+bs9 stop all                                       # Stop all services (with confirmation)
+bs9 restart [app1, app2, app3]                     # Restart multiple services
+bs9 restart [*-prod]                               # Restart services matching pattern
+bs9 restart all                                    # Restart all services (with confirmation)
+bs9 delete [test-*]                                # Delete services matching pattern
+bs9 delete all                                     # Delete all services (with confirmation)
+bs9 status [app1, app2, app3]                      # Status of multiple services
+bs9 status [web-*]                                 # Status of services matching pattern
+bs9 status all                                     # Status of all services
 
 # Stop service
 bs9 stop myapp

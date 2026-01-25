@@ -12,6 +12,7 @@
 import { execSync } from "node:child_process";
 import { join } from "node:path";
 import { getPlatformInfo } from "../platform/detect.js";
+import { parseServiceArray, confirmAction } from "../utils/array-parser.js";
 
 interface DeleteOptions {
   all?: boolean;
@@ -28,15 +29,66 @@ function isValidServiceName(name: string): boolean {
   return validPattern.test(name) && name.length <= 64 && !name.includes('..') && !name.includes('/');
 }
 
-export async function deleteCommand(name: string, options: DeleteOptions): Promise<void> {
+export async function deleteCommand(names: string[], options: DeleteOptions): Promise<void> {
   const platformInfo = getPlatformInfo();
   
-  // Handle delete all services
+  // Handle multiple arguments
+  const name = names.length > 0 ? names.join(' ') : '';
+  
+  // Handle multi-service operations
+  if (name.includes('[') || name === 'all') {
+    await handleMultiServiceDelete(name, options);
+    return;
+  }
+  
+  // Handle delete all services (legacy)
   if (options.all) {
     await deleteAllServices(platformInfo, options);
     return;
   }
   
+  // Single service operation (existing logic)
+  await handleSingleServiceDelete(name, platformInfo, options);
+}
+
+async function handleMultiServiceDelete(name: string, options: DeleteOptions): Promise<void> {
+  const services = await parseServiceArray(name);
+  
+  if (services.length === 0) {
+    console.log("❌ No services found matching the pattern");
+    return;
+  }
+  
+  // Safety confirmation for bulk operations
+  if (!options.force) {
+    console.log(`⚠️  About to delete ${services.length} services:`);
+    services.forEach(service => console.log(`   - ${service}`));
+    
+    const confirmed = await confirmAction('Are you sure? This action cannot be undone. (y/N): ');
+    if (!confirmed) {
+      console.log('❌ Delete operation cancelled');
+      return;
+    }
+  }
+  
+  console.log(`🗑️  Deleting ${services.length} services...`);
+  
+  const results = await Promise.allSettled(
+    services.map(async (serviceName) => {
+      try {
+        const platformInfo = getPlatformInfo();
+        await handleSingleServiceDelete(serviceName, platformInfo, { ...options, force: true });
+        return { service: serviceName, status: 'success', error: null };
+      } catch (error) {
+        return { service: serviceName, status: 'failed', error: error instanceof Error ? error.message : String(error) };
+      }
+    })
+  );
+  
+  displayBatchResults(results, 'delete');
+}
+
+async function handleSingleServiceDelete(name: string, platformInfo: any, options: DeleteOptions): Promise<void> {
   // Security: Validate service name
   if (!isValidServiceName(name)) {
     console.error(`❌ Security: Invalid service name: ${name}`);
@@ -175,4 +227,29 @@ async function deleteAllServices(platformInfo: any, options: DeleteOptions): Pro
       process.exit(1);
     }
   }
+}
+
+function displayBatchResults(results: PromiseSettledResult<{ service: string; status: string; error: string | null }>[], operation: string): void {
+  console.log(`\n📊 Batch ${operation} Results`);
+  console.log("=".repeat(50));
+  
+  const successful = results.filter(r => r.status === 'fulfilled' && r.value.status === 'success');
+  const failed = results.filter(r => r.status === 'fulfilled' && r.value.status === 'failed');
+  
+  successful.forEach(result => {
+    if (result.status === 'fulfilled') {
+      console.log(`✅ ${result.value.service} - ${operation} successful`);
+    }
+  });
+  
+  failed.forEach(result => {
+    if (result.status === 'fulfilled') {
+      console.log(`❌ ${result.value.service} - Failed: ${result.value.error}`);
+    }
+  });
+  
+  console.log(`\n📈 Summary:`);
+  console.log(`   Total: ${results.length} services`);
+  console.log(`   Success: ${successful.length}/${results.length} (${((successful.length / results.length) * 100).toFixed(1)}%)`);
+  console.log(`   Failed: ${failed.length}/${results.length} (${((failed.length / results.length) * 100).toFixed(1)}%)`);
 }

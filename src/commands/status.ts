@@ -13,6 +13,7 @@ import { execSync } from "node:child_process";
 import { join } from "node:path";
 import { getPlatformInfo } from "../platform/detect.js";
 import { readFileSync } from "node:fs";
+import { parseServiceArray, getMultipleServiceInfo } from "../utils/array-parser.js";
 
 interface StatusOptions {
   watch?: boolean;
@@ -34,7 +35,56 @@ interface ServiceStatus {
   lastRestart?: string;
 }
 
-export async function statusCommand(options: StatusOptions): Promise<void> {
+export async function statusCommand(options: StatusOptions, names?: string[]): Promise<void> {
+  const platformInfo = getPlatformInfo();
+  
+  // Handle multiple arguments
+  const name = names && names.length > 0 ? names.join(' ') : undefined;
+  
+  // Handle multi-service status
+  if (name && (name.includes('[') || name === 'all')) {
+    await handleMultiServiceStatus(name, options);
+    return;
+  }
+  
+  // Single service or all services status (existing logic)
+  await handleStatus(options, name);
+}
+
+async function handleMultiServiceStatus(name: string, options: StatusOptions): Promise<void> {
+  const services = await parseServiceArray(name);
+  
+  if (services.length === 0) {
+    console.log("❌ No services found matching the pattern");
+    return;
+  }
+  
+  console.log(`📊 Multi-Service Status: ${name}`);
+  console.log("=".repeat(80));
+  
+  const serviceInfo = await getMultipleServiceInfo(services);
+  
+  if (serviceInfo.length === 0) {
+    console.log("❌ No running services found");
+    return;
+  }
+  
+  displayMultiServiceStatus(serviceInfo, name);
+  
+  if (options.watch) {
+    console.log("\n🔄 Watching for changes (Ctrl+C to stop)...");
+    setInterval(async () => {
+      console.clear();
+      console.log(`📊 Multi-Service Status: ${name}`);
+      console.log("=".repeat(80));
+      
+      const updatedServiceInfo = await getMultipleServiceInfo(services);
+      displayMultiServiceStatus(updatedServiceInfo, name);
+    }, 2000);
+  }
+}
+
+async function handleStatus(options: StatusOptions, name?: string): Promise<void> {
   const platformInfo = getPlatformInfo();
   
   try {
@@ -46,6 +96,11 @@ export async function statusCommand(options: StatusOptions): Promise<void> {
       services = await getMacOSServices();
     } else if (platformInfo.isWindows) {
       services = await getWindowsServices();
+    }
+    
+    // Filter by specific service if provided
+    if (name) {
+      services = services.filter(service => service.name === name);
     }
     
     displayServices(services);
@@ -66,12 +121,117 @@ export async function statusCommand(options: StatusOptions): Promise<void> {
           updatedServices = await getWindowsServices();
         }
         
+        // Filter by specific service if provided
+        if (name) {
+          updatedServices = updatedServices.filter(service => service.name === name);
+        }
+        
         displayServices(updatedServices);
       }, 2000);
     }
-  } catch (err) {
-    console.error("❌ Failed to get service status:", err);
+  } catch (error) {
+    console.error("❌ Failed to get service status:", error);
     process.exit(1);
+  }
+}
+
+function displayServices(services: ServiceStatus[]): void {
+  if (services.length === 0) {
+    console.log("📋 No BS9 services found");
+    console.log("💡 Use 'bs9 start <file>' or 'bs9 deploy <file>' to create a service");
+    return;
+  }
+
+  // Header with better formatting
+  console.log(`${"SERVICE".padEnd(18)} ${"STATUS".padEnd(15)} ${"CPU".padEnd(10)} ${"MEMORY".padEnd(12)} ${"UPTIME".padEnd(12)} ${"TASKS".padEnd(8)} DESCRIPTION`);
+  console.log("─".repeat(100));
+  
+  // Sort services by status (running first, then by name)
+  const sortedServices = services.sort((a, b) => {
+    const aRunning = a.active === "active" && a.sub === "running";
+    const bRunning = b.active === "active" && a.sub === "running";
+    if (aRunning !== bRunning) return bRunning ? 1 : -1;
+    return a.name.localeCompare(b.name);
+  });
+
+  for (const svc of sortedServices) {
+    // Better status formatting with indicators
+    let statusIndicator = "";
+    let status = `${svc.active}/${svc.sub}`;
+    
+    if (svc.active === "active" && svc.sub === "running") {
+      statusIndicator = "✅";
+      status = "running";
+    } else if (svc.active === "activating" && svc.sub.includes("auto-restart")) {
+      statusIndicator = "🔄";
+      status = "restarting";
+    } else if (svc.active === "failed" || svc.sub === "failed") {
+      statusIndicator = "❌";
+      status = "failed";
+    } else if (svc.active === "inactive") {
+      statusIndicator = "⏸️";
+      status = "stopped";
+    } else {
+      statusIndicator = "⚠️";
+    }
+
+    const displayStatus = `${statusIndicator} ${status}`;
+    
+    // Format memory and uptime better
+    const formattedMemory = svc.memory ? formatMemory(parseMemory(svc.memory)) : "-";
+    const formattedUptime = svc.uptime || "-";
+    const formattedCPU = svc.cpu || "-";
+    
+    console.log(
+      `${svc.name.padEnd(18)} ${displayStatus.padEnd(15)} ${formattedCPU.padEnd(10)} ${formattedMemory.padEnd(12)} ${formattedUptime.padEnd(12)} ${(svc.tasks || "-").padEnd(8)} ${svc.description}`
+    );
+  }
+  
+  // Enhanced summary with better formatting
+  console.log("\n📊 Service Summary:");
+  const totalServices = services.length;
+  const runningServices = services.filter(s => s.active === "active" && s.sub === "running").length;
+  const failedServices = services.filter(s => s.active === "failed" || s.sub === "failed").length;
+  const restartingServices = services.filter(s => s.active === "activating" && s.sub.includes("auto-restart")).length;
+  const totalMemory = services.reduce((sum, s) => sum + (s.memory ? parseMemory(s.memory) : 0), 0);
+  
+  console.log(`  📈 Status: ${runningServices} running, ${failedServices} failed, ${restartingServices} restarting`);
+  console.log(`  📦 Total: ${runningServices}/${totalServices} services running`);
+  console.log(`  💾 Memory: ${formatMemory(totalMemory)}`);
+  console.log(`  🕒 Last updated: ${new Date().toLocaleString()}`);
+
+  // Show failed services details with better formatting
+  if (failedServices > 0) {
+    console.log("\n🚨 Failed Services:");
+    console.log("-".repeat(80));
+    
+    services.filter(s => s.active === "failed" || s.sub === "failed").forEach(svc => {
+      console.log(`  ❌ ${svc.name} - ${svc.description}`);
+    });
+  }
+}
+
+function displayMultiServiceStatus(serviceInfo: any[], pattern: string): void {
+  const running = serviceInfo.filter(s => s.status === 'active');
+  const failed = serviceInfo.filter(s => s.status === 'failed');
+  const inactive = serviceInfo.filter(s => s.status === 'inactive');
+  
+  console.log(`\n📊 Services matching pattern: ${pattern}`);
+  console.log(`   Total: ${serviceInfo.length} services`);
+  console.log(`   Running: ${running.length}/${serviceInfo.length} (${((running.length / serviceInfo.length) * 100).toFixed(1)}%)`);
+  console.log(`   Failed: ${failed.length}/${serviceInfo.length} (${((failed.length / serviceInfo.length) * 100).toFixed(1)}%)`);
+  console.log(`   Inactive: ${inactive.length}/${serviceInfo.length} (${((inactive.length / serviceInfo.length) * 100).toFixed(1)}%)`);
+  
+  if (serviceInfo.length > 0) {
+    console.log("\n📋 Service Details:");
+    console.log("-".repeat(80));
+    
+    serviceInfo.forEach(service => {
+      const statusIcon = service.status === 'active' ? '✅' : 
+                        service.status === 'failed' ? '❌' : '⏸️';
+      
+      console.log(`${statusIcon} ${service.name.padEnd(20)} PID: ${service.pid?.toString().padStart(8) || '-'.padStart(8)} PORT: ${service.port?.toString().padStart(6) || '-'.padStart(6)} STATUS: ${service.status.padEnd(10)}`);
+    });
   }
 }
 
@@ -206,113 +366,6 @@ async function getWindowsServices(): Promise<ServiceStatus[]> {
   }
   
   return services;
-}
-
-function displayServices(services: ServiceStatus[]): void {
-  if (services.length === 0) {
-    console.log("📋 No BS9 services found");
-    console.log("💡 Use 'bs9 start <file>' or 'bs9 deploy <file>' to create a service");
-    return;
-  }
-
-  // Header with better formatting
-  console.log(`${"SERVICE".padEnd(18)} ${"STATUS".padEnd(15)} ${"CPU".padEnd(10)} ${"MEMORY".padEnd(12)} ${"UPTIME".padEnd(12)} ${"TASKS".padEnd(8)} DESCRIPTION`);
-  console.log("─".repeat(100));
-  
-  // Sort services by status (running first, then by name)
-  const sortedServices = services.sort((a, b) => {
-    const aRunning = a.active === "active" && a.sub === "running";
-    const bRunning = b.active === "active" && b.sub === "running";
-    if (aRunning !== bRunning) return bRunning ? 1 : -1;
-    return a.name.localeCompare(b.name);
-  });
-
-  for (const svc of sortedServices) {
-    // Better status formatting with indicators
-    let statusIndicator = "";
-    let status = `${svc.active}/${svc.sub}`;
-    
-    if (svc.active === "active" && svc.sub === "running") {
-      statusIndicator = "✅";
-      status = "running";
-    } else if (svc.active === "activating" && svc.sub.includes("auto-restart")) {
-      statusIndicator = "🔄";
-      status = "restarting";
-    } else if (svc.active === "failed" || svc.sub === "failed") {
-      statusIndicator = "❌";
-      status = "failed";
-    } else if (svc.active === "inactive") {
-      statusIndicator = "⏸️";
-      status = "stopped";
-    } else {
-      statusIndicator = "⚠️";
-    }
-
-    const displayStatus = `${statusIndicator} ${status}`;
-    
-    // Format memory and uptime better
-    const formattedMemory = svc.memory ? formatMemory(parseMemory(svc.memory)) : "-";
-    const formattedUptime = svc.uptime || "-";
-    const formattedCPU = svc.cpu || "-";
-    
-    console.log(
-      `${svc.name.padEnd(18)} ${displayStatus.padEnd(15)} ${formattedCPU.padEnd(10)} ${formattedMemory.padEnd(12)} ${formattedUptime.padEnd(12)} ${(svc.tasks || "-").padEnd(8)} ${svc.description}`
-    );
-  }
-  
-  // Enhanced summary with better formatting
-  console.log("\n📊 Service Summary:");
-  const totalServices = services.length;
-  const runningServices = services.filter(s => s.active === "active" && s.sub === "running").length;
-  const failedServices = services.filter(s => s.active === "failed" || s.sub === "failed").length;
-  const restartingServices = services.filter(s => s.active === "activating" && s.sub.includes("auto-restart")).length;
-  const totalMemory = services.reduce((sum, s) => sum + (s.memory ? parseMemory(s.memory) : 0), 0);
-  
-  console.log(`  📈 Status: ${runningServices} running, ${failedServices} failed, ${restartingServices} restarting`);
-  console.log(`  📦 Total: ${runningServices}/${totalServices} services running`);
-  console.log(`  💾 Memory: ${formatMemory(totalMemory)}`);
-  console.log(`  🕒 Last updated: ${new Date().toLocaleString()}`);
-
-  // Show failed services details with better formatting
-  if (failedServices > 0) {
-    console.log("\n❌ Failed Services:");
-    const failed = services.filter(s => s.active === "failed" || s.sub === "failed");
-    for (const svc of failed) {
-      console.log(`  • ${svc.name}: ${svc.active}/${svc.sub}`);
-      console.log(`    💡 Troubleshoot: bs9 logs ${svc.name} --tail 20`);
-      console.log(`    💡 Check: bs9 status ${svc.name}`);
-    }
-  }
-
-  // Show restarting services details
-  if (restartingServices > 0) {
-    console.log("\n🔄 Restarting Services:");
-    const restarting = services.filter(s => s.active === "activating" && s.sub.includes("auto-restart"));
-    for (const svc of restarting) {
-      console.log(`  • ${svc.name}: ${svc.active}/${svc.sub}`);
-      if (svc.exitCode) {
-        console.log(`    ❌ Exit Code: ${svc.exitCode}`);
-      }
-      if (svc.lastRestart) {
-        console.log(`    🕒 Last Restart: ${svc.lastRestart}`);
-      }
-      console.log(`    💡 Troubleshoot: bs9 logs ${svc.name} --tail 20`);
-      console.log(`    💡 Check: bs9 status ${svc.name}`);
-    }
-  }
-
-  // Show running services details
-  if (runningServices > 0) {
-    console.log("\n✅ Running Services:");
-    const running = services.filter(s => s.active === "active" && s.sub === "running");
-    for (const svc of running) {
-      const memory = svc.memory ? formatMemory(parseMemory(svc.memory)) : "N/A";
-      const uptime = svc.uptime || "N/A";
-      const port = svc.port || "3000";
-      console.log(`  • ${svc.name}: ${memory} memory, ${uptime} uptime`);
-      console.log(`    🌐 Access: http://localhost:${port}`);
-    }
-  }
 }
 
 function formatCPU(nsec: number): string {

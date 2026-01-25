@@ -16,6 +16,7 @@ import { randomUUID } from "node:crypto";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { getPlatformInfo } from "../platform/detect.js";
+import { parseServiceArray, getMultipleServiceInfo, confirmAction } from "../utils/array-parser.js";
 
 // Security: Host validation function
 function isValidHost(host: string): boolean {
@@ -60,7 +61,53 @@ interface StartOptions {
   https?: boolean;
 }
 
-export async function startCommand(file: string, options: StartOptions): Promise<void> {
+export async function startCommand(files: string[], options: StartOptions): Promise<void> {
+  const platformInfo = getPlatformInfo();
+  
+  // Handle multiple arguments
+  const file = files.length > 0 ? files.join(' ') : '';
+  
+  // Handle multi-service operations
+  if (file.includes('[') || file === 'all') {
+    await handleMultiServiceStart(file, options);
+    return;
+  }
+  
+  // Single service operation (existing logic)
+  await handleSingleServiceStart(file, options);
+}
+
+async function handleMultiServiceStart(file: string, options: StartOptions): Promise<void> {
+  const services = await parseServiceArray(file);
+  
+  if (services.length === 0) {
+    console.log("❌ No services found matching the pattern");
+    return;
+  }
+  
+  console.log(`🚀 Starting ${services.length} services...`);
+  
+  const results = await Promise.allSettled(
+    services.map(async (serviceName) => {
+      try {
+        // For multi-service, we need to find the service file
+        const serviceFile = findServiceFile(serviceName);
+        if (!serviceFile) {
+          throw new Error(`Service file not found for: ${serviceName}`);
+        }
+        
+        await handleSingleServiceStart(serviceFile, { ...options, name: serviceName });
+        return { service: serviceName, status: 'success', error: null };
+      } catch (error) {
+        return { service: serviceName, status: 'failed', error: error instanceof Error ? error.message : String(error) };
+      }
+    })
+  );
+  
+  displayBatchResults(results, 'start');
+}
+
+async function handleSingleServiceStart(file: string, options: StartOptions): Promise<void> {
   const platformInfo = getPlatformInfo();
   
   // Security: Validate and sanitize file path
@@ -164,6 +211,51 @@ export async function startCommand(file: string, options: StartOptions): Promise
     console.error(`❌ Platform ${platformInfo.platform} is not supported`);
     process.exit(1);
   }
+}
+
+function findServiceFile(serviceName: string): string | null {
+  // Try to find the service file in common locations
+  const possiblePaths = [
+    join(process.cwd(), `${serviceName}.js`),
+    join(process.cwd(), `${serviceName}.ts`),
+    join(process.cwd(), 'src', `${serviceName}.js`),
+    join(process.cwd(), 'src', `${serviceName}.ts`),
+    join(process.cwd(), 'app', `${serviceName}.js`),
+    join(process.cwd(), 'app', `${serviceName}.ts`),
+  ];
+  
+  for (const path of possiblePaths) {
+    if (existsSync(path)) {
+      return path;
+    }
+  }
+  
+  return null;
+}
+
+function displayBatchResults(results: PromiseSettledResult<{ service: string; status: string; error: string | null }>[], operation: string): void {
+  console.log(`\n📊 Batch ${operation} Results`);
+  console.log("=".repeat(50));
+  
+  const successful = results.filter(r => r.status === 'fulfilled' && r.value.status === 'success');
+  const failed = results.filter(r => r.status === 'fulfilled' && r.value.status === 'failed');
+  
+  successful.forEach(result => {
+    if (result.status === 'fulfilled') {
+      console.log(`✅ ${result.value.service} - ${operation} successful`);
+    }
+  });
+  
+  failed.forEach(result => {
+    if (result.status === 'fulfilled') {
+      console.log(`❌ ${result.value.service} - Failed: ${result.value.error}`);
+    }
+  });
+  
+  console.log(`\n📈 Summary:`);
+  console.log(`   Total: ${results.length} services`);
+  console.log(`   Success: ${successful.length}/${results.length} (${((successful.length / results.length) * 100).toFixed(1)}%)`);
+  console.log(`   Failed: ${failed.length}/${results.length} (${((failed.length / results.length) * 100).toFixed(1)}%)`);
 }
 
 async function createLinuxService(serviceName: string, execPath: string, host: string, port: string, protocol: string, options: StartOptions): Promise<void> {

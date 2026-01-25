@@ -43,8 +43,8 @@ program
 
 program
   .command("start")
-  .description("Start a process with hardened systemd unit")
-  .argument("<file>", "Application file to start")
+  .description("Start one or more services")
+  .argument("[file...]", "Application file, service name, array [app1,app2], pattern [app-*], or [all]")
   .option("-n, --name <name>", "Service name")
   .option("-p, --port <port>", "Port number", "3000")
   .option("-h, --host <host>", "Host address", "localhost")
@@ -57,19 +57,20 @@ program
 
 program
   .command("stop")
-  .description("Stop a managed service")
-  .argument("<name>", "Service name")
+  .description("Stop one or more services")
+  .argument("[name...]", "Service name, array [app1,app2], pattern [app-*], or [all]")
   .action(stopCommand);
 
 program
   .command("restart")
-  .description("Restart a managed service")
-  .argument("<name>", "Service name")
+  .description("Restart one or more services")
+  .argument("[name...]", "Service name, array [app1,app2], pattern [app-*], or [all]")
   .action(restartCommand);
 
 program
   .command("status")
-  .description("Show status and SRE metrics for all services")
+  .description("Show status and SRE metrics for services")
+  .argument("[name...]", "Service name, array [app1,app2], pattern [app-*], or [all]")
   .option("-w, --watch", "Watch mode (refresh every 2s)")
   .action(statusCommand);
 
@@ -138,10 +139,10 @@ program
 
 program
   .command("delete")
-  .description("Delete managed services")
-  .argument("[name]", "Service name (optional)")
+  .description("Delete one or more managed services")
+  .argument("[name...]", "Service name, array [app1,app2], pattern [test-*], or [all]")
   .option("-a, --all", "Delete all services")
-  .option("-f, --force", "Force deletion without errors")
+  .option("-f, --force", "Force deletion without confirmation")
   .option("-r, --remove", "Remove service configuration files")
   .option("-t, --timeout <seconds>", "Timeout for graceful shutdown (default: 30)")
   .action(deleteCommand);
