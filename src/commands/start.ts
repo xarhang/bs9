@@ -90,16 +90,27 @@ async function handleMultiServiceStart(file: string, options: StartOptions): Pro
   const results = await Promise.allSettled(
     services.map(async (serviceName) => {
       try {
-        // For multi-service, we need to find the service file
-        const serviceFile = findServiceFile(serviceName);
-        if (!serviceFile) {
-          throw new Error(`Service file not found for: ${serviceName}`);
-        }
+        const platformInfo = getPlatformInfo();
         
-        await handleSingleServiceStart(serviceFile, { ...options, name: serviceName });
-        return { service: serviceName, status: 'success', error: null };
+        // First check if service already exists
+        const serviceExists = await checkServiceExists(serviceName, platformInfo);
+        
+        if (serviceExists) {
+          // Service exists, start it directly
+          await startExistingService(serviceName, platformInfo);
+          return { service: serviceName, status: 'success', error: null };
+        } else {
+          // Service doesn't exist, look for file
+          const serviceFile = findServiceFile(serviceName);
+          if (!serviceFile) {
+            throw new Error(`Service file not found for: ${serviceName}`);
+          }
+          
+          await handleSingleServiceStart(serviceFile, { ...options, name: serviceName });
+          return { service: serviceName, status: 'success', error: null };
+        }
       } catch (error) {
-        return { service: serviceName, status: 'failed', error: error instanceof Error ? error.message : String(error) };
+        return { service: serviceName, status: 'failed', error: (error as Error).message };
       }
     })
   );

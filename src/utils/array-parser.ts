@@ -47,16 +47,20 @@ export async function parseServiceArray(input: string): Promise<string[]> {
 
 export async function getAllServices(): Promise<string[]> {
   try {
-    const output = execSync("systemctl --user list-units --type=service --all --no-pager --no-legend", { 
-      encoding: "utf-8" 
-    });
+    // Use the same logic as the status command since it already works
+    const output = execSync("systemctl --user list-units --type=service --all --no-pager --no-legend", { encoding: "utf-8" });
+    const lines = output.split("\n").filter(line => line.includes(".service"));
     
-    const services = output
-      .split('\n')
-      .filter(line => line.trim())
-      .map(line => line.split(' ')[0])
-      .filter(service => service.includes('bs9-'))
-      .map(service => service.replace('bs9-', ''));
+    const services = [];
+    for (const line of lines) {
+      const match = line.match(/^(?:\s*([●\s○]))?\s*([^\s]+)\.service\s+([^\s]+)\s+([^\s]+)\s+([^\s]+)\s+(.+)$/);
+      if (match) {
+        const [, , name, , , , description] = match;
+        if (description.includes("BS9 Service:")) {
+          services.push(name);
+        }
+      }
+    }
     
     return services;
   } catch {
@@ -67,7 +71,9 @@ export async function getAllServices(): Promise<string[]> {
 export async function getServicesByPattern(pattern: string): Promise<string[]> {
   try {
     const allServices = await getAllServices();
-    const regex = new RegExp(`^${pattern}$`);
+    // Convert glob pattern to regex
+    const regexPattern = pattern.replace(/\*/g, '.*');
+    const regex = new RegExp(`^${regexPattern}$`);
     return allServices.filter(service => regex.test(service));
   } catch {
     return [];
