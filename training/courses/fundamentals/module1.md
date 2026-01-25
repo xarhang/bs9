@@ -58,7 +58,7 @@ After completing this module, you will be able to:
 #### 📋 Installation Commands
 ```bash
 # One-click installation
-curl -fsSL https://raw.githubusercontent.com/xarhang/bs9/setup.sh | bash
+curl -fsSL https://raw.githubusercontent.com/xarhang/bs9/main/setup.sh | bash
 
 # Verify installation
 bs9 --version
@@ -246,7 +246,7 @@ chmod +x setup.sh
 #### Problem: Network Issues
 ```bash
 # Solution: Check network connectivity
-curl -I https://raw.githubusercontent.com/xarhang/bs9/setup.sh
+curl -I https://raw.githubusercontent.com/xarhang/bs9/main/setup.sh
 # or use alternative download method
 ```
 

@@ -14,7 +14,7 @@
 
 ```bash
 # One-click installer (installs Bun + BS9)
-curl -fsSL https://raw.githubusercontent.com/xarhang/bs9/setup.sh | bash
+curl -fsSL https://raw.githubusercontent.com/xarhang/bs9/main/setup.sh | bash
 
 # Or manual install
 git clone https://github.com/xarhang/bs9.git

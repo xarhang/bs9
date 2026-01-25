@@ -46,7 +46,7 @@ bs9 --version
 bs9 --help
 
 # Installation methods
-curl -fsSL https://raw.githubusercontent.com/xarhang/bs9/setup.sh | bash
+curl -fsSL https://raw.githubusercontent.com/xarhang/bs9/main/setup.sh | bash
 
 # First application
 bs9 start examples/simple-app.js --name hello-world

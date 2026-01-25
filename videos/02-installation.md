@@ -43,7 +43,7 @@ This comprehensive installation guide covers all methods for installing BS9 acro
 ### 📝 Installation Script
 ```bash
 # One-click installation
-curl -fsSL https://raw.githubusercontent.com/xarhang/bs9/setup.sh | bash
+curl -fsSL https://raw.githubusercontent.com/xarhang/bs9/main/setup.sh | bash
 
 # Verify installation
 bs9 --version
@@ -102,11 +102,11 @@ docker run -d --name bs9 xarhang/bs9:latest
 ```bash
 # Ubuntu/Debian
 sudo apt update && sudo apt install -y curl
-curl -fsSL https://raw.githubusercontent.com/xarhang/bs9/setup.sh | bash
+curl -fsSL https://raw.githubusercontent.com/xarhang/bs9/main/setup.sh | bash
 
 # CentOS/RHEL
 sudo yum install -y curl
-curl -fsSL https://raw.githubusercontent.com/xarhang/bs9/setup.sh | bash
+curl -fsSL https://raw.githubusercontent.com/xarhang/bs9/main/setup.sh | bash
 ```
 
 ### 🍎 macOS Installation
@@ -115,7 +115,7 @@ curl -fsSL https://raw.githubusercontent.com/xarhang/bs9/setup.sh | bash
 brew install bs9
 
 # Using setup script
-curl -fsSL https://raw.githubusercontent.com/xarhang/bs9/setup.sh | bash
+curl -fsSL https://raw.githubusercontent.com/xarhang/bs9/main/setup.sh | bash
 
 # Manual installation
 git clone https://github.com/xarhang/bs9.git
@@ -129,7 +129,7 @@ bun install -g .
 ### 🪟 Windows Installation
 ```bash
 # Using PowerShell
-iwr -Uri https://raw.githubusercontent.com/xarhang/bs9/setup.sh -OutFile setup.sh
+iwr -Uri https://raw.githubusercontent.com/xarhang/bs9/main/setup.sh -OutFile setup.sh
 .\setup.sh
 
 # Using Git Bash (WSL)
