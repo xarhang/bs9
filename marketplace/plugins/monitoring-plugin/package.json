@@ -1,0 +1,52 @@
+{
+  "name": "bs9-monitoring-plugin",
+  "version": "1.0.0",
+  "description": "Advanced monitoring and metrics plugin for BS9",
+  "author": "BS9 Community",
+  "license": "MIT",
+  "category": "core-extensions",
+  "keywords": ["bs9", "monitoring", "metrics", "performance"],
+  "repository": "https://github.com/xarhang/bs9-marketplace",
+  "main": "src/index.js",
+  "type": "module",
+  "dependencies": {
+    "bs9-core": "^1.3.0",
+    "prom-client": "^14.2.0",
+    "systeminformation": "^5.21.0"
+  },
+  "devDependencies": {
+    "bun": "^1.0.0",
+    "@types/node": "^20.0.0"
+  },
+  "bs9": {
+    "version": ">=1.3.0",
+    "commands": [
+      {
+        "name": "monitor",
+        "description": "Advanced monitoring commands",
+        "usage": "bs9 monitor [options]"
+      },
+      {
+        "name": "metrics",
+        "description": "Metrics collection and analysis",
+        "usage": "bs9 metrics [options]"
+      }
+    ],
+    "hooks": [
+      "service:start",
+      "service:stop",
+      "service:restart",
+      "service:status"
+    ],
+    "permissions": [
+      "service:read",
+      "service:write",
+      "system:read"
+    ]
+  },
+  "scripts": {
+    "test": "bun test",
+    "build": "bun build src/index.js --outdir dist",
+    "dev": "bun run src/index.js"
+  }
+}
