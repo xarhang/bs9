@@ -84,56 +84,59 @@ else
   echo "✅ Bun already installed: $(bun --version)"
 fi
 
-# Create temporary directory for BS9
-TEMP_DIR=$(mktemp -d)
-echo "📁 Working in: $TEMP_DIR"
+# Clone or download BS9 (only if bs9 not already installed)
+if ! command -v bs9 >/dev/null 2>&1; then
+  # Create temporary directory for BS9
+  TEMP_DIR=$(mktemp -d)
+  echo "📁 Working in: $TEMP_DIR"
 
-# Clone or download BS9
-if command -v git >/dev/null 2>&1; then
-  echo "📥 Cloning BS9 repository..."
-  git clone https://github.com/xarhang/bs9.git "$TEMP_DIR"
+  # Clone or download BS9
+  if command -v git >/dev/null 2>&1; then
+    echo "📥 Cloning BS9 repository..."
+    git clone https://github.com/xarhang/bs9.git "$TEMP_DIR"
+  else
+    echo "📥 Downloading BS9..."
+    curl -L https://github.com/xarhang/bs9/archive/main.tar.gz | tar -xz -C "$TEMP_DIR" --strip-components=1
+  fi
+
+  cd "$TEMP_DIR"
+
+  # Install dependencies and build (only if installing from source)
+  if command -v bun >/dev/null 2>&1; then
+    echo "📦 Installing BS9 dependencies..."
+    bun install
+    
+    echo "🔨 Building BS9..."
+    bun run build
+  fi
 else
-  echo "📥 Downloading BS9..."
-  curl -L https://github.com/xarhang/bs9/archive/main.tar.gz | tar -xz -C "$TEMP_DIR" --strip-components=1
+  echo "✅ BS9 already installed, skipping download..."
+  TEMP_DIR=""
 fi
 
-cd "$TEMP_DIR"
-
-# Install dependencies
-echo "📦 Installing BS9 dependencies..."
-bun install
-
-# Build BS9
-echo "🔨 Building BS9..."
-bun run build
-
-# Install BS9 CLI (Alternative: Use npm for global installation)
-echo "🔧 Installing BS9 CLI..."
-if command -v npm >/dev/null 2>&1; then
-  echo "📦 Installing via npm (recommended)..."
+# Install BS9 CLI
+echo "🔧 Installing BS9 CLI globally..."
+if command -v bun >/dev/null 2>&1; then
+  echo "📦 Installing via bun (recommended)..."
+  bun install -g bs9
+elif command -v npm >/dev/null 2>&1; then
+  echo "📦 Installing via npm..."
   npm install -g bs9@latest
-elif command -v bun >/dev/null 2>&1; then
-  echo "📦 Installing via bun..."
-  bun install bs9@latest
 else
-  echo "🔧 Installing from source..."
-  if [[ $ROOT_INSTALL -eq 1 ]]; then
-    echo "� Installing BS9 CLI to /usr/local/bin..."
-    cp bin/bs9 /usr/local/bin/bs9
-    chmod +x /usr/local/bin/bs9
-  else
-    echo "� Installing BS9 CLI to ~/.local/bin..."
-    mkdir -p "$HOME/.local/bin"
-    cp bin/bs9 "$HOME/.local/bin/bs9"
-    chmod +x "$HOME/.local/bin/bs9"
-    
-    # Add to PATH if not already there
-    if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
-      echo "export PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$HOME/.bashrc"
-      echo "export PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$HOME/.zshrc" 2>/dev/null || true
-      echo "📝 Added ~/.local/bin to PATH in shell config"
-    fi
-  fi
+  echo "❌ Neither bun nor npm found. Please install one first."
+  echo "   Install Bun: curl -fsSL https://bun.sh/install | bash"
+  echo "   Install NPM: sudo apt install npm"
+  exit 1
+fi
+
+# Verify installation
+if command -v bs9 >/dev/null 2>&1; then
+  echo "✅ BS9 installed successfully: $(bs9 --version 2>/dev/null || echo 'v1.3.1')"
+else
+  echo "❌ BS9 installation failed. Please check your PATH."
+  echo "   Current PATH: $PATH"
+  echo "   Try: export PATH=\"\$HOME/.bun/bin:\$PATH\""
+  exit 1
 fi
 
 # Enable user services persistence (PM2-like behavior)
@@ -220,8 +223,11 @@ EOF
 echo "✅ BS9 configuration created at $CONFIG_DIR/config.toml"
 
 # Cleanup
-cd /
-rm -rf "$TEMP_DIR"
+if [[ -n "$TEMP_DIR" && -d "$TEMP_DIR" ]]; then
+  cd /
+  rm -rf "$TEMP_DIR"
+  echo "🧹 Cleaned up temporary files"
+fi
 
 echo ""
 echo "🎉 BS9 installation complete!"
