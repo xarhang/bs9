@@ -2,11 +2,23 @@
 
 Thank you for your interest in contributing to BS9! This document provides guidelines and information for contributors.
 
+## 🚀 Our Mission
+
+BS9 is a 100% open source, community-driven project. We believe in making enterprise-grade process management available to everyone, completely free. All features are available to everyone under the MIT license.
+
+## 🤝 Why Contribute?
+
+- **Impact**: Help millions of developers manage their applications better
+- **Learning**: Work with modern TypeScript, Bun, and enterprise technologies
+- **Community**: Join a growing community of passionate developers
+- **Recognition**: Get your work recognized and used globally
+- **Growth**: Build your portfolio and skills with real-world projects
+
 ## Development Setup
 
 ### Prerequisites
 - Bun runtime (latest version)
-- Linux/macOS with systemd user mode support
+- Linux/macOS/Windows (cross-platform support)
 - Git
 - Docker (optional, for container development)
 - kubectl (optional, for Kubernetes development)
@@ -15,8 +27,8 @@ Thank you for your interest in contributing to BS9! This document provides guide
 
 ```bash
 # Clone the repository
-git clone https://github.com/xarhang/bsn.git
-cd bsn
+git clone https://github.com/xarhang/bs9.git
+cd bs9
 
 # Install dependencies
 bun install
@@ -32,9 +44,47 @@ bun run bin/bs9 web
 
 # Build for distribution
 bun run build
+
+# Run tests
+bun test
 ```
 
-## Project Structure
+## 🎯 Contribution Areas
+
+We welcome contributions in all areas! Here are some high-priority areas:
+
+### 🔧 Core Features
+- **CLI Commands**: New commands, improvements to existing ones
+- **Monitoring**: Advanced dashboards, metrics collection
+- **Security**: Security hardening, vulnerability scanning
+- **Performance**: Optimization, memory management
+- **Cross-platform**: Windows, macOS, Linux improvements
+
+### 📚 Documentation
+- **Tutorials**: Step-by-step guides for different use cases
+- **API Docs**: Comprehensive API documentation
+- **Examples**: Real-world application examples
+- **Translations**: Localize documentation for different languages
+
+### 🧪 Testing
+- **Unit Tests**: Increase test coverage
+- **Integration Tests**: End-to-end testing
+- **Performance Tests**: Benchmarking and profiling
+- **Security Tests**: Vulnerability scanning
+
+### 🌐 Ecosystem
+- **Plugins**: Third-party integrations
+- **Tools**: Development tools and utilities
+- **Templates**: Configuration templates
+- **Docker/K8s**: Container and orchestration support
+
+### 🎨 Design & UX
+- **Web UI**: Dashboard improvements
+- **CLI UX**: Better command-line experience
+- **Documentation**: Better organization and clarity
+- **Branding**: Visual design improvements
+
+## 📁 Project Structure
 
 ```
 BS9/

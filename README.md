@@ -1,7 +1,7 @@
 # BS9 (Bun Sentinel 9) 🚀
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-1.3.0-blue.svg)](https://github.com/bs9/bs9)
+[![Version](https://img.shields.io/badge/version-1.3.5-blue.svg)](https://github.com/xarhang/bs9)
 [![Security](https://img.shields.io/badge/security-Enterprise-green.svg)](SECURITY.md)
 [![Production Ready](https://img.shields.io/badge/production-Ready-brightgreen.svg)](PRODUCTION.md)
 [![Cross-Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](https://github.com/bs9/bs9)
@@ -566,7 +566,19 @@ bs9 export --service myapp --hours 24
 
 ## 📄 License
 
-MIT License - see LICENSE file for details.
+**MIT License** - see [LICENSE](LICENSE) file for details.
+
+BS9 is 100% open source and free for everyone - no restrictions, no enterprise features, no paid tiers. All features are available to everyone under the MIT license.
+
+### 🤝 Support Open Source
+If you find BS9 useful, please consider:
+- ⭐ Starring this repository
+- 🐛 Reporting issues and feature requests
+- 💬 Contributing code or documentation
+- 🎯 Sponsoring the project (GitHub Sponsors)
+- 📢 Sharing with your community
+
+**BS9 is community-driven and will always remain free and open source.**
 
 ---
 

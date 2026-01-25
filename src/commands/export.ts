@@ -1,5 +1,14 @@
 #!/usr/bin/env bun
 
+/**
+ * BS9 - Bun Sentinel 9
+ * High-performance, non-root process manager for Bun
+ * 
+ * Copyright (c) 2026 BS9 (Bun Sentinel 9)
+ * Licensed under the MIT License
+ * https://github.com/xarhang/bs9
+ */
+
 import { MetricsStorage } from "../storage/metrics.js";
 import { writeFileSync } from "node:fs";
 
