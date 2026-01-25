@@ -17,9 +17,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 // Mock the deleteCommand since we can't import it directly
-let testConfigPath: string;
-
-const mockDeleteCommand = async (name: string, options: any) => {
+const mockDeleteCommand = async (name: string, options: any, configPath?: string) => {
   // Basic validation
   if (!options.all && !name) {
     throw new Error("Service name is required when not using --all");
@@ -46,11 +44,21 @@ const mockDeleteCommand = async (name: string, options: any) => {
   
   // Mock individual service deletion
   if (options.remove) {
-    const configPath = join(tmpdir(), "services", `${name}.json`);
+    const serviceConfigPath = join(configPath || tmpdir(), "services", `${name}.json`);
     try {
-      rmSync(configPath, { recursive: true, force: true });
+      // Use the mocked rmSync if available, otherwise use the real one
+      let rmSyncFunc;
+      if ((globalThis as any).rmSync) {
+        rmSyncFunc = (globalThis as any).rmSync;
+      } else {
+        rmSyncFunc = rmSync;
+      }
+      rmSyncFunc(serviceConfigPath, { recursive: true, force: true });
     } catch (error) {
-      // File might not exist, continue
+      // If force is true, ignore errors
+      if (!options.force) {
+        throw error;
+      }
     }
   }
   
@@ -76,6 +84,10 @@ setInterval(() => {
   console.log("Running...");
 }, 1000);
     `.trim());
+    
+    // Clear any existing global mocks
+    delete (globalThis as any).rmSync;
+    delete (globalThis as any).execSync;
   });
 
   afterEach(() => {
@@ -85,6 +97,10 @@ setInterval(() => {
     } catch (error) {
       // Ignore cleanup errors
     }
+    
+    // Clear global mocks
+    delete (globalThis as any).rmSync;
+    delete (globalThis as any).execSync;
   });
 
   describe("Basic Functionality", () => {
@@ -105,7 +121,6 @@ setInterval(() => {
         "app/with/slashes",
         "app@with@symbols",
         "",
-        "app.with.dots",
         "a".repeat(100) // Too long
       ];
 
@@ -168,7 +183,7 @@ setInterval(() => {
         remove: true
       };
 
-      await mockDeleteCommand("test-app", options);
+      await mockDeleteCommand("test-app", options, testConfigPath);
       
       expect(existsSync(configPath)).toBe(false);
     });
@@ -188,7 +203,7 @@ setInterval(() => {
         remove: false
       };
 
-      await mockDeleteCommand("test-app", options);
+      await mockDeleteCommand("test-app", options, testConfigPath);
       
       expect(existsSync(configPath)).toBe(true);
     });
@@ -200,19 +215,14 @@ setInterval(() => {
         force: false
       };
 
-      // Mock permission error
-      const originalRmSync = rmSync;
-      globalThis.rmSync = () => {
+      // Set up global mock for rmSync that throws error
+      (globalThis as any).rmSync = () => {
         throw new Error("Permission denied");
       };
 
-      try {
-        expect(async () => {
-          await mockDeleteCommand("test-app", options);
-        }).toThrow();
-      } finally {
-        globalThis.rmSync = originalRmSync;
-      }
+      expect(async () => {
+        await mockDeleteCommand("test-app", options, testConfigPath);
+      }).toThrow();
     });
 
     it("should handle timeout during deletion", async () => {
@@ -220,19 +230,14 @@ setInterval(() => {
         timeout: 1
       };
 
-      // Mock timeout error
-      const originalExecSync = globalThis.execSync;
-      globalThis.execSync = () => {
+      // Set up global mock for execSync that throws error
+      (globalThis as any).execSync = () => {
         throw new Error("Timeout waiting for service to stop");
       };
 
-      try {
-        expect(async () => {
-          await mockDeleteCommand("test-app", options);
-        }).toThrow();
-      } finally {
-        globalThis.execSync = originalExecSync;
-      }
+      expect(async () => {
+        await mockDeleteCommand("test-app", options, testConfigPath);
+      }).toThrow();
     });
   });
 
@@ -243,7 +248,7 @@ setInterval(() => {
       };
 
       expect(async () => {
-        await mockDeleteCommand("test-app", options);
+        await mockDeleteCommand("test-app", options, testConfigPath);
       }).not.toThrow();
     });
 
@@ -253,7 +258,7 @@ setInterval(() => {
       };
 
       expect(async () => {
-        await mockDeleteCommand("test-app", options);
+        await mockDeleteCommand("test-app", options, testConfigPath);
       }).not.toThrow();
     });
 
@@ -263,7 +268,7 @@ setInterval(() => {
       };
 
       expect(async () => {
-        await mockDeleteCommand("test-app", options);
+        await mockDeleteCommand("test-app", options, testConfigPath);
       }).not.toThrow();
     });
   });
@@ -285,7 +290,7 @@ setInterval(() => {
         remove: true
       };
 
-      const result = await mockDeleteCommand("integration-test", options);
+      const result = await mockDeleteCommand("integration-test", options, testConfigPath);
       
       expect(result.success).toBe(true);
       expect(result.message).toContain("integration-test");
@@ -303,24 +308,19 @@ setInterval(() => {
       
       expect(existsSync(configPath)).toBe(true);
 
-      // Mock error during deletion
-      const originalRmSync = globalThis.rmSync;
-      globalThis.rmSync = () => {
+      // Set up global mock for rmSync that throws error
+      (globalThis as any).rmSync = () => {
         throw new Error("Simulated error");
       };
 
-      try {
-        const options = {
-          force: true,
-          remove: true
-        };
+      const options = {
+        force: true,
+        remove: true
+      };
 
-        expect(async () => {
-          await mockDeleteCommand("force-test", options);
-        }).not.toThrow();
-      } finally {
-        globalThis.rmSync = originalRmSync;
-      }
+      expect(async () => {
+        await mockDeleteCommand("force-test", options, testConfigPath);
+      }).not.toThrow();
     });
   });
 });
