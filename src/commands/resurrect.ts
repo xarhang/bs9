@@ -59,6 +59,13 @@ export async function resurrectCommand(name: string, options: ResurrectOptions):
       // Load backup configuration
       const backupConfig = JSON.parse(require('node:fs').readFileSync(backupFile, 'utf8'));
       
+      // Check if the file exists
+      const filePath = backupConfig.file;
+      if (!require('node:fs').existsSync(filePath)) {
+        console.error(`❌ Service file not found: ${filePath}`);
+        process.exit(1);
+      }
+      
       // Restore service using backup configuration
       const { startCommand } = await import("./start.js");
       await startCommand(backupConfig.file, {

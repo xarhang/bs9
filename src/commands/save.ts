@@ -10,7 +10,7 @@
  */
 
 import { execSync } from "node:child_process";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { getPlatformInfo } from "../platform/detect.js";
 
 interface SaveOptions {
@@ -239,10 +239,23 @@ function extractFileFromConfig(serviceConfig: string): string {
   const execMatch = serviceConfig.match(/ExecStart=([^\n]+)/);
   if (execMatch) {
     const execLine = execMatch[1].trim();
-    // Extract the file path from the exec command
-    const fileMatch = execLine.match(/bun\s+([^\s]+)/);
+    // Handle both "bun run" and direct "bun" execution
+    let fileMatch;
+    if (execLine.includes('bun run')) {
+      // Extract the file path from "bun run <file>"
+      fileMatch = execLine.match(/bun run\s+(?:'([^']+)'|"([^"]+)"|([^\s]+))/);
+    } else {
+      // Extract the file path from "bun <file>"
+      fileMatch = execLine.match(/bun\s+(?:'([^']+)'|"([^"]+)"|([^\s]+))/);
+    }
+    
     if (fileMatch) {
-      return fileMatch[1];
+      const filePath = fileMatch[1] || fileMatch[2] || fileMatch[3];
+      // If it's a relative path, resolve it relative to the working directory
+      if (!filePath.startsWith('/') && !filePath.startsWith('~')) {
+        return resolve(filePath);
+      }
+      return filePath;
     }
   }
   return '';
