@@ -1,6 +1,6 @@
 {
   "name": "bs9",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "Bun Sentinel 9 - High-performance, non-root process manager for Bun",
   "type": "module",
   "main": "src/index.ts",
@@ -17,8 +17,14 @@
   "scripts": {
     "start": "bun run src/index.ts",
     "build": "bun build ./bin/bs9 --outdir ./dist --target bun",
-    "build:version": "node scripts/update-version.js",
-    "audit": "bun audit"
+    "dev": "bun --watch ./bin/bs9",
+    "test": "bun test",
+    "version:patch": "bun scripts/version-manager.js patch",
+    "version:minor": "bun scripts/version-manager.js minor",
+    "version:major": "bun scripts/version-manager.js major",
+    "publish:patch": "bun scripts/version-manager.js patch && bun publish",
+    "publish:minor": "bun scripts/version-manager.js minor && bun publish",
+    "publish:major": "bun scripts/version-manager.js major && bun publish"
   },
   "keywords": [
     "bun",
