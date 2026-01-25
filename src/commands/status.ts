@@ -27,6 +27,7 @@ interface ServiceStatus {
   memory?: string;
   uptime?: string;
   tasks?: string;
+  pid?: string;
 }
 
 export async function statusCommand(options: StatusOptions): Promise<void> {
@@ -93,20 +94,46 @@ async function getLinuxServices(): Promise<ServiceStatus[]> {
         description,
       };
       
-      // Get additional metrics
+      // Get additional metrics with better error handling
       try {
-        const showOutput = execSync(`systemctl --user show ${name} -p CPUUsageNSec MemoryCurrent ActiveEnterTimestamp TasksCurrent`, { encoding: "utf-8" });
-        const cpuMatch = showOutput.match(/CPUUsageNSec=(\d+)/);
-        const memMatch = showOutput.match(/MemoryCurrent=(\d+)/);
-        const timeMatch = showOutput.match(/ActiveEnterTimestamp=(.+)/);
-        const tasksMatch = showOutput.match(/TasksCurrent=(\d+)/);
+        // Get comprehensive service information
+        const showOutput = execSync(`systemctl --user show ${name}`, { encoding: "utf-8" });
         
-        if (cpuMatch) status.cpu = formatCPU(Number(cpuMatch[1]));
-        if (memMatch) status.memory = formatMemory(Number(memMatch[1]));
-        if (timeMatch) status.uptime = formatUptime(timeMatch[1]);
-        if (tasksMatch) status.tasks = tasksMatch[1];
-      } catch {
-        // Metrics might not be available
+        // Extract CPU usage
+        const cpuMatch = showOutput.match(/CPUUsageNSec=(\d+)/);
+        if (cpuMatch) {
+          status.cpu = formatCPU(Number(cpuMatch[1]));
+        }
+        
+        // Extract memory usage
+        const memMatch = showOutput.match(/MemoryCurrent=(\d+)/);
+        if (memMatch) {
+          const memoryBytes = Number(memMatch[1]);
+          status.memory = formatMemory(memoryBytes);
+        }
+        
+        // Extract startup time and calculate uptime
+        const timeMatch = showOutput.match(/ActiveEnterTimestamp=(.+)/);
+        if (timeMatch) {
+          status.uptime = formatUptime(timeMatch[1]);
+        }
+        
+        // Extract task count
+        const tasksMatch = showOutput.match(/TasksCurrent=(\d+)/);
+        if (tasksMatch) {
+          status.tasks = tasksMatch[1];
+        }
+        
+        // Get process ID for additional info
+        const pidMatch = showOutput.match(/MainPID=(\d+)/);
+        if (pidMatch && pidMatch[1] !== "0") {
+          // We could get more detailed process info here if needed
+          status.pid = pidMatch[1];
+        }
+        
+      } catch (metricsError: any) {
+        // If metrics fail, at least we have basic status
+        console.warn(`⚠️  Could not get metrics for ${name}: ${metricsError?.message || metricsError}`);
       }
       
       services.push(status);
@@ -145,25 +172,84 @@ async function getWindowsServices(): Promise<ServiceStatus[]> {
 }
 
 function displayServices(services: ServiceStatus[]): void {
-  // Header
-  console.log(`${"SERVICE".padEnd(20)} ${"STATE".padEnd(12)} ${"CPU".padEnd(8)} ${"MEMORY".padEnd(10)} ${"UPTIME".padEnd(12)} ${"TASKS".padEnd(6)} DESCRIPTION`);
-  console.log("-".repeat(90));
+  if (services.length === 0) {
+    console.log("📋 No BS9 services found");
+    console.log("💡 Use 'bs9 start <file>' to create a service");
+    return;
+  }
+
+  // Header with better formatting
+  console.log(`${"SERVICE".padEnd(18)} ${"STATUS".padEnd(15)} ${"CPU".padEnd(10)} ${"MEMORY".padEnd(12)} ${"UPTIME".padEnd(12)} ${"TASKS".padEnd(8)} DESCRIPTION`);
+  console.log("─".repeat(100));
   
-  for (const svc of services) {
-    const state = `${svc.active}/${svc.sub}`;
+  // Sort services by status (running first, then by name)
+  const sortedServices = services.sort((a, b) => {
+    const aRunning = a.active === "active" && a.sub === "running";
+    const bRunning = b.active === "active" && b.sub === "running";
+    if (aRunning !== bRunning) return bRunning ? 1 : -1;
+    return a.name.localeCompare(b.name);
+  });
+
+  for (const svc of sortedServices) {
+    // Better status formatting with colors/indicators
+    let statusIndicator = "";
+    let status = `${svc.active}/${svc.sub}`;
+    
+    if (svc.active === "active" && svc.sub === "running") {
+      statusIndicator = "✅";
+      status = "running";
+    } else if (svc.active === "activating" && svc.sub.includes("auto-restart")) {
+      statusIndicator = "🔄";
+      status = "restarting";
+    } else if (svc.active === "failed" || svc.sub === "failed") {
+      statusIndicator = "❌";
+      status = "failed";
+    } else if (svc.active === "inactive") {
+      statusIndicator = "⏸️";
+      status = "stopped";
+    } else {
+      statusIndicator = "⚠️";
+    }
+
+    const displayStatus = `${statusIndicator} ${status}`;
+    
     console.log(
-      `${svc.name.padEnd(20)} ${state.padEnd(12)} ${(svc.cpu || "-").padEnd(8)} ${(svc.memory || "-").padEnd(10)} ${(svc.uptime || "-").padEnd(12)} ${(svc.tasks || "-").padEnd(6)} ${svc.description}`
+      `${svc.name.padEnd(18)} ${displayStatus.padEnd(15)} ${(svc.cpu || "-").padEnd(10)} ${(svc.memory || "-").padEnd(12)} ${(svc.uptime || "-").padEnd(12)} ${(svc.tasks || "-").padEnd(8)} ${svc.description}`
     );
   }
   
-  console.log("\n📊 SRE Metrics Summary:");
+  // Enhanced summary
+  console.log("\n📊 Service Summary:");
   const totalServices = services.length;
-  const runningServices = services.filter(s => s.active === "active").length;
+  const runningServices = services.filter(s => s.active === "active" && s.sub === "running").length;
+  const failedServices = services.filter(s => s.active === "failed" || s.sub === "failed").length;
+  const restartingServices = services.filter(s => s.active === "activating" && s.sub.includes("auto-restart")).length;
   const totalMemory = services.reduce((sum, s) => sum + (s.memory ? parseMemory(s.memory) : 0), 0);
   
-  console.log(`  Services: ${runningServices}/${totalServices} running`);
-  console.log(`  Memory: ${formatMemory(totalMemory)}`);
-  console.log(`  Last updated: ${new Date().toISOString()}`);
+  console.log(`  📈 Status: ${runningServices} running, ${failedServices} failed, ${restartingServices} restarting`);
+  console.log(`  📦 Total: ${runningServices}/${totalServices} services running`);
+  console.log(`  💾 Memory: ${formatMemory(totalMemory)}`);
+  console.log(`  🕒 Last updated: ${new Date().toLocaleString()}`);
+
+  // Show failed services details
+  if (failedServices > 0) {
+    console.log("\n❌ Failed Services:");
+    const failed = services.filter(s => s.active === "failed" || s.sub === "failed");
+    for (const svc of failed) {
+      console.log(`  • ${svc.name}: ${svc.active}/${svc.sub}`);
+      console.log(`    💡 Try: bs9 logs ${svc.name} --tail 20`);
+    }
+  }
+
+  // Show restarting services details
+  if (restartingServices > 0) {
+    console.log("\n🔄 Restarting Services:");
+    const restarting = services.filter(s => s.active === "activating" && s.sub.includes("auto-restart"));
+    for (const svc of restarting) {
+      console.log(`  • ${svc.name}: ${svc.active}/${svc.sub}`);
+      console.log(`    💡 Try: bs9 logs ${svc.name} --tail 20`);
+    }
+  }
 }
 
 function formatCPU(nsec: number): string {
