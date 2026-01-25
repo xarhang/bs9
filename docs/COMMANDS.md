@@ -2,7 +2,7 @@
 
 ## Overview
 
-BS9 provides 19 powerful CLI commands for managing Bun applications. All commands are designed to be intuitive, secure, and production-ready.
+BS9 provides 21 powerful CLI commands for managing Bun applications. All commands are designed to be intuitive, secure, and production-ready with automatic platform detection and zero-configuration setup.
 
 ## 🚀 Core Commands
 

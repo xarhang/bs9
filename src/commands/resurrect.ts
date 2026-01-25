@@ -11,7 +11,7 @@
 
 import { execSync } from "node:child_process";
 import { join } from "node:path";
-import { getPlatformInfo } from "../platform/detect.js";
+import { getPlatformInfo, initializePlatformDirectories } from "../platform/detect.js";
 
 interface ResurrectOptions {
   all?: boolean;
@@ -28,6 +28,9 @@ function isValidServiceName(name: string): boolean {
 }
 
 export async function resurrectCommand(name: string, options: ResurrectOptions): Promise<void> {
+  // Initialize platform directories
+  initializePlatformDirectories();
+  
   const platformInfo = getPlatformInfo();
   
   // Handle resurrect all services
@@ -48,8 +51,7 @@ export async function resurrectCommand(name: string, options: ResurrectOptions):
       const escapedName = name.replace(/[^a-zA-Z0-9._-]/g, '');
       
       // Check if service exists in backup
-      const backupDir = join(platformInfo.configDir, 'backups');
-      const backupFile = join(backupDir, `${escapedName}.json`);
+      const backupFile = join(platformInfo.backupDir, `${escapedName}.json`);
       
       if (!require('node:fs').existsSync(backupFile)) {
         console.error(`❌ No backup found for service '${name}'`);
@@ -115,16 +117,12 @@ async function resurrectAllServices(platformInfo: any, options: ResurrectOptions
   try {
     console.log("🔄 Resurrecting all BS9 services from backup...");
     
+    // Initialize platform directories
+    initializePlatformDirectories();
+    
     if (platformInfo.isLinux) {
-      const backupDir = join(platformInfo.configDir, 'backups');
-      
-      if (!require('node:fs').existsSync(backupDir)) {
-        console.log("ℹ️ No backup directory found");
-        return;
-      }
-      
       // Get all backup files
-      const backupFiles = require('node:fs').readdirSync(backupDir)
+      const backupFiles = require('node:fs').readdirSync(platformInfo.backupDir)
         .filter((file: string) => file.endsWith('.json'));
       
       if (backupFiles.length === 0) {
@@ -137,7 +135,7 @@ async function resurrectAllServices(platformInfo: any, options: ResurrectOptions
       for (const backupFile of backupFiles) {
         try {
           const serviceName = backupFile.replace('.json', '');
-          const backupPath = join(backupDir, backupFile);
+          const backupPath = join(platformInfo.backupDir, backupFile);
           const backupConfig = JSON.parse(require('node:fs').readFileSync(backupPath, 'utf8'));
           
           // Restore service using backup configuration
@@ -161,11 +159,11 @@ async function resurrectAllServices(platformInfo: any, options: ResurrectOptions
       
     } else if (platformInfo.isMacOS) {
       console.log("📝 To resurrect all services on macOS, you need to manually restore the plist files from:");
-      console.log(`   ${join(platformInfo.configDir, 'backups')}/*.plist`);
+      console.log(`   ${platformInfo.backupDir}/*.plist`);
       console.log("   And then run: launchctl load ~/Library/LaunchAgents/bs9.*.plist");
     } else if (platformInfo.isWindows) {
       console.log("📝 To resurrect all services on Windows, use PowerShell:");
-      console.log("   Get-ChildItem -Path \"${join(platformInfo.configDir, 'backups')}\" | ForEach-Object { Restore-Service $_.Name }");
+      console.log("   Get-ChildItem -Path \"${platformInfo.backupDir}\" | ForEach-Object { Restore-Service $_.Name }");
     }
     
     console.log(`✅ All BS9 services resurrection process completed`);

@@ -11,7 +11,7 @@
 
 import { execSync } from "node:child_process";
 import { join, resolve } from "node:path";
-import { getPlatformInfo } from "../platform/detect.js";
+import { getPlatformInfo, initializePlatformDirectories } from "../platform/detect.js";
 
 interface SaveOptions {
   all?: boolean;
@@ -28,6 +28,9 @@ function isValidServiceName(name: string): boolean {
 }
 
 export async function saveCommand(name: string, options: SaveOptions): Promise<void> {
+  // Initialize platform directories
+  initializePlatformDirectories();
+  
   const platformInfo = getPlatformInfo();
   
   // Handle save all services
@@ -62,12 +65,8 @@ export async function saveCommand(name: string, options: SaveOptions): Promise<v
       // Parse service configuration to extract startup parameters
       const config = parseServiceConfig(serviceConfig, statusOutput);
       
-      // Create backup directory if it doesn't exist
-      const backupDir = join(platformInfo.configDir, 'backups');
-      require('node:fs').mkdirSync(backupDir, { recursive: true });
-      
       // Save configuration to backup
-      const backupFile = join(backupDir, `${escapedName}.json`);
+      const backupFile = join(platformInfo.backupDir, `${escapedName}.json`);
       const backupData = {
         name: name,
         file: extractFileFromConfig(serviceConfig),
@@ -89,7 +88,7 @@ export async function saveCommand(name: string, options: SaveOptions): Promise<v
       if (options.backup) {
         // Create additional backup with timestamp
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const timestampedBackup = join(backupDir, `${escapedName}-${timestamp}.json`);
+        const timestampedBackup = join(platformInfo.backupDir, `${escapedName}-${timestamp}.json`);
         require('node:fs').writeFileSync(timestampedBackup, JSON.stringify(backupData, null, 2));
         console.log(`📦 Additional backup created: ${timestampedBackup}`);
       }
@@ -118,6 +117,9 @@ async function saveAllServices(platformInfo: any, options: SaveOptions): Promise
   try {
     console.log("💾 Saving all BS9 service configurations...");
     
+    // Initialize platform directories
+    initializePlatformDirectories();
+    
     if (platformInfo.isLinux) {
       // Get all BS9 services
       const listOutput = execSync("systemctl --user list-units --type=service --no-pager --no-legend", { encoding: "utf-8" });
@@ -144,10 +146,6 @@ async function saveAllServices(platformInfo: any, options: SaveOptions): Promise
       
       console.log(`Found ${bs9Services.length} BS9 services to save...`);
       
-      // Create backup directory
-      const backupDir = join(platformInfo.configDir, 'backups');
-      require('node:fs').mkdirSync(backupDir, { recursive: true });
-      
       for (const serviceName of bs9Services) {
         try {
           const serviceFile = join(platformInfo.serviceDir, `${serviceName}.service`);
@@ -157,7 +155,7 @@ async function saveAllServices(platformInfo: any, options: SaveOptions): Promise
             const statusOutput = execSync(`systemctl --user show "${serviceName}"`, { encoding: "utf-8" });
             const config = parseServiceConfig(serviceConfig, statusOutput);
             
-            const backupFile = join(backupDir, `${serviceName}.json`);
+            const backupFile = join(platformInfo.backupDir, `${serviceName}.json`);
             const backupData = {
               name: serviceName,
               file: extractFileFromConfig(serviceConfig),

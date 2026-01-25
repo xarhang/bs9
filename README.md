@@ -1,7 +1,7 @@
 # BS9 (Bun Sentinel 9) 🚀
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-1.3.7-blue.svg)](https://github.com/xarhang/bs9)
+[![Version](https://img.shields.io/badge/version-1.3.9-blue.svg)](https://github.com/xarhang/bs9)
 [![Security](https://img.shields.io/badge/security-Enterprise-green.svg)](SECURITY.md)
 [![Production Ready](https://img.shields.io/badge/production-Ready-brightgreen.svg)](PRODUCTION.md)
 [![Cross-Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](https://github.com/bs9/bs9)
@@ -26,24 +26,25 @@ chmod +x ~/.local/bin/bs9
 
 ---
 
-### Platform Support
-
-BS9 supports all major platforms with native service management:
+### 🌐 Platform Support
+- **✅ Auto-Detection**: Automatically detects platform and creates directories
+- **✅ Zero Configuration**: No manual setup required
+- **✅ Cross-Platform**: Same commands work on all platforms
 
 #### 🐧 Linux
 - **Service Manager**: Systemd (user-mode)
 - **Features**: Advanced security hardening, resource limits, sandboxing
-- **Commands**: All standard commands available
+- **Commands**: All 21 commands available
 
 #### 🍎 macOS  
 - **Service Manager**: Launchd
 - **Features**: Native macOS integration, automatic recovery
-- **Commands**: Standard commands + `bs9 macos` for launchd management
+- **Commands**: All commands + `bs9 macos` for launchd management
 
 #### 🪟 Windows
 - **Service Manager**: Windows Services
 - **Features**: PowerShell automation, event log integration
-- **Commands**: Standard commands + `bs9 windows` for service management
+- **Commands**: All commands + `bs9 windows` for service management
 
 ```bash
 # Check your platform

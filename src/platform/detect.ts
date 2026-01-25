@@ -9,7 +9,8 @@
  * https://github.com/xarhang/bs9
  */
 
-import { platform } from "node:os";
+import { platform, homedir } from "node:os";
+import { join } from "node:path";
 
 export type Platform = 'linux' | 'darwin' | 'win32';
 
@@ -22,10 +23,12 @@ export interface PlatformInfo {
   configDir: string;
   logDir: string;
   serviceDir: string;
+  backupDir: string;
 }
 
 export function getPlatformInfo(): PlatformInfo {
   const currentPlatform = platform() as Platform;
+  const userHome = homedir();
   
   const baseInfo: PlatformInfo = {
     platform: currentPlatform,
@@ -35,29 +38,33 @@ export function getPlatformInfo(): PlatformInfo {
     serviceManager: 'systemd',
     configDir: '',
     logDir: '',
-    serviceDir: ''
+    serviceDir: '',
+    backupDir: ''
   };
   
   switch (currentPlatform) {
     case 'linux':
       baseInfo.serviceManager = 'systemd';
-      baseInfo.configDir = `${process.env.HOME}/.config/bs9`;
-      baseInfo.logDir = `${process.env.HOME}/.local/share/bs9/logs`;
-      baseInfo.serviceDir = `${process.env.HOME}/.config/systemd/user`;
+      baseInfo.configDir = join(userHome, '.config', 'bs9');
+      baseInfo.logDir = join(userHome, '.local', 'share', 'bs9', 'logs');
+      baseInfo.serviceDir = join(userHome, '.config', 'systemd', 'user');
+      baseInfo.backupDir = join(baseInfo.configDir, 'backups');
       break;
       
     case 'darwin':
       baseInfo.serviceManager = 'launchd';
-      baseInfo.configDir = `${process.env.HOME}/.bs9`;
-      baseInfo.logDir = `${process.env.HOME}/.bs9/logs`;
-      baseInfo.serviceDir = `${process.env.HOME}/Library/LaunchAgents`;
+      baseInfo.configDir = join(userHome, '.bs9');
+      baseInfo.logDir = join(userHome, '.bs9', 'logs');
+      baseInfo.serviceDir = join(userHome, 'Library', 'LaunchAgents');
+      baseInfo.backupDir = join(baseInfo.configDir, 'backups');
       break;
       
     case 'win32':
       baseInfo.serviceManager = 'windows-service';
-      baseInfo.configDir = `${process.env.USERPROFILE}/.bs9`;
-      baseInfo.logDir = `${process.env.USERPROFILE}/.bs9/logs`;
-      baseInfo.serviceDir = `${process.env.USERPROFILE}/.bs9/services`;
+      baseInfo.configDir = join(userHome, '.bs9');
+      baseInfo.logDir = join(userHome, '.bs9', 'logs');
+      baseInfo.serviceDir = join(userHome, '.bs9', 'services');
+      baseInfo.backupDir = join(baseInfo.configDir, 'backups');
       break;
       
     default:
@@ -77,13 +84,13 @@ export function getPlatformSpecificCommands(): string[] {
   
   switch (currentPlatform) {
     case 'linux':
-      return ['start', 'stop', 'restart', 'status', 'logs', 'monit', 'web', 'alert', 'export', 'deps', 'profile', 'loadbalancer', 'dbpool'];
+      return ['start', 'stop', 'restart', 'status', 'logs', 'monit', 'web', 'alert', 'export', 'deps', 'profile', 'delete', 'save', 'resurrect', 'loadbalancer', 'dbpool'];
       
     case 'darwin':
-      return ['start', 'stop', 'restart', 'status', 'logs', 'monit', 'web', 'alert', 'export', 'deps', 'profile', 'loadbalancer', 'dbpool', 'macos'];
+      return ['start', 'stop', 'restart', 'status', 'logs', 'monit', 'web', 'alert', 'export', 'deps', 'profile', 'delete', 'save', 'resurrect', 'loadbalancer', 'dbpool', 'macos'];
       
     case 'win32':
-      return ['start', 'stop', 'restart', 'status', 'logs', 'monit', 'web', 'alert', 'export', 'deps', 'profile', 'loadbalancer', 'dbpool', 'windows'];
+      return ['start', 'stop', 'restart', 'status', 'logs', 'monit', 'web', 'alert', 'export', 'deps', 'profile', 'delete', 'save', 'resurrect', 'loadbalancer', 'dbpool', 'windows'];
       
     default:
       return [];
@@ -142,5 +149,21 @@ Windows-specific:
       
     default:
       return `❌ Platform ${currentPlatform} is not supported`;
+  }
+}
+
+// Auto-detect and initialize platform-specific directories
+export function initializePlatformDirectories(): void {
+  const platformInfo = getPlatformInfo();
+  
+  // Create directories if they don't exist
+  const fs = require('node:fs');
+  
+  try {
+    fs.mkdirSync(platformInfo.configDir, { recursive: true });
+    fs.mkdirSync(platformInfo.logDir, { recursive: true });
+    fs.mkdirSync(platformInfo.backupDir, { recursive: true });
+  } catch (error) {
+    console.warn(`⚠️  Warning: Could not create platform directories: ${error}`);
   }
 }
