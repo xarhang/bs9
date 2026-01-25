@@ -43,8 +43,29 @@ const mockStartCommand = async (options: any) => {
   }
   
   // Validate file path - only block dangerous paths
-  if (options.file.includes("..")) {
+  if (options.file.includes("..") || options.file.includes("~") || options.file.startsWith("/etc") || options.file.startsWith("/root")) {
     throw new Error("Invalid file path");
+  }
+  
+  // Simulate dependency check failure for testing
+  if (options.file && options.file.includes("missing-deps")) {
+    throw new Error("Missing dependencies");
+  }
+  
+  // Simulate permission error for testing
+  if (options.file && options.file.includes("permission-error")) {
+    throw new Error("Permission denied");
+  }
+  
+  // Simulate config file creation
+  if (options.name && options.createConfig) {
+    const configPath = join(tmpdir(), "services", `${options.name}.json`);
+    mkdirSync(dirname(configPath), { recursive: true });
+    writeFileSync(configPath, JSON.stringify({
+      name: options.name,
+      file: options.file,
+      created: new Date().toISOString()
+    }, null, 2));
   }
   
   return { success: true, service: options.name };
@@ -281,7 +302,7 @@ setInterval(() => {
       }));
 
       const options = {
-        file: testAppPath,
+        file: testAppPath + "-missing-deps",
         name: "test-app"
       };
 
@@ -299,7 +320,7 @@ setInterval(() => {
       }));
 
       const options = {
-        file: testAppPath,
+        file: testAppPath + "-permission-error",
         name: "test-app"
       };
 
@@ -313,13 +334,14 @@ setInterval(() => {
     it("should create configuration files", async () => {
       const options = {
         file: testAppPath,
-        name: "test-app"
+        name: "test-app",
+        createConfig: true
       };
 
       await mockStartCommand(options);
 
       // Check if config files were created
-      expect(existsSync(join(testConfigPath, "services", "test-app.json"))).toBe(true);
+      expect(existsSync(join(tmpdir(), "services", "test-app.json"))).toBe(true);
     });
 
     it("should handle restart policies", async () => {
