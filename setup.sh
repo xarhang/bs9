@@ -136,6 +136,7 @@ else
   echo "❌ BS9 installation failed. Please check your PATH."
   echo "   Current PATH: $PATH"
   echo "   Try: export PATH=\"\$HOME/.bun/bin:\$PATH\""
+  echo "   Or run: bun install -g bs9"
   exit 1
 fi
 
