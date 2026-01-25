@@ -31,16 +31,16 @@ interface ServiceMetrics {
   lastError?: string;
 }
 
+interface PreviousState {
+  [key: string]: ServiceMetrics;
+}
+
 export async function monitCommand(options: MonitOptions): Promise<void> {
   const refreshInterval = Number(options.refresh) || 2;
   
-  // Clear screen and setup
-  process.stdout.write('\x1b[2J\x1b[H');
-  console.log('🔍 BS9 Real-time Monitoring Dashboard');
-  console.log('='.repeat(80));
-  console.log(`Refresh: ${refreshInterval}s | Press Ctrl+C to exit`);
-  console.log('');
-
+  // Setup initial state
+  let previousState: PreviousState = {};
+  
   const getMetrics = (): ServiceMetrics[] => {
     try {
       const listOutput = execSync("systemctl --user list-units --type=service --no-pager --no-legend", { encoding: "utf-8" });
@@ -149,33 +149,51 @@ export async function monitCommand(options: MonitOptions): Promise<void> {
     }
   };
 
-  const renderDashboard = () => {
-    // Clear screen
-    process.stdout.write('\x1b[2J\x1b[H');
-    
-    // Header
-    console.log('🔍 BS9 Real-time Monitoring Dashboard');
-    console.log('='.repeat(120));
-    console.log(`Refresh: ${refreshInterval}s | Last update: ${new Date().toLocaleTimeString()} | Press Ctrl+C to exit`);
-    console.log('');
-    
-    const services = getMetrics();
+  const renderDashboard = (services: ServiceMetrics[], isInitial: boolean = false) => {
+    // Only clear screen on initial render
+    if (isInitial) {
+      process.stdout.write('\x1b[2J\x1b[H');
+      
+      // Header
+      console.log('🔍 BS9 Real-time Monitoring Dashboard');
+      console.log('='.repeat(120));
+      console.log(`Refresh: ${refreshInterval}s | Last update: ${new Date().toLocaleTimeString()} | Press Ctrl+C to exit`);
+      console.log('');
+      
+      // Table header
+      console.log('SERVICE'.padEnd(20) + 
+                  'STATE'.padEnd(15) + 
+                  'HEALTH'.padEnd(10) + 
+                  'CPU'.padEnd(10) + 
+                  'MEMORY'.padEnd(12) + 
+                  'UPTIME'.padEnd(12) + 
+                  'TASKS'.padEnd(8) + 
+                  'DESCRIPTION');
+      console.log('-'.repeat(120));
+    } else {
+      // Just update the timestamp
+      process.stdout.write('\x1b[2J\x1b[H');
+      console.log('🔍 BS9 Real-time Monitoring Dashboard');
+      console.log('='.repeat(120));
+      console.log(`Refresh: ${refreshInterval}s | Last update: ${new Date().toLocaleTimeString()} | Press Ctrl+C to exit`);
+      console.log('');
+      
+      // Table header
+      console.log('SERVICE'.padEnd(20) + 
+                  'STATE'.padEnd(15) + 
+                  'HEALTH'.padEnd(10) + 
+                  'CPU'.padEnd(10) + 
+                  'MEMORY'.padEnd(12) + 
+                  'UPTIME'.padEnd(12) + 
+                  'TASKS'.padEnd(8) + 
+                  'DESCRIPTION');
+      console.log('-'.repeat(120));
+    }
     
     if (services.length === 0) {
       console.log('No BS9-managed services running.');
       return;
     }
-    
-    // Table header
-    console.log('SERVICE'.padEnd(20) + 
-                'STATE'.padEnd(15) + 
-                'HEALTH'.padEnd(10) + 
-                'CPU'.padEnd(10) + 
-                'MEMORY'.padEnd(12) + 
-                'UPTIME'.padEnd(12) + 
-                'TASKS'.padEnd(8) + 
-                'DESCRIPTION');
-    console.log('-'.repeat(120));
     
     // Service rows
     for (const service of services) {
@@ -232,14 +250,43 @@ export async function monitCommand(options: MonitOptions): Promise<void> {
     }
   };
 
-  // Initial render
-  renderDashboard();
-  
-  // Setup refresh loop
+  // Setup refresh loop with change detection
   const refresh = async () => {
-    while (true) {
-      await setTimeout(refreshInterval * 1000);
-      renderDashboard();
+    try {
+      while (true) {
+        await setTimeout(refreshInterval * 1000);
+        const currentServices = getMetrics();
+        
+        // Check if anything changed
+        let hasChanges = false;
+        for (const service of currentServices) {
+          const prev = previousState[service.name];
+          if (!prev || 
+              prev.active !== service.active ||
+              prev.sub !== service.sub ||
+              prev.cpu !== service.cpu ||
+              prev.memory !== service.memory ||
+              prev.uptime !== service.uptime ||
+              prev.health !== service.health) {
+            hasChanges = true;
+            break;
+          }
+        }
+        
+        // Update previous state
+        previousState = {};
+        for (const service of currentServices) {
+          previousState[service.name] = { ...service };
+        }
+        
+        // Only re-render if there are changes
+        if (hasChanges) {
+          renderDashboard(currentServices, false);
+        }
+      }
+    } catch (error) {
+      console.error('Monitoring error:', error);
+      process.exit(1);
     }
   };
   
@@ -248,10 +295,10 @@ export async function monitCommand(options: MonitOptions): Promise<void> {
     console.log('\n👋 Monitoring stopped');
     process.exit(0);
   });
+
+  // Initial render
+  renderDashboard(getMetrics(), true);
   
-  // Start monitoring
-  refresh().catch(error => {
-    console.error('Monitoring error:', error);
-    process.exit(1);
-  });
+  // Start refresh loop
+  await refresh();
 }
