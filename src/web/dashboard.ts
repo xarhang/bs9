@@ -86,11 +86,26 @@ const getMetrics = (): ServiceMetrics[] => {
       
       // Check health endpoint
       try {
+        let port: string | null = null;
+        
+        // First try to get port from description
         const portMatch = description.match(/port[=:]?\s*(\d+)/i);
         if (portMatch) {
-          const port = portMatch[1];
+          port = portMatch[1];
+        } else {
+          // If not in description, check environment variables
+          const envOutput = execSync(`systemctl --user show ${name} -p Environment`, { encoding: "utf-8" });
+          const envPortMatch = envOutput.match(/PORT=(\d+)/);
+          if (envPortMatch) {
+            port = envPortMatch[1];
+          }
+        }
+        
+        if (port) {
           const healthCheck = execSync(`curl -s -o /dev/null -w "%{http_code}" http://localhost:${port}/healthz`, { encoding: "utf-8", timeout: 1000 });
           service.health = healthCheck === "200" ? "healthy" : "unhealthy";
+        } else {
+          service.health = "no_port";
         }
       } catch {
         service.health = "unknown";
