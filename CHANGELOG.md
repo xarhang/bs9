@@ -135,7 +135,72 @@ All notable changes to BS9 (Bun Sentinel 9) will be documented in this file.
 
 ---
 
-## [1.2.0] - 2026-01-25
+## [1.3.3] - 2026-01-25
+
+### Fixed
+- **Version Management System**
+  - Implemented automatic version synchronization between package.json and bin/bs9
+  - Added build:version script for automated version updates
+  - Created scripts/update-version.js for version management
+  - Resolved version mismatch issues in NPM packages
+
+### Changed
+- **Build Process**
+  - Enhanced build workflow with version synchronization
+  - Improved package.json scripts for better development experience
+  - Streamlined version update process
+
+### Fixed
+- **Installation Issues**
+  - Resolved setup.sh version mismatch problems
+  - Fixed Bun cache issues with version updates
+  - Improved error handling in installation scripts
+  - Enhanced fallback mechanisms for failed installations
+
+---
+
+## [1.3.2] - 2026-01-25
+
+### Fixed
+- **Peer Dependency Warnings**
+  - Downgraded @opentelemetry/api from ^1.9.0 to ^1.8.0
+  - Resolved Bun v1.3.6 compatibility issues
+  - Clean installation without dependency warnings
+
+### Changed
+- **Dependencies**
+  - Updated OpenTelemetry API version for Bun compatibility
+  - Maintained full functionality while fixing warnings
+
+---
+
+## [1.3.1] - 2026-01-25
+
+### Fixed
+- **Setup Script Improvements**
+  - Fixed repository URL from your-org/bsn to xarhang/bs9
+  - Updated all references from BSN to BS9
+  - Enhanced installation with npm/bun preference
+  - Added installation verification and error handling
+
+### Added
+- **Configuration Updates**
+  - Enhanced configuration with v1.3.0 features
+  - Added host and protocol settings
+  - Service discovery configuration
+  - Update management settings
+  - Advanced monitoring options
+
+### Changed
+- **Installation Process**
+  - Preferred npm global installation
+  - Fallback to bun installation
+  - Source installation as last resort
+  - Better PATH management
+
+---
+
+## [1.3.0] - 2026-01-25
 
 ### Added
 - **Advanced Monitoring Dashboards**
@@ -234,74 +299,3 @@ All notable changes to BS9 (Bun Sentinel 9) will be documented in this file.
 - Basic process management
 - Simple monitoring
 - Linux systemd support
-
-- **Multi-Region Deployment Support**
-  - Cross-region service management
-  - Automatic failover orchestration
-  - Global load balancing and traffic routing
-  - Disaster recovery automation
-
-- **Advanced Security Policies**
-  - RBAC integration and role-based access
-  - Network policies and micro-segmentation
-  - Secret management (Vault, AWS Secrets Manager)
-  - Compliance reporting and security scanning
-
-- **External Monitoring Integration**
-  - Prometheus advanced metrics collection
-  - Grafana pre-built and custom dashboards
-  - Datadog full observability stack
-  - ELK stack for centralized logging
-  - Jaeger/Zipkin distributed tracing
-
-#### Medium Priority Features
-- **Performance Optimization**
-  - Auto-scaling with intelligent resource allocation
-  - AI-driven optimization and caching layers
-  - Database optimization and query performance
-  - Network traffic shaping and optimization
-
-- **Developer Experience**
-  - CLI enhancements and IDE plugins
-  - Hot reload and advanced debugging tools
-  - Integrated testing and CI/CD frameworks
-  - API management and documentation generation
-
-- **API Management**
-  - Built-in API gateway functionality
-  - Rate limiting and throttling capabilities
-  - API versioning and deprecation management
-  - Usage analytics and reporting
-
-#### Technical Debt & Improvements
-- **Code Quality**
-  - Comprehensive unit and integration test coverage
-  - Performance benchmarking framework
-  - Security scanning and compliance checks
-  - Documentation generation and maintenance
-
-- **Infrastructure**
-  - Enhanced CI/CD pipeline automation
-  - Performance testing infrastructure
-  - Documentation hosting and distribution
-  - Community contribution workflows
-
-### Success Metrics
-- 99.9% uptime for managed services
-- < 100ms average response time
-- < 1% error rate across all services
-- 1000+ active installations
-- 50+ community contributors
-- 4.8+ user satisfaction rating
-
-### Resource Requirements
-- 2 Senior Backend Engineers
-- 1 Frontend Engineer (Dashboard)
-- 1 DevOps Engineer
-- 1 QA Engineer
-- 1 Technical Writer
-
-### Timeline
-- **Q2 2026**: Advanced monitoring, service discovery, testing improvements
-- **Q3 2026**: Multi-region support, security policies, external integrations
-- **Q4 2026**: Developer experience, API management, ecosystem expansion
