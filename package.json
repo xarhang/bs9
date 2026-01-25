@@ -17,6 +17,7 @@
   "scripts": {
     "start": "bun run src/index.ts",
     "build": "bun build ./bin/bs9 --outdir ./dist --target bun",
+    "build:version": "node scripts/update-version.js",
     "audit": "bun audit"
   },
   "keywords": [

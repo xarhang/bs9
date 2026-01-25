@@ -5,6 +5,7 @@ import { existsSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { getPlatformInfo } from "../platform/detect.js";
+import * as fs from "node:fs";
 
 interface UpdateOptions {
   check?: boolean;
@@ -52,11 +53,11 @@ class BS9Updater {
     try {
       // Use the actual package.json path from the project root
       const packageJson = join(process.cwd(), 'package.json');
-      const content = require('fs').readFileSync(packageJson, 'utf-8');
+      const content = fs.readFileSync(packageJson, 'utf8');
       const pkg = JSON.parse(content);
       return pkg.version;
     } catch {
-      return '1.0.0'; // Fallback version
+      return '1.3.3'; // Fallback version
     }
   }
   
@@ -67,7 +68,7 @@ class BS9Updater {
       return data.version;
     } catch (error) {
       console.warn('⚠️  Failed to fetch latest version from npm, using fallback');
-      return '1.3.0'; // Return current version as fallback
+      return '1.3.3'; // Return current version as fallback
     }
   }
   
@@ -140,49 +141,28 @@ class BS9Updater {
   public async performUpdate(targetVersion?: string): Promise<void> {
     console.log('🔄 Starting BS9 update...');
     
-    // Create backup
-    console.log('📦 Creating backup...');
-    const backup = this.createBackup();
-    console.log(`✅ Backup created: ${backup.version}-${backup.timestamp}`);
+    // Get latest version if not specified
+    const latestVersion = targetVersion || await this.getLatestVersion();
+    const currentVersion = this.getCurrentVersion();
     
-    // Update package.json version
-    const packageJsonPath = join(process.cwd(), 'package.json');
-    const packageJson = JSON.parse(require('fs').readFileSync(packageJsonPath, 'utf-8'));
-    const oldVersion = packageJson.version;
-    packageJson.version = targetVersion || await this.getLatestVersion();
-    
-    require('fs').writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 2));
-    console.log(`📝 Updated version: ${oldVersion} → ${packageJson.version}`);
-    
-    // Install dependencies
-    console.log('📦 Installing dependencies...');
-    try {
-      execSync('bun install', { stdio: 'inherit', cwd: process.cwd() });
-      console.log('✅ Dependencies installed');
-    } catch (error) {
-      console.error('❌ Failed to install dependencies:', error);
-      await this.rollback(backup);
-      throw error;
+    if (currentVersion === latestVersion && !targetVersion) {
+      console.log('✅ BS9 is already up to date');
+      console.log(`   Current version: ${currentVersion}`);
+      return;
     }
     
-    // Rebuild
-    console.log('🔨 Rebuilding BS9...');
+    console.log(`� Updating from ${currentVersion} to ${latestVersion}`);
+    
+    // Use npm to update globally
+    console.log('📦 Installing latest version...');
     try {
-      execSync('bun run build', { stdio: 'inherit', cwd: process.cwd() });
-      console.log('✅ Build completed');
+      execSync(`bun install -g bs9@${latestVersion}`, { stdio: 'inherit' });
+      console.log('✅ BS9 updated successfully!');
+      console.log(`   Version: ${latestVersion}`);
     } catch (error) {
-      console.error('❌ Build failed:', error);
-      await this.rollback(backup);
-      throw error;
+      console.error('❌ Failed to update BS9:', error);
+      console.log('💡 Try: bun install -g bs9@latest');
     }
-    
-    // Save backup info
-    const backupInfoPath = join(this.backupDir, `current-backup.json`);
-    writeFileSync(backupInfoPath, JSON.stringify(backup, null, 2));
-    
-    console.log('🎉 BS9 updated successfully!');
-    console.log(`   Version: ${packageJson.version}`);
-    console.log(`   Backup: ${backup.version}-${backup.timestamp}`);
   }
   
   public async rollback(backup?: BackupInfo): Promise<void> {
