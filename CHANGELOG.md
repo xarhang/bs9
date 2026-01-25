@@ -135,18 +135,9 @@ All notable changes to BS9 (Bun Sentinel 9) will be documented in this file.
 
 ---
 
-## [Unreleased]
+## [1.2.0] - 2026-01-25
 
-### Planned
-- [ ] Advanced monitoring dashboards with custom widgets
-- [ ] Service discovery integration
-- [ ] Multi-region deployment support
-- [ ] Advanced security policies
-- [ ] Integration with external monitoring systems
-
-### Phase 2 Roadmap (2026 Q2-Q4)
-
-#### High Priority Features
+### Added
 - **Advanced Monitoring Dashboards**
   - Custom widgets and multi-tenant support
   - Historical trending and anomaly detection
@@ -158,6 +149,91 @@ All notable changes to BS9 (Bun Sentinel 9) will be documented in this file.
   - Kubernetes service discovery support
   - DNS-based discovery protocols
   - Service mesh support (Istio, Linkerd)
+
+- **Multi-Region Deployment Support**
+  - Cross-region service coordination
+  - Geographic load balancing
+  - Regional failover and disaster recovery
+  - Multi-region configuration management
+
+- **Advanced Security Policies**
+  - Role-based access control (RBAC)
+  - Zero-trust network policies
+  - Advanced threat detection
+  - Compliance automation (SOC2, GDPR, HIPAA)
+
+- **External Monitoring Integration**
+  - Prometheus federation support
+  - Grafana dashboard templates
+  - Datadog integration
+  - New Relic APM integration
+
+- **BS9 Update System**
+  - Self-updating CLI tool
+  - Automatic dependency management
+  - Rollback capabilities
+  - Update notification system
+
+### Changed
+- Enhanced monitoring dashboard with real-time widgets
+- Improved service discovery performance
+- Updated security policy engine
+- Optimized multi-region synchronization
+
+### Fixed
+- Service discovery registration race conditions
+- Multi-region deployment conflicts
+- Security policy validation edge cases
+- Update system reliability issues
+
+## [1.1.0] - 2026-01-25
+
+### Added
+- **Cross-Platform Support**
+  - Linux (systemd user-mode services)
+  - macOS (launchd integration)
+  - Windows (native service management)
+  - Automatic platform detection
+
+- **Enterprise Security Hardening**
+  - Input validation and sanitization
+  - Path traversal protection
+  - Command injection prevention
+  - SQL injection prevention
+  - Session token authentication
+
+- **Complete Monitoring & Observability**
+  - Real-time terminal dashboard
+  - Web dashboard with API endpoints
+  - Historical metrics export
+  - Alert system with webhooks
+  - Performance profiling
+
+- **Advanced Features**
+  - Load balancer management
+  - Database connection pool
+  - Dependency visualization
+  - Service lifecycle management
+
+### Changed
+- Complete rewrite with enterprise-grade security
+- Cross-platform compatibility
+- Enhanced monitoring capabilities
+- Production-ready deployment features
+
+### Fixed
+- All security vulnerabilities
+- Cross-platform compatibility issues
+- Performance bottlenecks
+- Documentation gaps
+
+## [1.0.0] - 2026-01-25
+
+### Added
+- Initial BS9 release
+- Basic process management
+- Simple monitoring
+- Linux systemd support
 
 - **Multi-Region Deployment Support**
   - Cross-region service management

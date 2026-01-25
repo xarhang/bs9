@@ -15,7 +15,10 @@ import { profileCommand } from "../src/commands/profile.js";
 import { loadbalancerCommand } from "../src/loadbalancer/manager.js";
 import { windowsCommand } from "../src/windows/service.js";
 import { launchdCommand } from "../src/macos/launchd.js";
+import { updateCommand } from "../src/commands/update.js";
 import { dbpoolCommand } from "../src/database/pool.js";
+import { advancedMonitoringCommand } from "../src/monitoring/advanced.js";
+import { consulCommand } from "../src/discovery/consul.js";
 
 const program = new Command();
 
@@ -144,5 +147,35 @@ program
   .option("--concurrency <num>", "Test concurrency", "10")
   .option("--iterations <num>", "Test iterations", "100")
   .action(dbpoolCommand);
+
+program
+  .command("update")
+  .description("Update BS9 to latest version")
+  .option("--check", "Check for updates without installing")
+  .option("--force", "Force update even if already latest")
+  .option("--rollback", "Rollback to previous version")
+  .option("--version <version>", "Update to specific version")
+  .action(updateCommand);
+
+program
+  .command("advanced")
+  .description("Advanced monitoring dashboard")
+  .option("--port <port>", "Dashboard port", "8090")
+  .action(advancedMonitoringCommand);
+
+program
+  .command("consul")
+  .description("Consul service discovery")
+  .argument("<action>", "Action to perform")
+  .option("--consul-url <url>", "Consul URL", "http://localhost:8500")
+  .option("--name <name>", "Service name")
+  .option("--id <id>", "Service ID")
+  .option("--address <address>", "Service address")
+  .option("--port <port>", "Service port")
+  .option("--tags <tags>", "Service tags (comma-separated)")
+  .option("--health-check <url>", "Health check URL")
+  .option("--meta <json>", "Service metadata (JSON)")
+  .option("--service <service>", "Service name for discovery")
+  .action(consulCommand);
 
 program.parse();

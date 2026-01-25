@@ -1,5 +1,5 @@
 [Unit]
-Description=BSN Bun Service
+Description=BS9 Bun Service
 After=network-online.target
 Wants=network-online.target
 
@@ -11,7 +11,7 @@ Restart=on-failure
 RestartSec=2s
 TimeoutStartSec=30s
 TimeoutStopSec=30s
-WorkingDirectory=/opt/BSN/current
+WorkingDirectory=/opt/BS9/current
 ExecStart=/usr/bin/bun run start
 Environment=PORT=3000
 Environment=NODE_ENV=production
