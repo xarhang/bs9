@@ -1,7 +1,7 @@
 # BS9 (Bun Sentinel 9) 🚀
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-1.3.9-blue.svg)](https://github.com/xarhang/bs9)
+[![Version](https://img.shields.io/badge/version-1.4.2-blue.svg)](https://github.com/xarhang/bs9)
 [![Security](https://img.shields.io/badge/security-Enterprise-green.svg)](SECURITY.md)
 [![Production Ready](https://img.shields.io/badge/production-Ready-brightgreen.svg)](PRODUCTION.md)
 [![Cross-Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](https://github.com/bs9/bs9)
@@ -34,7 +34,7 @@ chmod +x ~/.local/bin/bs9
 #### 🐧 Linux
 - **Service Manager**: Systemd (user-mode)
 - **Features**: Advanced security hardening, resource limits, sandboxing
-- **Commands**: All 21 commands available
+- **Commands**: All 22 commands available
 
 #### 🍎 macOS  
 - **Service Manager**: Launchd
@@ -55,6 +55,31 @@ bs9 macos create --name my-app --file app.js  # macOS
 bs9 windows create --name my-app --file app.js # Windows
 ```
 
+### 🚀 Killer Feature: Zero-Config Deployment
+
+**Why choose BS9 over PM2 or systemd?**  
+**One command does everything:**
+
+```bash
+# Deploy with production-ready setup
+bs9 deploy app.ts --name my-api --port 8080 --env NODE_ENV=production
+```
+
+**What `bs9 deploy` does automatically:**
+- ✅ Creates systemd service with security hardening
+- ✅ Enables user services persistence (linger)
+- ✅ Sets up health checks (`/healthz`, `/metrics`)
+- ✅ Enables OpenTelemetry and Prometheus metrics
+- ✅ Configures smart restart policies
+- ✅ Performs health validation
+- ✅ Shows management commands and access URLs
+
+**Hot reload capabilities:**
+```bash
+# Update configuration without downtime
+bs9 deploy app.ts --reload --env NEW_CONFIG=value
+```
+
 ## 📋 Complete CLI Commands
 
 ### Service Management
@@ -65,11 +90,44 @@ bs9 start app.js --host 0.0.0.0 --port 8080        # Custom host and port
 bs9 start app.js --host 192.168.1.100 --https      # Custom host with HTTPS
 bs9 start app.ts --build --name myapp --port 8080 --env NODE_ENV=production --host 0.0.0.0 --https
 
-# Service lifecycle
+# Stop service
 bs9 stop myapp
+
+# Restart service
 bs9 restart myapp
-bs9 status                         # SRE metrics dashboard
-bs9 logs myapp --follow
+
+# Enhanced status display with visual indicators
+bs9 status                                         # Show all services
+bs9 status myapp                                  # Show specific service
+
+# View logs
+bs9 logs myapp                                    # Show logs
+bs9 logs myapp --follow                           # Follow logs
+bs9 logs myapp --tail 50                          # Show last 50 lines
+
+# Delete services
+bs9 delete myapp                                  # Delete specific service
+bs9 delete myapp --remove                         # Delete and remove config files
+bs9 delete --all                                  # Delete all services
+bs9 delete --all --force                          # Force delete all services
+
+# Deploy applications (KILLER FEATURE)
+bs9 deploy app.ts                                 # Zero-config deployment
+bs9 deploy app.ts --name my-api --port 8080 --env NODE_ENV=production
+bs9 deploy app.ts --reload --env NEW_CONFIG=value  # Hot reload with new config
+```
+
+### Backup & Recovery
+```bash
+# Save service configurations
+bs9 save myapp                                    # Save specific service
+bs9 save --all                                    # Save all services
+bs9 save myapp --backup                           # Save with timestamped backup
+
+# Restore services from backup
+bs9 resurrect myapp                               # Restore specific service
+bs9 resurrect --all                               # Restore all services
+bs9 resurrect myapp --config custom.json         # Restore with custom config
 ```
 
 ### Monitoring & Observability
@@ -107,6 +165,11 @@ bs9 delete --all                    # Delete all services
 bs9 delete --all --force           # Force delete all services
 bs9 delete myapp --timeout 60      # Custom graceful shutdown timeout
 
+# Deploy applications (KILLER FEATURE)
+bs9 deploy app.ts                                 # Zero-config deployment
+bs9 deploy app.ts --name my-api --port 8080 --env NODE_ENV=production
+bs9 deploy app.ts --reload --env NEW_CONFIG=value  # Hot reload with new config
+
 # Backup and restore
 bs9 save myapp                     # Save service configuration
 bs9 save --all                     # Save all services
@@ -119,11 +182,32 @@ bs9 resurrect --all               # Restore all services
 
 ## 🎯 Key Features
 
+### 🚀 Zero-Config Deployment (KILLER FEATURE)
+- **One-Command Setup**: `bs9 deploy app.ts` does everything automatically
+- **Production Ready**: Security hardening, health checks, metrics enabled
+- **Hot Reload**: Update configurations without downtime
+- **Port Detection**: Automatic service discovery and access URLs
+- **Environment Management**: Easy environment variable updates
+
+### 📊 Enhanced Status Display
+- **Visual Indicators**: ✅🔄❌⚠️⏸️ for instant health assessment
+- **Perfect Alignment**: All columns properly aligned with accurate data
+- **Detailed Metrics**: CPU, Memory, Uptime, Tasks, Port information
+- **Troubleshooting Hints**: Actionable commands for common issues
+- **Service Sections**: Running, Restarting, Failed services clearly separated
+
 ### 🔍 Real-time Monitoring
 - **Terminal Dashboard**: Live terminal UI with color-coded status
 - **Web Dashboard**: Browser-based monitoring with auto-refresh
 - **Health Checks**: Automatic `/healthz`, `/readyz`, `/metrics` endpoints
 - **SRE Metrics**: CPU, Memory, Uptime, Task tracking
+
+### 💾 Backup & Recovery System
+- **Service Configuration Backup**: Complete JSON-based backup system
+- **Timestamped Backups**: Version control for service configurations
+- **Bulk Operations**: Save and restore all services at once
+- **Cross-Platform**: Works on Linux, macOS, Windows
+- **Disaster Recovery**: Quick system restoration from backups
 
 ### 📊 Historical Metrics Storage
 - **Local Storage**: JSON-based metrics storage in `~/.config/bs9/metrics/`

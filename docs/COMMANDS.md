@@ -311,318 +311,158 @@ bs9 resurrect my-app --config custom-config.json
 
 **Examples:**
 ```bash
-# Restore development environment
-bs9 resurrect --all
+# BS9 CLI Commands Documentation
 
-# Restore specific service with custom settings
-bs9 resurrect my-app --config production-config.json
+## Overview
 
-# Quick restore after system reboot
-bs9 resurrect --all --force
+BS9 provides 22 powerful CLI commands for managing Bun applications. All commands are designed to be intuitive, secure, and production-ready with automatic platform detection and zero-configuration setup.
+
+## 🚀 Core Commands
+
+### 1. `bs9 start` - Start Applications
+
+Starts a Bun application as a managed service with built-in security and monitoring.
+
+```bash
+# Basic usage
+bs9 start app.js
+
+# Deploy with production settings (KILLER FEATURE)
+bs9 deploy app.ts --name my-api --port 8080 --env NODE_ENV=production
 ```
 
-### 9. `bs9 status` - Check Service Status
+### 2. `bs9 deploy` - Zero-Config Deployment (KILLER FEATURE)
 
-Displays detailed status information about services.
+Deploy applications with zero-config production setup.
+
+```bash
+# Basic deployment
+bs9 deploy app.js
+
+# Deploy with custom configuration
+bs9 deploy app.ts --name my-api --port 8080 --env NODE_ENV=production
+
+# Hot reload existing service
+bs9 deploy app.js --reload --env NEW_CONFIG=value
+```
+
+**What `bs9 deploy` does automatically:**
+- ✅ Creates systemd service with security hardening
+- ✅ Enables user services persistence (linger)
+- ✅ Sets up health checks (`/healthz`, `/metrics`)
+- ✅ Enables OpenTelemetry and Prometheus metrics
+- ✅ Configures smart restart policies
+- ✅ Performs health validation
+
+### 3. `bs9 status` - Enhanced Status Display
+
+Shows service status with visual indicators and detailed metrics.
 
 ```bash
 # Show all services
 bs9 status
 
-# Show specific service
-bs9 status my-app
+# Sample Output:
+SERVICE            STATUS          CPU        MEMORY       UPTIME       TASKS    DESCRIPTION
+────────────────────────────────────────────────────────────────────────────────────────────────────
+myapp              ✅ running       52.3ms     8.5MB        2m 15s       1        BS9 Service: myapp
 
-# Show detailed information
-bs9 status --detailed
-
-# Show JSON output
-bs9 status --json
-
-# Show only running services
-bs9 status --running
-
-# Show only failed services
-bs9 status --failed
-
-# Show resource usage
-bs9 status --resources
-
-# Show uptime information
-bs9 status --uptime
-
-# Show SRE metrics
-bs9 status --sre
+📊 Service Summary:
+  📈 Status: 1 running, 0 failed, 0 restarting
+  📦 Total: 1/1 services running
+  💾 Memory: 8.5MB
 ```
 
-**Options:**
-- `--detailed, -d`: Show detailed information
-- `--json, -j`: JSON output format
-- `--running, -r`: Show only running services
-- `--failed, -f`: Show only failed services
-- `--resources`: Show resource usage
-- `--uptime, -u`: Show uptime information
-- `--sre`: Show SRE metrics
+### 4. `bs9 delete` - Delete Services
 
-**Output Fields:**
-- Service name and status
-- Process ID (PID)
-- Uptime and restart count
-- Memory and CPU usage
-- Port binding information
-- Last restart reason
-- Health check status
-
-## 📊 Monitoring Commands
-
-### 10. `bs9 monit` - Real-time Monitoring Dashboard
-
-Launches a real-time monitoring dashboard in the terminal.
+Deletes managed services with cleanup options.
 
 ```bash
-# Start monitoring dashboard
-bs9 monit
-
-# Monitor specific service
-bs9 monit --service my-app
-
-# Monitor multiple services
-bs9 monit --service my-app --service another-app
-
-# Set refresh interval (default: 2 seconds)
-bs9 monit --refresh 1
-
-# Show only metrics
-bs9 monit --metrics-only
-
-# Show only logs
-bs9 monit --logs-only
-
-# Enable sound alerts
-bs9 monit --alert
-
-# Export metrics to file
-bs9 monit --export metrics.json
-
-# Custom dashboard layout
-bs9 monit --layout compact
+# Delete all services
+bs9 delete --all --force
 ```
 
-**Options:**
-- `--service, -s`: Specific service to monitor
-- `--refresh, -r`: Refresh interval in seconds
-- `--metrics-only`: Show only metrics
-- `--logs-only`: Show only logs
-- `--alert, -a`: Enable sound alerts
-- `--export, -e`: Export metrics to file
-- `--layout, -l`: Dashboard layout (compact|expanded)
+### 5. `bs9 save` - Service Configuration Backup
 
-**Dashboard Features:**
-- Real-time CPU and memory usage
-- Request/response rates
-- Error rates and alerts
-- Service health status
-- Log streaming
-- Performance metrics
-
-### 11. `bs9 logs` - View Application Logs
-
-Displays and filters application logs.
+Saves service configurations to backup files.
 
 ```bash
-# Show logs for specific service
-bs9 logs my-app
-
-# Show logs for all services
-bs9 logs --all
-
-# Show last 100 lines
-bs9 logs my-app --tail 100
-
-# Follow logs in real-time
-bs9 logs my-app --follow
-
-# Filter by log level
-bs9 logs my-app --level error
-
-# Show logs from last hour
-bs9 logs my-app --since 1h
-
-# Show logs with timestamps
-bs9 logs my-app --timestamps
-
-# Search logs for specific text
-bs9 logs my-app --search "error"
-
-# Export logs to file
-bs9 logs my-app --export logs.txt
-
-# Show system logs
-bs9 logs --system
+# Save all services
+bs9 save --all
 ```
 
-**Options:**
-- `--all, -a`: Show logs for all services
-- `--tail, -t`: Number of lines to show
-- `--follow, -f`: Follow logs in real-time
-- `--level, -l`: Filter by log level (debug|info|warn|error)
-- `--since, -s`: Show logs since time period
-- `--timestamps`: Show timestamps
-- `--search`: Search for specific text
-- `--export, -e`: Export logs to file
-- `--system`: Show system logs
+### 6. `bs9 resurrect` - Service Restoration
 
-### 12. `bs9 web` - Web Dashboard
-
-Launches a web-based monitoring dashboard.
+Restores services from saved backup configurations.
 
 ```bash
-# Start web dashboard
-bs9 web
-
-# Start on specific port
-bs9 web --port 8080
-
-# Start in background
-bs9 web --detach
-
-# Bind to specific host
-bs9 web --host 0.0.0.0
-
-# Enable authentication
-bs9 web --auth username:password
-
-# Use custom session token
-bs9 web --token your-secret-token
-
-# Enable HTTPS
-bs9 web --https --cert /path/to/cert.pem --key /path/to/key.pem
-
-# Custom dashboard title
-bs9 web --title "My BS9 Dashboard"
-
-# Enable API endpoints
-bs9 web --api
+# Restore all services
+bs9 resurrect --all
 ```
 
-**Options:**
-- `--port, -p`: Port to bind (default: 3000)
-- `--host, -h`: Host to bind (default: localhost)
-- `--detach, -d`: Run in background
-- `--auth, -a`: Basic authentication (user:pass)
-- `--token, -t`: Session token for authentication
-- `--https`: Enable HTTPS
-- `--cert`: SSL certificate file
-- `--key`: SSL private key file
-- `--title`: Dashboard title
-- `--api`: Enable REST API endpoints
+---
 
-**Web Features:**
-- Interactive service management
-- Real-time metrics visualization
-- Historical data charts
-- Log viewer with search
-- Configuration management
-- Alert management
-- API documentation
+## 🎯 Key Features
 
-## 🔧 Management Commands
+### 🚀 Zero-Config Deployment (KILLER FEATURE)
+- **One-Command Setup**: `bs9 deploy app.ts` does everything automatically
+- **Production Ready**: Security hardening, health checks, metrics enabled
+- **Hot Reload**: Update configurations without downtime
 
-### 13. `bs9 update` - Update BS9
+### 📊 Enhanced Status Display
+- **Visual Indicators**: ✅🔄❌⚠️⏸️ for instant health assessment
+- **Perfect Alignment**: All columns properly aligned with accurate data
+- **Detailed Metrics**: CPU, Memory, Uptime, Tasks, Port information
 
-Updates BS9 to the latest version or specific version.
+### 💾 Backup & Recovery System
+- **Complete JSON-based backup system**
+- **Cross-Platform**: Works on Linux, macOS, Windows
+- **Disaster Recovery**: Quick system restoration
 
-```bash
-# Check for updates
-bs9 update --check
+---
 
-# Update to latest version
-bs9 update
+## 🌟 Why Choose BS9?
 
-# Update to specific version
-bs9 update --version 1.3.4
+### vs PM2
+| Feature | PM2 | BS9 |
+|--------|-----|-----|
+| **Setup** | `pm2 start app.js` | `bs9 deploy app.js` |
+| **Systemd** | Manual setup | ✅ Auto-configured |
+| **Health Checks** | Manual setup | ✅ Built-in |
+| **Zero-Config** | ❌ | ✅ |
 
-# Force update
-bs9 update --force
+---
 
-# Update with backup
-bs9 update --backup
+## 📚 Complete Command List
 
-# Rollback to previous version
-bs9 update --rollback
+1. `bs9 start` - Start applications
+2. `bs9 deploy` - **KILLER FEATURE** - Zero-config deployment
+3. `bs9 status` - Enhanced status display with visual indicators
+4. `bs9 stop` - Stop services
+5. `bs9 restart` - Restart services
+6. `bs9 delete` - Delete services
+7. `bs9 logs` - View application logs
+8. `bs9 monit` - Terminal dashboard
+9. `bs9 web` - Web dashboard
+10. `bs9 alert` - Alert management
+11. `bs9 export` - Data export
+12. `bs9 deps` - Dependency management
+13. `bs9 profile` - Performance profiling
+14. `bs9 update` - Update BS9
+15. `bs9 doctor` - Health check
+16. `bs9 windows` - Windows services
+17. `bs9 macos` - macOS services
+18. `bs9 advanced` - Advanced monitoring
+19. `bs9 consul` - Service discovery
+20. `bs9 save` - Service backup
+21. `bs9 resurrect` - Service restoration
+22. `bs9 version` - Version information
 
-# List available versions
-bs9 update --list
+---
 
-# Update from specific registry
-bs9 update --registry https://registry.npmjs.org
-```
-
-**Options:**
-- `--check, -c`: Check for updates only
-- `--version, -v`: Update to specific version
-- `--force, -f`: Force update
-- `--backup, -b`: Create backup before update
-- `--rollback, -r`: Rollback to previous version
-- `--list, -l`: List available versions
-- `--registry`: Custom npm registry
-
-**Update Process:**
-1. Check current version
-2. Fetch latest version from npm
-3. Create backup of current installation
-4. Download and install new version
-5. Verify installation
-6. Update configuration if needed
-
-### 14. `bs9 profile` - Performance Profiling
-
-Profiles application performance and identifies bottlenecks.
-
-```bash
-# Profile specific service
-bs9 profile my-app
-
-# Profile for 30 seconds
-bs9 profile my-app --duration 30
-
-# Profile with CPU sampling
-bs9 profile my-app --cpu
-
-# Profile with memory sampling
-bs9 profile my-app --memory
-
-# Generate flame graph
-bs9 profile my-app --flamegraph
-
-# Export profile data
-bs9 profile my-app --export profile.json
-
-# Profile with custom sampling rate
-bs9 profile my-app --sampling 1000
-
-# Show top functions
-bs9 profile my-app --top 10
-```
-
-**Options:**
-- `--duration, -d`: Profile duration in seconds
-- `--cpu, -c`: Enable CPU profiling
-- `--memory, -m`: Enable memory profiling
-- `--flamegraph, -f`: Generate flame graph
-- `--export, -e`: Export profile data
-- `--sampling, -s`: Sampling rate in Hz
-- `--top, -t`: Show top N functions
-
-**Profile Data:**
-- CPU usage by function
-- Memory allocation patterns
-- Function call counts
-- Execution time analysis
-- Performance bottlenecks
-
-### 15. `bs9 deps` - Dependency Management
-
-Manages and analyzes application dependencies.
+*Last Updated: January 25, 2026*
+*Version: 1.4.2*
+*Commands: 22 total*.
 
 ```bash
 # Show all dependencies

@@ -23,6 +23,7 @@ import { profileCommand } from "../src/commands/profile.js";
 import { deleteCommand } from "../src/commands/delete.js";
 import { saveCommand } from "../src/commands/save.js";
 import { resurrectCommand } from "../src/commands/resurrect.js";
+import { deployCommand } from "../src/commands/deploy.js";
 import { loadbalancerCommand } from "../src/loadbalancer/manager.js";
 import { windowsCommand } from "../src/windows/service.js";
 import { launchdCommand } from "../src/macos/launchd.js";
@@ -160,6 +161,31 @@ program
   .option("-f, --force", "Force resurrection without errors")
   .option("-c, --config <file>", "Configuration file to use")
   .action(resurrectCommand);
+
+program
+  .command("deploy")
+  .description("🚀 Deploy applications with zero-config production setup")
+  .argument("<file>", "Application file to deploy")
+  .option("-n, --name <name>", "Service name")
+  .option("-p, --port <port>", "Port number", "3000")
+  .option("-h, --host <host>", "Host address", "localhost")
+  .option("-e, --env <env>", "Environment variables (multiple)", (value, previous) => [...(previous || []), value])
+  .option("-i, --instances <number>", "Number of instances")
+  .option("--memory <memory>", "Memory limit")
+  .option("--cpu <cpu>", "CPU limit")
+  .option("--log-level <level>", "Log level")
+  .option("--log-file <file>", "Log file path")
+  .option("--restart <policy>", "Restart policy")
+  .option("--no-health", "Skip health check")
+  .option("--no-metrics", "Disable metrics")
+  .option("--no-otel", "Disable OpenTelemetry")
+  .option("--no-prometheus", "Disable Prometheus")
+  .option("--https", "Enable HTTPS")
+  .option("--no-linger", "Don't enable linger")
+  .option("-f, --force", "Force deployment")
+  .option("--reload", "Reload existing service")
+  .option("--build", "Build TypeScript")
+  .action(deployCommand);
 
 program
   .command("loadbalancer")
