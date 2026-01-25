@@ -84,17 +84,17 @@ else
   echo "✅ Bun already installed: $(bun --version)"
 fi
 
-# Create temporary directory for BSN
+# Create temporary directory for BS9
 TEMP_DIR=$(mktemp -d)
 echo "📁 Working in: $TEMP_DIR"
 
-# Clone or download BSN
+# Clone or download BS9
 if command -v git >/dev/null 2>&1; then
-  echo "📥 Cloning BSN repository..."
-  git clone https://github.com/your-org/bsn.git "$TEMP_DIR"
+  echo "📥 Cloning BS9 repository..."
+  git clone https://github.com/xarhang/bs9.git "$TEMP_DIR"
 else
-  echo "📥 Downloading BSN..."
-  curl -L https://github.com/your-org/bsn/archive/main.tar.gz | tar -xz -C "$TEMP_DIR" --strip-components=1
+  echo "📥 Downloading BS9..."
+  curl -L https://github.com/xarhang/bs9/archive/main.tar.gz | tar -xz -C "$TEMP_DIR" --strip-components=1
 fi
 
 cd "$TEMP_DIR"
@@ -107,22 +107,32 @@ bun install
 echo "🔨 Building BS9..."
 bun run build
 
-# Install BS9 CLI
-if [[ $ROOT_INSTALL -eq 1 ]]; then
-  echo "🔧 Installing BS9 CLI to /usr/local/bin..."
-  cp bin/bs9 /usr/local/bin/bs9
-  chmod +x /usr/local/bin/bs9
+# Install BS9 CLI (Alternative: Use npm for global installation)
+echo "🔧 Installing BS9 CLI..."
+if command -v npm >/dev/null 2>&1; then
+  echo "📦 Installing via npm (recommended)..."
+  npm install -g bs9@latest
+elif command -v bun >/dev/null 2>&1; then
+  echo "📦 Installing via bun..."
+  bun install bs9@latest
 else
-  echo "🔧 Installing BS9 CLI to ~/.local/bin..."
-  mkdir -p "$HOME/.local/bin"
-  cp bin/bs9 "$HOME/.local/bin/bs9"
-  chmod +x "$HOME/.local/bin/bs9"
-  
-  # Add to PATH if not already there
-  if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
-    echo "export PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$HOME/.bashrc"
-    echo "export PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$HOME/.zshrc" 2>/dev/null || true
-    echo "📝 Added ~/.local/bin to PATH in shell config"
+  echo "🔧 Installing from source..."
+  if [[ $ROOT_INSTALL -eq 1 ]]; then
+    echo "� Installing BS9 CLI to /usr/local/bin..."
+    cp bin/bs9 /usr/local/bin/bs9
+    chmod +x /usr/local/bin/bs9
+  else
+    echo "� Installing BS9 CLI to ~/.local/bin..."
+    mkdir -p "$HOME/.local/bin"
+    cp bin/bs9 "$HOME/.local/bin/bs9"
+    chmod +x "$HOME/.local/bin/bs9"
+    
+    # Add to PATH if not already there
+    if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
+      echo "export PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$HOME/.bashrc"
+      echo "export PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$HOME/.zshrc" 2>/dev/null || true
+      echo "📝 Added ~/.local/bin to PATH in shell config"
+    fi
   fi
 fi
 
@@ -155,6 +165,8 @@ cat > "$CONFIG_DIR/config.toml" <<EOF
 [default]
 # Default port for health/metrics endpoints
 port = 3000
+host = "localhost"
+protocol = "http"
 
 # Enable/disable auto-injection
 otel_enabled = true
@@ -169,18 +181,40 @@ security_audit = true
 block_eval = true
 block_child_process_exec = true
 block_fs_access = true
+session_token_required = true
 
 [monitoring]
 # Dashboard refresh interval (seconds)
 refresh_interval = 2
 # Health check timeout (milliseconds)
 health_check_timeout = 1000
+# Enable advanced monitoring
+advanced_dashboard = true
+# Enable anomaly detection
+anomaly_detection = true
+
+[discovery]
+# Service discovery integration
+consul_enabled = false
+consul_url = "http://localhost:8500"
+# Service registration
+auto_register = true
+
+[updates]
+# Auto-update settings
+auto_check = true
+auto_update = false
+# Update channel (stable, beta, latest)
+channel = "stable"
 
 [logging]
 # Log level: debug, info, warn, error
 level = "info"
 # Use structured JSON logging
 structured = true
+# Log rotation
+max_files = 10
+max_size = "10MB"
 EOF
 
 echo "✅ BS9 configuration created at $CONFIG_DIR/config.toml"
@@ -193,20 +227,24 @@ echo ""
 echo "🎉 BS9 installation complete!"
 echo ""
 echo "📖 Quick start:"
-if [[ $ROOT_INSTALL -eq 1 ]]; then
-  echo "   bs9 start app.js          # Start your app with BS9"
-else
-  echo "   export PATH=\"\$HOME/.local/bin:\$PATH\""
-  echo "   bs9 start app.js          # Start your app with BS9"
-fi
+echo "   bs9 start app.js          # Start your app with BS9"
+echo "   bs9 status               # Check service status"
+echo "   bs9 monit                # Real-time monitoring"
+echo "   bs9 web                  # Web dashboard"
+echo "   bs9 update --check       # Check for updates"
 echo ""
 echo "🔧 BS9 Features:"
-echo "   - Services run without root privileges"
-echo "   - Persistent after logout (loginctl enable-linger)"
-echo "   - Stored in ~/.config/systemd/user/"
-echo "   - Real-time monitoring dashboard: bs9 monit"
+echo "   - Enterprise-grade process management"
+echo "   - Cross-platform support (Linux, macOS, Windows)"
+echo "   - Advanced monitoring and alerting"
+echo "   - Service discovery integration"
+echo "   - Self-updating CLI system"
+echo "   - Security hardening and compliance"
+echo "   - Real-time dashboard: bs9 monit"
+echo "   - Web dashboard: bs9 web"
+echo "   - Advanced monitoring: bs9 advanced"
 echo ""
-echo "📚 Documentation: https://github.com/your-org/bsn"
-echo "🐛 Issues: https://github.com/your-org/bsn/issues"
+echo "📚 Documentation: https://github.com/xarhang/bs9"
+echo "🐛 Issues: https://github.com/xarhang/bs9/issues"
 echo ""
 echo "✨ Happy coding with BS9!"
