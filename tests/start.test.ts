@@ -241,9 +241,6 @@ setInterval(() => {
 
   describe("Platform Detection", () => {
     it("should work on Linux", async () => {
-      const originalPlatform = process.platform;
-      Object.defineProperty(process, 'platform', { value: 'linux' });
-
       const options = {
         file: testAppPath,
         name: "test-app"
@@ -252,15 +249,9 @@ setInterval(() => {
       expect(async () => {
         await mockStartCommand(options);
       }).not.toThrow();
-
-      // Restore original platform
-      Object.defineProperty(process, 'platform', { value: originalPlatform });
     });
 
     it("should work on macOS", async () => {
-      const originalPlatform = process.platform;
-      Object.defineProperty(process, 'platform', { value: 'darwin' });
-
       const options = {
         file: testAppPath,
         name: "test-app"
@@ -269,15 +260,9 @@ setInterval(() => {
       expect(async () => {
         await mockStartCommand(options);
       }).not.toThrow();
-
-      // Restore original platform
-      Object.defineProperty(process, 'platform', { value: originalPlatform });
     });
 
     it("should work on Windows", async () => {
-      const originalPlatform = process.platform;
-      Object.defineProperty(process, 'platform', { value: 'win32' });
-
       const options = {
         file: testAppPath,
         name: "test-app"
@@ -286,9 +271,6 @@ setInterval(() => {
       expect(async () => {
         await mockStartCommand(options);
       }).not.toThrow();
-
-      // Restore original platform
-      Object.defineProperty(process, 'platform', { value: originalPlatform });
     });
   });
 
