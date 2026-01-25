@@ -110,6 +110,22 @@ async function handleMultiServiceStart(file: string, options: StartOptions): Pro
 async function handleSingleServiceStart(file: string, options: StartOptions): Promise<void> {
   const platformInfo = getPlatformInfo();
   
+  // First, try to start existing service without file
+  const serviceName = options.name || file;
+  
+  const serviceExists = await checkServiceExists(serviceName, platformInfo);
+  
+  if (serviceExists) {
+    console.log(`📋 Service '${serviceName}' already exists, starting...`);
+    try {
+      await startExistingService(serviceName, platformInfo);
+      return;
+    } catch (error) {
+      console.log(`⚠️  Failed to start existing service: ${error}`);
+      console.log(`📁 Looking for application file: ${file}`);
+    }
+  }
+  
   // Security: Validate and sanitize file path
   const fullPath = resolve(file);
   if (!existsSync(fullPath)) {
@@ -127,7 +143,7 @@ async function handleSingleServiceStart(file: string, options: StartOptions): Pr
   
   // Security: Validate and sanitize service name
   const rawServiceName = options.name || basename(fullPath, fullPath.endsWith('.ts') ? '.ts' : '.js');
-  const serviceName = rawServiceName.replace(/[^a-zA-Z0-9-_]/g, "_").replace(/^[^a-zA-Z]/, "_").substring(0, 64);
+  const finalServiceName = rawServiceName.replace(/[^a-zA-Z0-9-_]/g, "_").replace(/^[^a-zA-Z]/, "_").substring(0, 64);
   
   // Security: Validate port number
   const port = options.port || "3000";
@@ -170,7 +186,7 @@ async function handleSingleServiceStart(file: string, options: StartOptions): Pr
       const buildDir = join(dirname(fullPath), ".bs9-build");
       mkdirSync(buildDir, { recursive: true });
       
-      const outputFile = join(buildDir, `${serviceName}.js`);
+      const outputFile = join(buildDir, `${finalServiceName}.js`);
       try {
         execSync(`bun build ${fullPath} --outdir ${buildDir} --target bun --minify --splitting`, { stdio: "inherit" });
         execPath = outputFile;
@@ -202,14 +218,58 @@ async function handleSingleServiceStart(file: string, options: StartOptions): Pr
 
   // Platform-specific service creation
   if (platformInfo.isLinux) {
-    await createLinuxService(serviceName, execPath, host, port, protocol, options);
+    await createLinuxService(finalServiceName, execPath, host, port, protocol, options);
   } else if (platformInfo.isMacOS) {
-    await createMacOSService(serviceName, execPath, host, port, protocol, options);
+    await createMacOSService(finalServiceName, execPath, host, port, protocol, options);
   } else if (platformInfo.isWindows) {
-    await createWindowsService(serviceName, execPath, host, port, protocol, options);
+    await createWindowsService(finalServiceName, execPath, host, port, protocol, options);
   } else {
     console.error(`❌ Platform ${platformInfo.platform} is not supported`);
     process.exit(1);
+  }
+}
+
+async function checkServiceExists(serviceName: string, platformInfo: any): Promise<boolean> {
+  try {
+    if (platformInfo.isLinux) {
+      // Check if service exists in systemctl list-units
+      const listOutput = execSync("systemctl --user list-units --type=service --all --no-pager --no-legend", { encoding: "utf-8" });
+      const serviceExists = listOutput.includes(`${serviceName}.service`);
+      return serviceExists;
+    } else if (platformInfo.isMacOS) {
+      // Check if launchd service exists
+      const servicePath = join(platformInfo.serviceDir, `bs9.${serviceName}.plist`);
+      return existsSync(servicePath);
+    } else if (platformInfo.isWindows) {
+      // Check if Windows service exists
+      const { windowsCommand } = await import("../windows/service.js");
+      try {
+        await windowsCommand('show', { name: `BS9_${serviceName}` });
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+async function startExistingService(serviceName: string, platformInfo: any): Promise<void> {
+  try {
+    if (platformInfo.isLinux) {
+      execSync(`systemctl --user start ${serviceName}`, { stdio: "inherit" });
+    } else if (platformInfo.isMacOS) {
+      const { launchdCommand } = await import("../macos/launchd.js");
+      await launchdCommand('start', { name: `bs9.${serviceName}` });
+    } else if (platformInfo.isWindows) {
+      const { windowsCommand } = await import("../windows/service.js");
+      await windowsCommand('start', { name: `BS9_${serviceName}` });
+    }
+    console.log(`🚀 Service '${serviceName}' started successfully`);
+  } catch (error) {
+    throw error;
   }
 }
 
