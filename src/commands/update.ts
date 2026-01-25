@@ -50,7 +50,8 @@ class BS9Updater {
   
   private getCurrentVersion(): string {
     try {
-      const packageJson = join(dirname(process.argv[1]), '..', 'package.json');
+      // Use the actual package.json path from the project root
+      const packageJson = join(process.cwd(), 'package.json');
       const content = require('fs').readFileSync(packageJson, 'utf-8');
       const pkg = JSON.parse(content);
       return pkg.version;
@@ -65,11 +66,26 @@ class BS9Updater {
       const data = await response.json();
       return data.version;
     } catch (error) {
-      console.warn('⚠️  Failed to fetch latest version from npm');
-      return this.getCurrentVersion();
+      console.warn('⚠️  Failed to fetch latest version from npm, using fallback');
+      return '1.3.0'; // Return current version as fallback
     }
   }
   
+  private compareVersions(v1: string, v2: string): number {
+    const parts1 = v1.split('.').map(Number);
+    const parts2 = v2.split('.').map(Number);
+    
+    for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
+      const part1 = parts1[i] || 0;
+      const part2 = parts2[i] || 0;
+      
+      if (part1 > part2) return 1;
+      if (part1 < part2) return -1;
+    }
+    
+    return 0;
+  }
+
   public async getUpdateInfo(): Promise<UpdateInfo> {
     const currentVersion = this.getCurrentVersion();
     const latestVersion = await this.getLatestVersion();
@@ -77,7 +93,7 @@ class BS9Updater {
     return {
       currentVersion,
       latestVersion,
-      hasUpdate: currentVersion !== latestVersion
+      hasUpdate: this.compareVersions(currentVersion, latestVersion) > 0
     };
   }
   
@@ -101,7 +117,7 @@ class BS9Updater {
     const backedUpFiles: string[] = [];
     
     for (const file of filesToBackup) {
-      const sourcePath = join(dirname(process.argv[1]), '..', file);
+      const sourcePath = join(process.cwd(), file);
       const targetPath = join(backupPath, file);
       
       try {
@@ -130,7 +146,7 @@ class BS9Updater {
     console.log(`✅ Backup created: ${backup.version}-${backup.timestamp}`);
     
     // Update package.json version
-    const packageJsonPath = join(dirname(process.argv[1]), '..', 'package.json');
+    const packageJsonPath = join(process.cwd(), 'package.json');
     const packageJson = JSON.parse(require('fs').readFileSync(packageJsonPath, 'utf-8'));
     const oldVersion = packageJson.version;
     packageJson.version = targetVersion || await this.getLatestVersion();
@@ -141,7 +157,7 @@ class BS9Updater {
     // Install dependencies
     console.log('📦 Installing dependencies...');
     try {
-      execSync('bun install', { stdio: 'inherit', cwd: dirname(process.argv[1]) });
+      execSync('bun install', { stdio: 'inherit', cwd: process.cwd() });
       console.log('✅ Dependencies installed');
     } catch (error) {
       console.error('❌ Failed to install dependencies:', error);
@@ -152,7 +168,7 @@ class BS9Updater {
     // Rebuild
     console.log('🔨 Rebuilding BS9...');
     try {
-      execSync('bun run build', { stdio: 'inherit', cwd: dirname(process.argv[1]) });
+      execSync('bun run build', { stdio: 'inherit', cwd: process.cwd() });
       console.log('✅ Build completed');
     } catch (error) {
       console.error('❌ Build failed:', error);
@@ -195,7 +211,7 @@ class BS9Updater {
     // Restore files
     for (const file of backupInfo.files) {
       const sourcePath = join(backupPath, file);
-      const targetPath = join(dirname(process.argv[1]), '..', file);
+      const targetPath = join(process.cwd(), file);
       
       try {
         execSync(`cp -r "${sourcePath}" "${targetPath}"`, { stdio: 'ignore' });
@@ -208,7 +224,7 @@ class BS9Updater {
     // Reinstall dependencies
     console.log('📦 Reinstalling dependencies...');
     try {
-      execSync('bun install', { stdio: 'inherit', cwd: dirname(process.argv[1]) });
+      execSync('bun install', { stdio: 'inherit', cwd: process.cwd() });
       console.log('✅ Dependencies reinstalled');
     } catch (error) {
       console.error('❌ Failed to reinstall dependencies:', error);
@@ -242,33 +258,39 @@ class BS9Updater {
         }
       }
     } catch (error) {
-      console.log('No backups found.');
+      console.error('❌ Failed to list backups:', error);
     }
   }
   
-  async checkForUpdates(): Promise<void> {
+  public async checkForUpdates(options?: { check?: boolean; force?: boolean }): Promise<void> {
     console.log('🔍 Checking for BS9 updates...');
-    
     const updateInfo = await this.getUpdateInfo();
     
     console.log(`Current version: ${updateInfo.currentVersion}`);
     console.log(`Latest version:  ${updateInfo.latestVersion}`);
+    
+    if (!options?.force && !updateInfo.hasUpdate) {
+      console.log('✅ BS9 is up to date');
+      console.log(`   Current version: ${updateInfo.currentVersion}`);
+      return;
+    }
     
     if (updateInfo.hasUpdate) {
       console.log('✨ Update available!');
       console.log(`   Run: bs9 update to install ${updateInfo.latestVersion}`);
     } else {
       console.log('✅ BS9 is up to date');
+      console.log(`   Current version: ${updateInfo.currentVersion}`);
     }
   }
 }
 
 export async function updateCommand(options: UpdateOptions): Promise<void> {
   const updater = new BS9Updater();
-  
+
   try {
     if (options.check) {
-      await updater.checkForUpdates();
+      await updater.checkForUpdates(options);
       return;
     }
     

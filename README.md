@@ -1,7 +1,7 @@
 # BS9 (Bun Sentinel 9) 🚀
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/bs9/bs9)
+[![Version](https://img.shields.io/badge/version-1.3.0-blue.svg)](https://github.com/bs9/bs9)
 [![Security](https://img.shields.io/badge/security-Enterprise-green.svg)](SECURITY.md)
 [![Production Ready](https://img.shields.io/badge/production-Ready-brightgreen.svg)](PRODUCTION.md)
 [![Cross-Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](https://github.com/bs9/bs9)
@@ -81,6 +81,13 @@ bs9 monit --refresh 5              # Custom refresh interval
 bs9 web --port 8080               # Start web dashboard
 bs9 web --detach --port 8080       # Run in background
 
+# Advanced monitoring
+bs9 advanced --port 8090
+
+# Performance profiling
+bs9 profile --service myapp --duration 60
+bs9 profile --service myapp --duration 60 --output profile.json
+
 # Alert management
 bs9 alert --list                   # Show alert configuration
 bs9 alert --cpu 80 --memory 85      # Set thresholds
@@ -89,6 +96,7 @@ bs9 alert --test                   # Test webhook
 
 # Historical data
 bs9 export --format json --hours 24 # Export metrics
+bs9 export --service myapp --format csv --hours 24
 bs9 export --service myapp --format csv
 ```
 

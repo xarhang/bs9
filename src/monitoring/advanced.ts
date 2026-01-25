@@ -126,7 +126,7 @@ class AdvancedMonitoring {
         const baseline = this.baselines.get(key) || 0;
         
         // Simple anomaly detection using statistical deviation
-        const deviation = Math.abs(value - baseline) / baseline;
+        const deviation = Math.abs((value as number) - baseline) / baseline;
         const threshold = 0.3; // 30% deviation threshold
         
         if (deviation > threshold) {
@@ -182,7 +182,7 @@ class AdvancedMonitoring {
     
     // Exponential moving average for baseline
     const alpha = 0.1;
-    const newBaseline = alpha * value + (1 - alpha) * currentBaseline;
+    const newBaseline = alpha * (value as number) + (1 - alpha) * currentBaseline;
     
     this.baselines.set(key, newBaseline);
   }
@@ -252,7 +252,7 @@ class AdvancedMonitoring {
           <div class="widget" style="grid-column: span ${Math.ceil(widget.position.width / 300)};">
             <div class="widget-header">${widget.title}</div>
             <div class="widget-content">
-              <div class="metric-value" id="${widget.id}-value">${(widget.config.value as any) || '--'}</div>
+              <div class="metric-value" id="${widget.id}-value">${typeof widget.config.value === 'number' ? widget.config.value : '--'}</div>
               <span class="metric-unit">${widget.config.unit}</span>
             </div>
           </div>
