@@ -9,6 +9,8 @@
  * https://github.com/xarhang/bs9
  */
 
+/// <reference path="./types.d.ts" />
+
 import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test";
 import { existsSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";

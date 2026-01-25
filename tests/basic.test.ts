@@ -9,6 +9,8 @@
  * https://github.com/xarhang/bs9
  */
 
+/// <reference path="./types.d.ts" />
+
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { existsSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -213,7 +215,7 @@ setInterval(() => {
     });
 
     it("should handle empty configurations", () => {
-      const emptyConfig = {};
+      const emptyConfig: any = {};
       
       expect(emptyConfig.name).toBeUndefined();
       expect(emptyConfig.file).toBeUndefined();
