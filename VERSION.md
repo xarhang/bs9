@@ -2,101 +2,109 @@
 
 ## 🚀 Automated Version Management
 
-BS9 มีระบบจัดการ version อัตโนมัติสำหรับการอัปเดต incremental versions (1.5.x) และ major versions (1.6.x, 1.7.x)
+BS9 includes an automated version management system for incremental versions (1.5.x) and major versions (1.6.x, 1.7.x)
 
 ## 📋 Version Strategy
 
 ### 🔄 Incremental Updates (1.5.x)
 - **1.5.1 → 1.5.2 → 1.5.3 → ... → 1.5.9 → 1.5.10**
-- **สำหรับ**: Feature additions, improvements, bug fixes
-- **Auto-update**: CHANGELOG ทุกครั้ง
+- **For**: Feature additions, improvements, bug fixes
+- **Auto-update**: CHANGELOG every time
 
-### 🚀 Major Version Jumps (เมื่อสั่ง)
+### 🚀 Major Version Jumps (when commanded)
 - **1.5.x → 1.6.0** (Major features)
 - **1.6.x → 1.7.0** (Major features)
-- **ตามคำสั่งผู้ใช้**
+- **When**: User commanded
 
-## 🛠️ การใช้งาน
+## 🛠️ Usage
 
 ### 📦 Patch Updates (1.5.1 → 1.5.2)
 ```bash
-# อัปเดต version เท่านั้น
+# Version update only
 bun run version:patch "Added new feature"
 
-# อัปเดตและ publish ทันที
+# Update and publish immediately
 bun run publish:patch "Fixed critical bug"
 ```
 
 ### 🚀 Minor Updates (1.5.x → 1.6.0)
 ```bash
-# อัปเดต version เท่านั้น
+# Version update only
 bun run version:minor "Added multi-service management"
 
-# อัปเดตและ publish ทันที
+# Update and publish immediately
 bun run publish:minor "Major feature release"
 ```
 
 ### 🎯 Major Updates (1.6.x → 1.7.0)
 ```bash
-# อัปเดต version เท่านั้น
+# Version update only
 bun run version:major "Complete rewrite of core system"
 
-# อัปเดตและ publish ทันที
+# Update and publish immediately
 bun run publish:major "Major architectural changes"
 ```
 
-## 🔄 ระบบทำงานอัตโนมัติ
+## 🔄 Automated Workflow
 
 ### Step 1: Version Update
-- ✅ อัปเดต `package.json`
-- ✅ อัปเดต `README.md` version badge
-- ✅ อัปเดต `CHANGELOG.md` พร้อมรายละเอียด
-- ✅ Git commit พร้อม version tag
+- ✅ Update `package.json`
+- ✅ Update `README.md` version badge
+- ✅ Update `CHANGELOG.md` with details
+- ✅ Git commit with version tag
 
-### Step 2: Publishing (เฉพาะ publish commands)
-- ✅ Push ไป GitHub
-- ✅ Publish ไป npm registry
-- ✅ แสดงผลลัพธ์สำเร็จ
+### Step 2: Publishing (publish commands only)
+- ✅ Push to GitHub
+- ✅ Publish to npm registry
+- ✅ Show success results
 
-## 📝 ตัวอย่างการใช้งาน
+## 📝 Usage Examples
 
 ### Scenario 1: Bug Fix
 ```bash
 bun run publish:patch "Fixed memory leak in status command"
 ```
-ผลลัพธ์: 1.5.1 → 1.5.2
+Result: 1.5.1 → 1.5.2
 
 ### Scenario 2: Small Feature
 ```bash
 bun run publish:patch "Added timeout option to deploy command"
 ```
-ผลลัพธ์: 1.5.2 → 1.5.3
+Result: 1.5.2 → 1.5.3
 
-### Scenario 3: Major Feature (เมื่อสั่ง)
+### Scenario 3: Major Feature (when commanded)
 ```bash
 bun run publish:minor "Added Kubernetes integration"
 ```
-ผลลัพธ์: 1.5.3 → 1.6.0
+Result: 1.5.3 → 1.6.0
 
-### Scenario 4: Complete Rewrite (เมื่อสั่ง)
+### Scenario 4: Complete Rewrite (when commanded)
 ```bash
 bun run publish:major "Migrated to Rust core"
 ```
-ผลลัพธ์: 1.6.0 → 2.0.0
+Result: 1.6.0 → 2.0.0
 
-## 🎯 คำสั่งพิเศษ
+## 🎯 Special Commands
 
 ### Manual Version Manager
 ```bash
-# ใช้ script โดยตรง
+# Use script directly
 bun scripts/version-manager.js patch "Custom change description"
 bun scripts/version-manager.js minor "Minor feature"
 bun scripts/version-manager.js major "Major change"
 ```
 
+### Test Publisher (no npm publish)
+```bash
+# Test without publishing
+bun scripts/test-publish.js patch "Bug fix test"
+bun scripts/test-publish.js minor "Feature test"
+bun scripts/test-publish.js major "Major change test"
+```
+
 ### Auto Publisher
 ```bash
-# ใช้ auto-publish โดยตรง
+# Use auto-publish directly
 bun scripts/auto-publish.js patch "Bug fix with auto publish"
 bun scripts/auto-publish.js minor "Feature with auto publish"
 bun scripts/auto-publish.js major "Major with auto publish"
@@ -107,36 +115,80 @@ bun scripts/auto-publish.js major "Major with auto publish"
 ### Current Pattern
 - **v1.5.0**: Multi-Service Management (Major Feature)
 - **v1.5.1**: Automated Version Management (Patch)
-- **v1.5.2**: Next patch update
-- **v1.5.3**: Next patch update
+- **v1.5.2**: Test Version Management (Patch)
+- **v1.5.3**: Testing Version System (Patch)
+- **v1.5.4**: Next patch update
+- **v1.5.5**: Next patch update
 - **...**
 - **v1.5.9**: Continue patch updates
 - **v1.5.10**: Continue patch updates
-- **v1.6.0**: Major version (เมื่อสั่ง)
+- **v1.6.0**: Major version (when commanded)
 
 ### Future Pattern
 - **v1.6.0**: Next major version
 - **v1.6.1**: Patch updates
 - **v1.6.2**: Patch updates
 - **...**
-- **v1.7.0**: Next major version (เมื่อสั่ง)
+- **v1.7.0**: Next major version (when commanded)
 
-## 🎯 ข้อแนะนำ
+## 🎯 Recommendations
 
-1. **Patch Updates**: ใช้สำหรับ bug fixes, small features, improvements
-2. **Minor Updates**: ใช้สำหรับ major features ที่ไม่ breaking changes
-3. **Major Updates**: ใช้สำหรับ breaking changes หรือ major architectural changes
-4. **Auto-publish**: ใช้เมื่อมั่นใจว่าพร้อม publish ทันที
-5. **Version-only**: ใช้เมื่อต้องการอัปเดต version ก่อนตรวจสอบ
+1. **Patch Updates**: Use for bug fixes, small features, improvements
+2. **Minor Updates**: Use for major features without breaking changes
+3. **Major Updates**: Use for breaking changes or major architectural changes
+4. **Auto-publish**: Use when confident and ready to publish immediately
+5. **Version-only**: Use when you want to update version before review
 
 ## 🔧 Configuration
 
-ระบบจัดการ version ถูกตั้งค่าไว้ที่:
-- **Scripts**: `scripts/version-manager.js` และ `scripts/auto-publish.js`
-- **Package.json**: Scripts สำหรับความสะดวก
-- **Changelog**: อัปเดตอัตโนมัติทุกครั้ง
-- **Git**: Auto commit และ tag ทุกครั้ง
+Version management system is configured at:
+- **Scripts**: `scripts/version-manager.js` and `scripts/auto-publish.js`
+- **Package.json**: Convenience scripts
+- **Changelog**: Auto-updated every time
+- **Git**: Auto commit and tag every time
+
+## 📋 Available Scripts
+
+### Version Management
+```bash
+bun run version:patch    # Update patch version
+bun run version:minor    # Update minor version
+bun run version:major    # Update major version
+```
+
+### Publishing
+```bash
+bun run publish:patch    # Update and publish patch
+bun run publish:minor    # Update and publish minor
+bun run publish:major    # Update and publish major
+```
+
+### Testing
+```bash
+bun run test:patch       # Test patch without publish
+bun run test:minor       # Test minor without publish
+bun run test:major       # Test major without publish
+```
+
+## 🎯 Quick Start
+
+### For Quick Bug Fix
+```bash
+bun run publish:patch "Quick bug fix"
+```
+
+### For Feature Development
+```bash
+bun run test:patch "Testing new feature"
+# Review changes
+bun run publish:patch "Feature completed"
+```
+
+### For Major Release (when commanded)
+```bash
+bun run publish:minor "Major feature release"
+```
 
 ---
 
-**พร้อมใช้งาน!** 🚀
+**Ready to use!** 🚀
