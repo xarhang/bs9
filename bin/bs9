@@ -260,7 +260,7 @@ program
   .option("--performance", "Performance inspection only")
   .option("--configuration", "Configuration inspection only")
   .option("--compliance", "Compliance inspection only")
-  .option("--full", "Complete enterprise inspection")
+  .option("--full", "Complete system inspection")
   .option("--report <format>", "Export report (json|csv)")
   .option("--deep", "Deep system analysis")
   .option("-v, --verbose", "Verbose output with detailed analysis")

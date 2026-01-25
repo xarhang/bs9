@@ -35,7 +35,7 @@ interface InspectionResult {
 }
 
 export async function inspectCommand(options: InspectOptions): Promise<void> {
-  console.log("🔍 BS9 Enterprise System Inspection");
+  console.log("🔍 BS9 System Inspection");
   console.log("=".repeat(80));
   
   const platformInfo = getPlatformInfo();
@@ -88,7 +88,7 @@ export async function inspectCommand(options: InspectOptions): Promise<void> {
   
   // Display results
   if (options.full || options.security || options.performance || options.configuration || options.compliance) {
-    displayEnterpriseReport(results, options);
+    displayInspectionReport(results, options);
   } else {
     displayBasicResults(results);
   }
@@ -100,7 +100,7 @@ export async function inspectCommand(options: InspectOptions): Promise<void> {
   
   console.log("\n" + "=".repeat(80));
   if (options.full || options.security || options.performance || options.configuration || options.compliance) {
-    console.log(`🏢 ENTERPRISE INSPECTION COMPLETE`);
+    console.log(`🔍 INSPECTION COMPLETE`);
     console.log(`🎯 Action Items: ${results.filter(r => r.recommendations && r.recommendations.length > 0).length} recommendations`);
   } else {
     console.log(`📊 Inspection Summary:`);
@@ -322,8 +322,8 @@ function runDeepInspection(platformInfo: any): InspectionResult[] {
   return results;
 }
 
-function displayEnterpriseReport(results: InspectionResult[], options: InspectOptions): void {
-  console.log("\n🏢 ENTERPRISE INSPECTION REPORT");
+function displayInspectionReport(results: InspectionResult[], options: InspectOptions): void {
+  console.log("\n🔍 INSPECTION REPORT");
   console.log("=".repeat(80));
   
   // Group by category

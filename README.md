@@ -1,7 +1,7 @@
 # BS9 (Bun Sentinel 9) 🚀
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-1.4.4-blue.svg)](https://github.com/xarhang/bs9)
+[![Version](https://img.shields.io/badge/version-1.4.5-blue.svg)](https://github.com/xarhang/bs9)
 [![Security](https://img.shields.io/badge/security-Enterprise-green.svg)](SECURITY.md)
 [![Production Ready](https://img.shields.io/badge/production-Ready-brightgreen.svg)](PRODUCTION.md)
 [![Cross-Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](https://github.com/bs9/bs9)
@@ -607,9 +607,9 @@ bs9 doctor --verbose          # Detailed system information
 bs9 doctor --check platform   # Check platform-specific setup
 bs9 -V                        # Show BS9 version
 
-# Enterprise system inspection
+# System inspection
 bs9 inspect                    # Basic inspection
-bs9 inspect --full              # Complete enterprise inspection
+bs9 inspect --full              # Complete system inspection
 bs9 inspect --security         # Security inspection only
 bs9 inspect --performance      # Performance inspection only
 bs9 inspect --configuration    # Configuration inspection only
