@@ -1,6 +1,6 @@
 {
   "name": "bs9",
-  "version": "1.4.2",
+  "version": "1.4.3",
   "description": "Bun Sentinel 9 - High-performance, non-root process manager for Bun",
   "type": "module",
   "main": "src/index.ts",
@@ -37,12 +37,12 @@
     "@opentelemetry/sdk-node": "^0.50.0",
     "@opentelemetry/semantic-conventions": "^1.23.0",
     "commander": "^14.0.2",
-    "pg": "^8.12.0",
     "pino": "^9.3.1",
     "prom-client": "^15.1.2"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
-    "bun-types": "^1.1.0"
+    "bun-types": "^1.1.0",
+    "pg": "^8.12.0"
   }
 }

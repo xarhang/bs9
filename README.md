@@ -1,7 +1,7 @@
 # BS9 (Bun Sentinel 9) 🚀
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-1.4.2-blue.svg)](https://github.com/xarhang/bs9)
+[![Version](https://img.shields.io/badge/version-1.4.3-blue.svg)](https://github.com/xarhang/bs9)
 [![Security](https://img.shields.io/badge/security-Enterprise-green.svg)](SECURITY.md)
 [![Production Ready](https://img.shields.io/badge/production-Ready-brightgreen.svg)](PRODUCTION.md)
 [![Cross-Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](https://github.com/bs9/bs9)
@@ -28,7 +28,8 @@ chmod +x ~/.local/bin/bs9
 
 ### 🌐 Platform Support
 - **✅ Auto-Detection**: Automatically detects platform and creates directories
-- **✅ Zero Configuration**: No manual setup required
+- **✅ Zero-Configuration**: No manual setup required
+- **✅ Lightweight**: Minimal dependencies, zero database required for core functionality
 - **✅ Cross-Platform**: Same commands work on all platforms
 
 #### 🐧 Linux
@@ -182,27 +183,27 @@ bs9 resurrect --all               # Restore all services
 
 ## 🎯 Key Features
 
-### 🚀 Zero-Config Deployment (KILLER FEATURE)
+### ✅ **Zero-Config Deployment**: One-command production setup with `bs9 deploy`
 - **One-Command Setup**: `bs9 deploy app.ts` does everything automatically
 - **Production Ready**: Security hardening, health checks, metrics enabled
 - **Hot Reload**: Update configurations without downtime
 - **Port Detection**: Automatic service discovery and access URLs
 - **Environment Management**: Easy environment variable updates
 
-### 📊 Enhanced Status Display
+### ✅ **Enhanced Status Display**: Visual indicators (✅🔄❌⚠️⏸️) with detailed metrics
 - **Visual Indicators**: ✅🔄❌⚠️⏸️ for instant health assessment
 - **Perfect Alignment**: All columns properly aligned with accurate data
 - **Detailed Metrics**: CPU, Memory, Uptime, Tasks, Port information
 - **Troubleshooting Hints**: Actionable commands for common issues
 - **Service Sections**: Running, Restarting, Failed services clearly separated
 
-### 🔍 Real-time Monitoring
+### 🔍 **Real-time Monitoring**: Live terminal UI with color-coded status
 - **Terminal Dashboard**: Live terminal UI with color-coded status
 - **Web Dashboard**: Browser-based monitoring with auto-refresh
 - **Health Checks**: Automatic `/healthz`, `/readyz`, `/metrics` endpoints
 - **SRE Metrics**: CPU, Memory, Uptime, Task tracking
 
-### 💾 Backup & Recovery System
+### 💾 **Backup & Recovery System**: Complete JSON-based backup system
 - **Service Configuration Backup**: Complete JSON-based backup system
 - **Timestamped Backups**: Version control for service configurations
 - **Bulk Operations**: Save and restore all services at once
@@ -762,9 +763,9 @@ bs9 web --port 8080  # Generates secure session token
 
 ## 📚 Documentation
 
-- **[Production Guide](PRODUCTION.md)** - Production deployment and operations
-- **[Security Policy](SECURITY.md)** - Security features and vulnerability reporting
-- **[Architecture](ARCHITECTURE.md)** - System architecture and design
-- **[Installation Guide](INSTALL.md)** - Detailed installation instructions
-- **[Contributing](CONTRIBUTING.md)** - Development and contribution guidelines
-- **[Changelog](CHANGELOG.md)** - Version history and roadmap
+- **[README.md](README.md)** - Complete getting started guide
+- **[FAQ.md](FAQ.md)** - Frequently asked questions and answers
+- **[COMMANDS.md](docs/COMMANDS.md)** - REST API documentation
+- **[SECURITY.md](SECURITY.md)** - Security policies and reporting
+- **[PRODUCTION.md](PRODUCTION.md)** - Production deployment guide
+- **[CHANGELOG.md](CHANGELOG.md)** - Version history and updates
