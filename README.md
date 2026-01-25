@@ -1,7 +1,7 @@
 # BS9 (Bun Sentinel 9) 🚀
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-1.4.3-blue.svg)](https://github.com/xarhang/bs9)
+[![Version](https://img.shields.io/badge/version-1.4.4-blue.svg)](https://github.com/xarhang/bs9)
 [![Security](https://img.shields.io/badge/security-Enterprise-green.svg)](SECURITY.md)
 [![Production Ready](https://img.shields.io/badge/production-Ready-brightgreen.svg)](PRODUCTION.md)
 [![Cross-Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](https://github.com/bs9/bs9)
@@ -40,20 +40,20 @@ chmod +x ~/.local/bin/bs9
 #### 🍎 macOS  
 - **Service Manager**: Launchd
 - **Features**: Native macOS integration, automatic recovery
-- **Commands**: All commands + `bs9 macos` for launchd management
+- **Commands**: All commands work automatically on macOS
 
 #### 🪟 Windows
 - **Service Manager**: Windows Services
 - **Features**: PowerShell automation, event log integration
-- **Commands**: All commands + `bs9 windows` for service management
+- **Commands**: All commands work automatically on Windows
 
 ```bash
-# Check your platform
-bs9 platform
+# Check your platform (auto-detected)
+bs9 --help                    # Shows platform info in help
 
-# Platform-specific service management
-bs9 macos create --name my-app --file app.js  # macOS
-bs9 windows create --name my-app --file app.js # Windows
+# Platform-specific service management (auto-detected)
+bs9 start app.js             # Works on Linux, macOS, Windows
+bs9 deploy app.js            # Works on all platforms
 ```
 
 ### 🚀 Killer Feature: Zero-Config Deployment
@@ -599,11 +599,23 @@ BS9/
 
 ## 🚀 Production Deployment
 
-### System Requirements
-- **OS**: Linux (systemd user mode)
-- **Runtime**: Bun 1.3.6+
-- **Memory**: 512MB minimum per service
-- **Disk**: 1GB for metrics storage
+### System Requirements & Health Check
+```bash
+# Check BS9 installation and system compatibility
+bs9 doctor                    # Basic health check
+bs9 doctor --verbose          # Detailed system information
+bs9 doctor --check platform   # Check platform-specific setup
+bs9 -V                        # Show BS9 version
+
+# Enterprise system inspection
+bs9 inspect                    # Basic inspection
+bs9 inspect --full              # Complete enterprise inspection
+bs9 inspect --security         # Security inspection only
+bs9 inspect --performance      # Performance inspection only
+bs9 inspect --configuration    # Configuration inspection only
+bs9 inspect --compliance       # Compliance inspection only
+bs9 inspect --report json       # Export inspection report
+```
 
 ### Installation
 #### One-Click Install (Recommended)

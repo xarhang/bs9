@@ -31,6 +31,8 @@ import { updateCommand } from "../src/commands/update.js";
 import { dbpoolCommand } from "../src/database/pool.js";
 import { advancedMonitoringCommand } from "../src/monitoring/advanced.js";
 import { consulCommand } from "../src/discovery/consul.js";
+import { doctorCommand } from "../src/commands/doctor.js";
+import { inspectCommand } from "../src/commands/inspect.js";
 
 const program = new Command();
 
@@ -243,5 +245,25 @@ program
   .option("--meta <json>", "Service metadata (JSON)")
   .option("--service <service>", "Service name for discovery")
   .action(consulCommand);
+
+program
+  .command("doctor")
+  .description("Perform comprehensive health check")
+  .option("--check <type>", "Specific check to run (dependencies|configuration|platform)")
+  .option("-v, --verbose", "Verbose output with system information")
+  .action(doctorCommand);
+
+program
+  .command("inspect")
+  .description("Comprehensive system inspection and analysis")
+  .option("--security", "Security inspection only")
+  .option("--performance", "Performance inspection only")
+  .option("--configuration", "Configuration inspection only")
+  .option("--compliance", "Compliance inspection only")
+  .option("--full", "Complete enterprise inspection")
+  .option("--report <format>", "Export report (json|csv)")
+  .option("--deep", "Deep system analysis")
+  .option("-v, --verbose", "Verbose output with detailed analysis")
+  .action(inspectCommand);
 
 program.parse();
