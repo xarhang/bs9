@@ -54,3 +54,9 @@ declare const process: {
 declare const require: {
   (id: string): any;
 };
+
+declare const globalThis: {
+  process?: typeof process;
+  rmSync?: (path: string, options?: any) => void;
+  execSync?: (command: string, options?: any) => string;
+};
