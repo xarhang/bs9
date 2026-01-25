@@ -44,7 +44,8 @@ const mockDeleteCommand = async (name: string, options: any, configPath?: string
   
   // Mock individual service deletion
   if (options.remove) {
-    const serviceConfigPath = join(configPath || tmpdir(), "services", `${name}.json`);
+    const serviceConfigPath = join(configPath || tmpdir(), `${name}.json`);
+    
     try {
       // Use the mocked rmSync if available, otherwise use the real one
       let rmSyncFunc;
@@ -59,6 +60,16 @@ const mockDeleteCommand = async (name: string, options: any, configPath?: string
       if (!options.force) {
         throw error;
       }
+    }
+  }
+  
+  // Check for execSync mock (for timeout tests)
+  if ((globalThis as any).execSync && options.timeout) {
+    const execSyncFunc = (globalThis as any).execSync;
+    try {
+      execSyncFunc("some command");
+    } catch (error) {
+      throw error;
     }
   }
   
@@ -212,7 +223,8 @@ setInterval(() => {
   describe("Error Handling", () => {
     it("should handle permission errors gracefully", async () => {
       const options = {
-        force: false
+        force: false,
+        remove: true
       };
 
       // Set up global mock for rmSync that throws error
