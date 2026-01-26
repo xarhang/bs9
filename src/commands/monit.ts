@@ -26,6 +26,7 @@ interface ServiceMetrics {
   memory: string;
   uptime: string;
   tasks: string;
+  pid: string;
   description: string;
   health?: string;
   lastError?: string;
@@ -69,35 +70,56 @@ export async function monitCommand(options: MonitOptions): Promise<void> {
           memory: '-',
           uptime: '-',
           tasks: '-',
+          pid: '-',
         };
         
         // Get additional metrics
         try {
-          const showOutput = execSync(`systemctl --user show ${name} -p CPUUsageNSec MemoryCurrent ActiveEnterTimestamp TasksCurrent State`, { encoding: "utf-8" });
-          const cpuMatch = showOutput.match(/CPUUsageNSec=(\d+)/);
-          const memMatch = showOutput.match(/MemoryCurrent=(\d+)/);
-          const timeMatch = showOutput.match(/ActiveEnterTimestamp=(.+)/);
-          const tasksMatch = showOutput.match(/TasksCurrent=(\d+)/);
-          const stateMatch = showOutput.match(/State=(.+)/);
+          // Query each property individually to avoid parsing issues
+          const cpuOutput = execSync(`systemctl --user show ${name} -p CPUUsageNSec`, { encoding: "utf-8" });
+          const memOutput = execSync(`systemctl --user show ${name} -p MemoryCurrent`, { encoding: "utf-8" });
+          const timeOutput = execSync(`systemctl --user show ${name} -p ActiveEnterTimestamp`, { encoding: "utf-8" });
+          const tasksOutput = execSync(`systemctl --user show ${name} -p TasksCurrent`, { encoding: "utf-8" });
+          const pidOutput = execSync(`systemctl --user show ${name} -p MainPID`, { encoding: "utf-8" });
+          const stateOutput = execSync(`systemctl --user show ${name} -p State`, { encoding: "utf-8" });
+          
+          const cpuMatch = cpuOutput.match(/CPUUsageNSec=(\d+)/);
+          const memMatch = memOutput.match(/MemoryCurrent=(\d+)/);
+          const timeMatch = timeOutput.match(/ActiveEnterTimestamp=(.+)/);
+          const tasksMatch = tasksOutput.match(/TasksCurrent=(\d+)/);
+          const pidMatch = pidOutput.match(/MainPID=(\d+)/);
+          const stateMatch = stateOutput.match(/State=(.+)/);
           
           if (cpuMatch) {
             const cpuNs = Number(cpuMatch[1]);
             service.cpu = `${(cpuNs / 1000000).toFixed(1)}ms`;
           }
           if (memMatch) {
-            const memBytes = Number(memMatch[1]);
-            service.memory = formatMemory(memBytes);
+            const memValue = memMatch[1];
+            if (memValue !== '[not set]' && memValue !== '') {
+              const memBytes = Number(memValue);
+              service.memory = formatMemory(memBytes);
+            }
           }
           if (timeMatch) {
             service.uptime = formatUptime(timeMatch[1]);
           }
           if (tasksMatch) {
-            service.tasks = tasksMatch[1];
+            const tasksValue = tasksMatch[1];
+            if (tasksValue !== '[not set]' && tasksValue !== '') {
+              service.tasks = tasksValue;
+            }
+          }
+          if (pidMatch) {
+            const pidValue = pidMatch[1];
+            if (pidValue !== '0' && pidValue !== '[not set]' && pidValue !== '') {
+              service.pid = pidValue;
+            }
           }
           if (stateMatch) {
             service.state = stateMatch[1].trim();
           }
-        } catch {
+        } catch (error: any) {
           // Ignore metrics errors
         }
         
@@ -165,74 +187,97 @@ export async function monitCommand(options: MonitOptions): Promise<void> {
   };
 
   const renderDashboard = (services: ServiceMetrics[], isInitial: boolean = false) => {
-    // Only clear screen on initial render
-    if (isInitial) {
-      process.stdout.write('\x1b[2J\x1b[H');
-      
-      // Header
-      console.log('🔍 BS9 Real-time Monitoring Dashboard');
-      console.log('='.repeat(120));
-      console.log(`Refresh: ${refreshInterval}s | Last update: ${new Date().toLocaleTimeString()} | Press Ctrl+C to exit`);
-      console.log('');
-      
-      // Table header
-      console.log('SERVICE'.padEnd(20) + 
-                  'STATE'.padEnd(15) + 
-                  'HEALTH'.padEnd(10) + 
-                  'CPU'.padEnd(10) + 
-                  'MEMORY'.padEnd(12) + 
-                  'UPTIME'.padEnd(12) + 
-                  'TASKS'.padEnd(8) + 
-                  'DESCRIPTION');
-      console.log('-'.repeat(120));
-    } else {
-      // Just update the timestamp
-      process.stdout.write('\x1b[2J\x1b[H');
-      console.log('🔍 BS9 Real-time Monitoring Dashboard');
-      console.log('='.repeat(120));
-      console.log(`Refresh: ${refreshInterval}s | Last update: ${new Date().toLocaleTimeString()} | Press Ctrl+C to exit`);
-      console.log('');
-      
-      // Table header
-      console.log('SERVICE'.padEnd(20) + 
-                  'STATE'.padEnd(15) + 
-                  'HEALTH'.padEnd(10) + 
-                  'CPU'.padEnd(10) + 
-                  'MEMORY'.padEnd(12) + 
-                  'UPTIME'.padEnd(12) + 
-                  'TASKS'.padEnd(8) + 
-                  'DESCRIPTION');
-      console.log('-'.repeat(120));
-    }
+    // Clear screen and move to top
+    process.stdout.write('\x1b[2J\x1b[H');
+    
+    // Dark theme colors
+    const reset = '\x1b[0m';
+    const bold = '\x1b[1m';
+    const dim = '\x1b[2m';
+    const bgDark = '\x1b[48;5;236m';
+    const textLight = '\x1b[38;5;15m';
+    const textGreen = '\x1b[38;5;46m';
+    const textRed = '\x1b[38;5;196m';
+    const textYellow = '\x1b[38;5;226m';
+    const textBlue = '\x1b[38;5;39m';
+    const textCyan = '\x1b[38;5;51m';
+    const textGray = '\x1b[38;5;245m';
+    
+    // Header with dark background
+    console.log(`${bgDark}${textLight}${bold}╔══════════════════════════════════════════════════════════════════════════════════════════════════════════════════╗${reset}`);
+    console.log(`${bgDark}${textLight}${bold}║${reset} ${textCyan}${bold}🔍 SYSTEM SERVICE MONITOR${reset} ${textGray}│${reset} ${textLight}Refresh: ${textCyan}${refreshInterval}s${reset} ${textGray}│${reset} ${textLight}Last: ${textCyan}${new Date().toLocaleTimeString()}${reset} ${textGray}│${reset} ${textLight}Services: ${textCyan}${services.length}${reset} ${bgDark}${textLight}${bold}║${reset}`);
+    console.log(`${bgDark}${textLight}${bold}╚══════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝${reset}`);
+    console.log('');
     
     if (services.length === 0) {
-      console.log('No BS9-managed services running.');
+      console.log(`${textGray}  No BS9-managed services running.${reset}`);
       return;
     }
     
+    // Table header with modern styling
+    console.log(`${textGray}┌──────────────────┬─────────────────┬──────────┬───────────┬───────────┬───────────┬───────┬───────┬─────────────────────────────────┐${reset}`);
+    console.log(`${textGray}│${reset}${bold}${textBlue}SERVICE${reset}...........${textGray}│${reset}${bold}${textBlue}STATE${reset}............${textGray}│${reset}${bold}${textBlue}HEALTH${reset}....${textGray}│${reset}${bold}${textBlue}CPU${reset}........${textGray}│${reset}${bold}${textBlue}MEMORY${reset}.....${textGray}│${reset}${bold}${textBlue}UPTIME${reset}.....${textGray}│${reset}${bold}${textBlue}TASKS${reset}..${textGray}│${reset}${bold}${textBlue}PID${reset}....${textGray}│${reset}${bold}${textBlue}DESCRIPTION${reset}......................${textGray}│${reset}`);
+    console.log(`${textGray}├──────────────────┼─────────────────┼──────────┼───────────┼───────────┼───────────┼───────┼───────┼─────────────────────────────────┤${reset}`);
+    
     // Service rows
     for (const service of services) {
-      const stateColor = service.active === 'active' ? '\x1b[32m' : '\x1b[31m';
-      const resetColor = '\x1b[0m';
+      const stateColor = service.active === 'active' ? textGreen : textRed;
+      const stateIcon = service.active === 'active' ? '●' : '●';
+      const state = `${stateColor}${bold}${stateIcon} ${service.sub}${reset}`;
       
-      const state = `${stateColor}${service.sub}${resetColor}`;
-      const health = service.health || '-';
+      // Health status with icons
+      let health = '';
+      if (service.health === '✅ OK') {
+        health = `${textGreen}✓ OK${reset}`;
+      } else if (service.health === '❌ FAIL') {
+        health = `${textRed}✗ FAIL${reset}`;
+      } else if (service.health === '⚠️  UNKNOWN') {
+        health = `${textYellow}⚠ UNKNOWN${reset}`;
+      } else {
+        health = `${textGray}? UNKNOWN${reset}`;
+      }
       
-      console.log(
-        service.name.padEnd(20) +
-        state.padEnd(15) +
-        health.padEnd(10) +
-        service.cpu.padEnd(10) +
-        service.memory.padEnd(12) +
-        service.uptime.padEnd(12) +
-        service.tasks.padEnd(8) +
-        service.description
-      );
+      // CPU with color coding
+      const cpuMs = parseFloat(service.cpu);
+      const cpuColor = cpuMs > 20000 ? textRed : cpuMs > 10000 ? textYellow : textGreen;
+      const cpu = `${cpuColor}${service.cpu}${reset}`;
+      
+      // Memory with color coding
+      const memColor = service.memory !== '-' && parseFloat(service.memory) > 50 ? textYellow : textLight;
+      const memory = `${memColor}${service.memory.padEnd(8)}${reset}`;
+      
+      // Uptime styling
+      const uptime = service.uptime !== '-' ? `${textCyan}${service.uptime}${reset}` : `${textGray}-${reset}`;
+      
+      // Tasks and PID
+      const tasks = service.tasks !== '-' ? `${textLight}${service.tasks}${reset}` : `${textGray}-${reset}`;
+      const pid = service.pid !== '-' ? `${textLight}${service.pid}${reset}` : `${textGray}-${reset}`;
+      
+      // Service name in bold
+      const serviceName = `${bold}${textLight}${service.name}${reset}`;
+      
+      // Description in dim gray
+      const description = service.description ? `${dim}${service.description}${reset}` : '';
+      
+      // Remove color codes temporarily to see pure alignment
+      const plainServiceName = service.name;
+      const plainState = `${stateIcon} ${service.sub}`;
+      const plainHealth = service.health === '✅ OK' ? '✓ OK' : service.health === '❌ FAIL' ? '✗ FAIL' : service.health === '⚠️  UNKNOWN' ? '⚠ UNKNOWN' : service.health || '-';
+      const plainCpu = service.cpu;
+      const plainMemory = service.memory;
+      const plainUptime = service.uptime;
+      const plainTasks = service.tasks;
+      const plainPid = service.pid;
+      const plainDescription = service.description || '';
+      
+      console.log(`${textGray}│${reset}${plainServiceName.padEnd(18, '.')}${textGray}│${reset}${plainState.padEnd(17, '.')}${textGray}│${reset}${plainHealth.padEnd(10, '.')}${textGray}│${reset}${plainCpu.padEnd(11, '.')}${textGray}│${reset}${plainMemory.padEnd(11, '.')}${textGray}│${reset}${plainUptime.padEnd(11, '.')}${textGray}│${reset}${plainTasks.padEnd(7, '.')}${textGray}│${reset}${plainPid.padEnd(7, '.')}${textGray}│${reset}${plainDescription.padEnd(33, '.')}${textGray}│${reset}`);
     }
     
-    // Summary
+    console.log(`${textGray}└──────────────────┴─────────────────┴──────────┴───────────┴───────────┴───────────┴───────┴───────┴─────────────────────────────────┘${reset}`);
+    
+    // Summary section with modern styling
     console.log('');
-    console.log('='.repeat(120));
+    console.log(`${bgDark}${textLight}${bold}╔══════════════════════════════════════════════════════════════════════════════════════════════════════════════════╗${reset}`);
     
     const running = services.filter(s => s.active === 'active').length;
     const totalMemory = services.reduce((sum, s) => {
@@ -247,22 +292,23 @@ export async function monitCommand(options: MonitOptions): Promise<void> {
       return sum;
     }, 0);
     
-    console.log(`📊 Summary: ${running}/${services.length} services running | Total Memory: ${formatMemory(totalMemory)} | Services: ${services.length}`);
+    console.log(`${bgDark}${textLight}${bold}║${reset} ${textCyan}📊 SUMMARY:${reset} ${textGreen}● ${running}/${services.length} services running${reset} ${textGray}│${reset} ${textCyan}💾 Total Memory:${reset} ${textYellow}${formatMemory(totalMemory)}${reset} ${bgDark}${textLight}${bold}║${reset}`);
     
-    // Alerts
+    // Alerts section
     const failed = services.filter(s => s.active !== 'active');
     const unhealthy = services.filter(s => s.health === '❌ FAIL');
     
     if (failed.length > 0 || unhealthy.length > 0) {
-      console.log('');
-      console.log('⚠️  ALERTS:');
+      console.log(`${bgDark}${textLight}${bold}║${reset} ${textRed}⚠️  ALERTS:${reset}`);
       if (failed.length > 0) {
-        console.log(`   Failed services: ${failed.map(s => s.name).join(', ')}`);
+        console.log(`${bgDark}${textLight}${bold}║${reset}   ${textRed}Failed services:${reset} ${textRed}${failed.map(s => s.name).join(', ')}${reset}`);
       }
       if (unhealthy.length > 0) {
-        console.log(`   Unhealthy services: ${unhealthy.map(s => s.name).join(', ')}`);
+        console.log(`${bgDark}${textLight}${bold}║${reset}   ${textRed}Unhealthy services:${reset} ${textRed}${unhealthy.map(s => s.name).join(', ')}${reset}`);
       }
     }
+    
+    console.log(`${bgDark}${textLight}${bold}╚══════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝${reset}`);
   };
 
   // Setup refresh loop with change detection
@@ -272,14 +318,13 @@ export async function monitCommand(options: MonitOptions): Promise<void> {
         await setTimeout(refreshInterval * 1000);
         const currentServices = getMetrics();
         
-        // Check if anything changed
+        // Check if anything changed (exclude CPU from comparison as it always changes)
         let hasChanges = false;
         for (const service of currentServices) {
           const prev = previousState[service.name];
           if (!prev || 
               prev.active !== service.active ||
               prev.sub !== service.sub ||
-              prev.cpu !== service.cpu ||
               prev.memory !== service.memory ||
               prev.uptime !== service.uptime ||
               prev.health !== service.health) {
@@ -294,10 +339,8 @@ export async function monitCommand(options: MonitOptions): Promise<void> {
           previousState[service.name] = { ...service };
         }
         
-        // Only re-render if there are changes
-        if (hasChanges) {
-          renderDashboard(currentServices, false);
-        }
+        // Always re-render to show updated timestamp
+        renderDashboard(currentServices, false);
       }
     } catch (error) {
       console.error('Monitoring error:', error);

@@ -71,14 +71,20 @@ const getMetrics = (): ServiceMetrics[] => {
           service.cpu = `${(cpuNs / 1000000).toFixed(1)}ms`;
         }
         if (memMatch) {
-          const memBytes = Number(memMatch[1]);
-          service.memory = formatMemory(memBytes);
+          const memValue = memMatch[1];
+          if (memValue !== '[not set]' && memValue !== '') {
+            const memBytes = Number(memValue);
+            service.memory = formatMemory(memBytes);
+          }
         }
         if (timeMatch) {
           service.uptime = formatUptime(timeMatch[1]);
         }
         if (tasksMatch) {
-          service.tasks = tasksMatch[1];
+          const tasksValue = tasksMatch[1];
+          if (tasksValue !== '[not set]' && tasksValue !== '') {
+            service.tasks = tasksValue;
+          }
         }
       } catch {
         // Ignore metrics errors
