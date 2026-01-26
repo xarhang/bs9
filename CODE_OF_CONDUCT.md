@@ -80,7 +80,7 @@ When representing BS9:
 If you experience or witness unacceptable behavior, please report it to:
 
 **Primary Contact:**
-- Email: conduct@bs9.dev
+- Email: devcorelab@protonmail.com
 - GitHub: [@xarhang](https://github.com/xarhang)
 - Discord: Direct message to maintainers
 
