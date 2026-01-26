@@ -135,11 +135,15 @@ BS9 (Bun Sentinel 9) is a mission-critical process manager CLI designed to repla
 
 ## Security Architecture
 
-### Systemd User Mode
-- **Isolation**: Services run as non-root user
-- **Persistence**: `loginctl enable-linger` for PM2-like behavior
-- **Resource Limits**: Memory, CPU, file descriptors
-- **Sandboxing**: PrivateTmp, ProtectSystem, NoNewPrivileges
+### Process Management Model
+- **Linux**: Systemd User Services (`systemd --user`)
+- **macOS**: Launchd Agents (`~/Library/LaunchAgents`)
+- **Windows**: Background Processes with Registry Persistence
+- **Common Features**:
+  - **Isolation**: Services run as non-root user
+  - **Persistence**: Platform-native autostart
+  - **Resource Limits**: Memory, CPU, file descriptors
+  - **Sandboxing**: Platform-specific hardening
 
 ### Pre-start Security Audit
 ```typescript

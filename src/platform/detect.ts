@@ -29,7 +29,7 @@ export interface PlatformInfo {
 export function getPlatformInfo(): PlatformInfo {
   const currentPlatform = platform() as Platform;
   const userHome = homedir();
-  
+
   const baseInfo: PlatformInfo = {
     platform: currentPlatform,
     isLinux: currentPlatform === 'linux',
@@ -41,7 +41,7 @@ export function getPlatformInfo(): PlatformInfo {
     serviceDir: '',
     backupDir: ''
   };
-  
+
   switch (currentPlatform) {
     case 'linux':
       baseInfo.serviceManager = 'systemd';
@@ -50,7 +50,7 @@ export function getPlatformInfo(): PlatformInfo {
       baseInfo.serviceDir = join(userHome, '.config', 'systemd', 'user');
       baseInfo.backupDir = join(baseInfo.configDir, 'backups');
       break;
-      
+
     case 'darwin':
       baseInfo.serviceManager = 'launchd';
       baseInfo.configDir = join(userHome, '.bs9');
@@ -58,7 +58,7 @@ export function getPlatformInfo(): PlatformInfo {
       baseInfo.serviceDir = join(userHome, 'Library', 'LaunchAgents');
       baseInfo.backupDir = join(baseInfo.configDir, 'backups');
       break;
-      
+
     case 'win32':
       baseInfo.serviceManager = 'windows-service';
       baseInfo.configDir = join(userHome, '.bs9');
@@ -66,11 +66,11 @@ export function getPlatformInfo(): PlatformInfo {
       baseInfo.serviceDir = join(userHome, '.bs9', 'services');
       baseInfo.backupDir = join(baseInfo.configDir, 'backups');
       break;
-      
+
     default:
       throw new Error(`Unsupported platform: ${currentPlatform}`);
   }
-  
+
   return baseInfo;
 }
 
@@ -81,17 +81,17 @@ export function isSupportedPlatform(): boolean {
 
 export function getPlatformSpecificCommands(): string[] {
   const currentPlatform = platform() as Platform;
-  
+
   switch (currentPlatform) {
     case 'linux':
       return ['start', 'stop', 'restart', 'status', 'logs', 'monit', 'web', 'alert', 'export', 'deps', 'profile', 'delete', 'save', 'resurrect', 'loadbalancer', 'dbpool'];
-      
+
     case 'darwin':
       return ['start', 'stop', 'restart', 'status', 'logs', 'monit', 'web', 'alert', 'export', 'deps', 'profile', 'delete', 'save', 'resurrect', 'loadbalancer', 'dbpool', 'macos'];
-      
+
     case 'win32':
       return ['start', 'stop', 'restart', 'status', 'logs', 'monit', 'web', 'alert', 'export', 'deps', 'profile', 'delete', 'save', 'resurrect', 'loadbalancer', 'dbpool', 'windows'];
-      
+
     default:
       return [];
   }
@@ -99,7 +99,7 @@ export function getPlatformSpecificCommands(): string[] {
 
 export function getPlatformHelp(): string {
   const currentPlatform = platform() as Platform;
-  
+
   switch (currentPlatform) {
     case 'linux':
       return `
@@ -112,7 +112,7 @@ export function getPlatformHelp(): string {
 Available Commands:
   ${getPlatformSpecificCommands().join(', ')}
 `;
-      
+
     case 'darwin':
       return `
 🍎 macOS Platform Features:
@@ -129,7 +129,7 @@ macOS-specific:
   • bs9 macos start - Start launchd service
   • bs9 macos stop - Stop launchd service
 `;
-      
+
     case 'win32':
       return `
 🪟 Windows Platform Features:
@@ -146,7 +146,7 @@ Windows-specific:
   • bs9 windows start - Start Windows service
   • bs9 windows stop - Stop Windows service
 `;
-      
+
     default:
       return `❌ Platform ${currentPlatform} is not supported`;
   }
@@ -155,14 +155,15 @@ Windows-specific:
 // Auto-detect and initialize platform-specific directories
 export function initializePlatformDirectories(): void {
   const platformInfo = getPlatformInfo();
-  
+
   // Create directories if they don't exist
   const fs = require('node:fs');
-  
+
   try {
     fs.mkdirSync(platformInfo.configDir, { recursive: true });
     fs.mkdirSync(platformInfo.logDir, { recursive: true });
     fs.mkdirSync(platformInfo.backupDir, { recursive: true });
+    fs.mkdirSync(platformInfo.serviceDir, { recursive: true });
   } catch (error) {
     console.warn(`⚠️  Warning: Could not create platform directories: ${error}`);
   }

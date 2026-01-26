@@ -10,117 +10,37 @@
  */
 
 import { serve } from "bun";
-import { execSync } from "node:child_process";
+import { listServices, ServiceMetrics as UnifiedMetrics } from "../utils/service-discovery.js";
 import { join } from "node:path";
 
-interface ServiceMetrics {
-  name: string;
-  loaded: string;
-  active: string;
-  sub: string;
-  state: string;
-  cpu: string;
-  memory: string;
-  uptime: string;
-  tasks: string;
-  health: string;
-  description: string;
-}
+// Interface moved to service-discovery.ts as UnifiedMetrics
 
-const getMetrics = (): ServiceMetrics[] => {
+const getMetrics = async (): Promise<UnifiedMetrics[]> => {
   try {
-    const listOutput = execSync("systemctl --user list-units --type=service --no-pager --no-legend", { encoding: "utf-8" });
-    const lines = listOutput.split("\n").filter(line => line.includes(".service"));
-    
-    const services: ServiceMetrics[] = [];
-    
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      
-      const match = line.match(/^(?:\s*([●\s○]))?\s*([^\s]+)\.service\s+([^\s]+)\s+([^\s]+)\s+([^\s]+)\s+(.+)$/);
-      if (!match) continue;
-      
-      const [, statusIndicator, name, loaded, active, sub, description] = match;
-      
-      if (!description.includes("Bun Service:") && !description.includes("BS9 Service:")) continue;
-      
-      const service: ServiceMetrics = {
-        name,
-        loaded,
-        active,
-        sub,
-        state: `${active}/${sub}`,
-        cpu: '-',
-        memory: '-',
-        uptime: '-',
-        tasks: '-',
-        health: 'unknown',
-        description,
-      };
-      
-      // Get additional metrics
-      try {
-        const showOutput = execSync(`systemctl --user show ${name} -p CPUUsageNSec MemoryCurrent ActiveEnterTimestamp TasksCurrent State`, { encoding: "utf-8" });
-        const cpuMatch = showOutput.match(/CPUUsageNSec=(\d+)/);
-        const memMatch = showOutput.match(/MemoryCurrent=(\d+)/);
-        const timeMatch = showOutput.match(/ActiveEnterTimestamp=(.+)/);
-        const tasksMatch = showOutput.match(/TasksCurrent=(\d+)/);
-        
-        if (cpuMatch) {
-          const cpuNs = Number(cpuMatch[1]);
-          service.cpu = `${(cpuNs / 1000000).toFixed(1)}ms`;
-        }
-        if (memMatch) {
-          const memValue = memMatch[1];
-          if (memValue !== '[not set]' && memValue !== '') {
-            const memBytes = Number(memValue);
-            service.memory = formatMemory(memBytes);
-          }
-        }
-        if (timeMatch) {
-          service.uptime = formatUptime(timeMatch[1]);
-        }
-        if (tasksMatch) {
-          const tasksValue = tasksMatch[1];
-          if (tasksValue !== '[not set]' && tasksValue !== '') {
-            service.tasks = tasksValue;
-          }
-        }
-      } catch {
-        // Ignore metrics errors
-      }
-      
-      // Check health endpoint
+    const services = await listServices();
+
+    // Check health endpoints for all services
+    return await Promise.all(services.map(async (service) => {
       try {
         let port: string | null = null;
-        
-        // First try to get port from description
-        const portMatch = description.match(/port[=:]?\s*(\d+)/i);
-        if (portMatch) {
-          port = portMatch[1];
-        } else {
-          // If not in description, check environment variables
-          const envOutput = execSync(`systemctl --user show ${name} -p Environment`, { encoding: "utf-8" });
-          const envPortMatch = envOutput.match(/PORT=(\d+)/);
-          if (envPortMatch) {
-            port = envPortMatch[1];
-          }
-        }
-        
+        const portMatch = service.description.match(/port[=:]?\s*(\d+)/i);
+        if (portMatch) port = portMatch[1];
+
         if (port) {
-          const healthCheck = execSync(`curl -s -o /dev/null -w "%{http_code}" http://localhost:${port}/healthz`, { encoding: "utf-8", timeout: 1000 });
-          service.health = healthCheck === "200" ? "healthy" : "unhealthy";
+          try {
+            const healthCheck = await fetch(`http://localhost:${port}/healthz`, { signal: AbortSignal.timeout(1000) });
+            service.health = healthCheck.status === 200 ? "healthy" : "unhealthy";
+          } catch {
+            service.health = "unhealthy";
+          }
         } else {
           service.health = "no_port";
         }
       } catch {
         service.health = "unknown";
       }
-      
-      services.push(service);
-    }
-    
-    return services;
+      return service;
+    }));
   } catch (error) {
     console.error('Error fetching metrics:', error);
     return [];
@@ -140,10 +60,10 @@ const formatUptime = (timestamp: string): string => {
     const date = new Date(timestamp);
     const now = new Date();
     const diff = now.getTime() - date.getTime();
-    
+
     const hours = Math.floor(diff / (1000 * 60 * 60));
     const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-    
+
     if (hours > 0) {
       return `${hours}h ${minutes}m`;
     }
@@ -272,11 +192,11 @@ const HTML_TEMPLATE = `
 
 serve({
   port: process.env.WEB_DASHBOARD_PORT || 8080,
-  fetch(req) {
+  async fetch(req) {
     const url = new URL(req.url);
-    
+
     if (url.pathname === '/api/metrics') {
-      const services = getMetrics();
+      const services = await getMetrics();
       const running = services.filter(s => s.active === 'active').length;
       const totalMemory = services.reduce((sum, s) => {
         if (s.memory !== '-') {
@@ -289,7 +209,7 @@ serve({
         }
         return sum;
       }, 0);
-      
+
       const data = {
         services,
         total: services.length,
@@ -297,18 +217,18 @@ serve({
         totalMemory: formatMemory(totalMemory),
         lastUpdate: new Date().toLocaleTimeString(),
       };
-      
+
       return new Response(JSON.stringify(data), {
         headers: { 'Content-Type': 'application/json' }
       });
     }
-    
+
     if (url.pathname === '/') {
       return new Response(HTML_TEMPLATE, {
         headers: { 'Content-Type': 'text/html' }
       });
     }
-    
+
     return new Response('Not Found', { status: 404 });
   },
 });

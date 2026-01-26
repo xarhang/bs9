@@ -1,7 +1,7 @@
 # BS9 (Bun Sentinel 9) 🚀
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-1.5.16-blue.svg)](https://github.com/xarhang/bs9)
+[![Version](https://img.shields.io/badge/version-1.5.17-blue.svg)](https://github.com/xarhang/bs9)
 [![Security](https://img.shields.io/badge/security-Enterprise-green.svg)](SECURITY.md)
 [![Production Ready](https://img.shields.io/badge/production-Ready-brightgreen.svg)](PRODUCTION.md)
 [![Cross-Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](https://github.com/bs9/bs9)
@@ -44,8 +44,8 @@ chmod +x ~/.local/bin/bs9
 
 #### 🪟 Windows
 - **Service Manager**: Windows Services
-- **Features**: PowerShell automation, event log integration
-- **Commands**: All commands work automatically on Windows
+- **Features**: PowerShell automation, event log integration, background process persistence
+- **Commands**: All commands work automatically on Windows (including save/resurrect all)
 
 ```bash
 # Check your platform (auto-detected)
@@ -97,6 +97,7 @@ bs9 start [app-*]                                   # Start services matching pa
 bs9 start all                                      # Start all services
 bs9 stop [app1, app2]                              # Stop multiple services
 bs9 stop [web-*]                                   # Stop services matching pattern
+bs9 stop svc1 svc2 svc3                            # Stop specific list (space separated)
 bs9 stop all                                       # Stop all services (with confirmation)
 bs9 restart [app1, app2, app3]                     # Restart multiple services
 bs9 restart [*-prod]                               # Restart services matching pattern

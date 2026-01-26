@@ -26,11 +26,11 @@ function isValidHost(host: string): boolean {
   const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
   const ipv6Regex = /^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$/;
   const hostnameRegex = /^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$/;
-  
+
   if (localhostRegex.test(host) || anyIPRegex.test(host)) {
     return true;
   }
-  
+
   if (ipv4Regex.test(host)) {
     const parts = host.split('.');
     return parts.every(part => {
@@ -38,15 +38,15 @@ function isValidHost(host: string): boolean {
       return num >= 0 && num <= 255;
     });
   }
-  
+
   if (ipv6Regex.test(host)) {
     return true;
   }
-  
+
   if (hostnameRegex.test(host) && host.length <= 253) {
     return true;
   }
-  
+
   return false;
 }
 
@@ -63,38 +63,35 @@ interface StartOptions {
 
 export async function startCommand(files: string[], options: StartOptions): Promise<void> {
   const platformInfo = getPlatformInfo();
-  
-  // Handle multiple arguments
-  const file = files.length > 0 ? files.join(' ') : '';
-  
-  // Handle multi-service operations
-  if (file.includes('[') || file === 'all') {
-    await handleMultiServiceStart(file, options);
+
+  // Multi-service if: multiple files, single file with array syntax, or 'all' keyword
+  if (files.length > 1 || (files.length === 1 && (files[0].includes('[') || files[0] === 'all'))) {
+    await handleMultiServiceStart(files, options);
     return;
   }
-  
-  // Single service operation (existing logic)
-  await handleSingleServiceStart(file, options);
+
+  // Single service operation
+  await handleSingleServiceStart(files[0] || '', options);
 }
 
-async function handleMultiServiceStart(file: string, options: StartOptions): Promise<void> {
+async function handleMultiServiceStart(file: string | string[], options: StartOptions): Promise<void> {
   const services = await parseServiceArray(file);
-  
+
   if (services.length === 0) {
     console.log("❌ No services found matching the pattern");
     return;
   }
-  
+
   console.log(`🚀 Starting ${services.length} services...`);
-  
+
   const results = await Promise.allSettled(
     services.map(async (serviceName) => {
       try {
         const platformInfo = getPlatformInfo();
-        
+
         // First check if service already exists
         const serviceExists = await checkServiceExists(serviceName, platformInfo);
-        
+
         if (serviceExists) {
           // Service exists, start it directly
           await startExistingService(serviceName, platformInfo);
@@ -105,7 +102,7 @@ async function handleMultiServiceStart(file: string, options: StartOptions): Pro
           if (!serviceFile) {
             throw new Error(`Service file not found for: ${serviceName}`);
           }
-          
+
           await handleSingleServiceStart(serviceFile, { ...options, name: serviceName });
           return { service: serviceName, status: 'success', error: null };
         }
@@ -114,18 +111,18 @@ async function handleMultiServiceStart(file: string, options: StartOptions): Pro
       }
     })
   );
-  
+
   displayBatchResults(results, 'start');
 }
 
 async function handleSingleServiceStart(file: string, options: StartOptions): Promise<void> {
   const platformInfo = getPlatformInfo();
-  
+
   // First, try to start existing service without file
   const serviceName = options.name || file;
-  
+
   const serviceExists = await checkServiceExists(serviceName, platformInfo);
-  
+
   if (serviceExists) {
     console.log(`📋 Service '${serviceName}' already exists, starting...`);
     try {
@@ -136,14 +133,14 @@ async function handleSingleServiceStart(file: string, options: StartOptions): Pr
       console.log(`📁 Looking for application file: ${file}`);
     }
   }
-  
+
   // Security: Validate and sanitize file path
   const fullPath = resolve(file);
   if (!existsSync(fullPath)) {
     console.error(`❌ File not found: ${fullPath}`);
     process.exit(1);
   }
-  
+
   // Security: Prevent directory traversal and ensure file is within allowed paths
   const allowedPaths = [process.cwd(), homedir()];
   const isAllowedPath = allowedPaths.some(allowed => fullPath.startsWith(allowed));
@@ -151,11 +148,11 @@ async function handleSingleServiceStart(file: string, options: StartOptions): Pr
     console.error(`❌ Security: File path outside allowed directories: ${fullPath}`);
     process.exit(1);
   }
-  
+
   // Security: Validate and sanitize service name
   const rawServiceName = options.name || basename(fullPath, fullPath.endsWith('.ts') ? '.ts' : '.js');
   const finalServiceName = rawServiceName.replace(/[^a-zA-Z0-9-_]/g, "_").replace(/^[^a-zA-Z]/, "_").substring(0, 64);
-  
+
   // Security: Validate port number
   const port = options.port || "3000";
   const portNum = Number(port);
@@ -163,14 +160,14 @@ async function handleSingleServiceStart(file: string, options: StartOptions): Pr
     console.error(`❌ Security: Invalid port number: ${port}. Must be 1-65535`);
     process.exit(1);
   }
-  
+
   // Security: Validate host
   const host = options.host || "localhost";
   if (!isValidHost(host)) {
     console.error(`❌ Security: Invalid host: ${host}`);
     process.exit(1);
   }
-  
+
   const protocol = options.https ? "https" : "http";
 
   // Port warning for privileged ports
@@ -196,10 +193,10 @@ async function handleSingleServiceStart(file: string, options: StartOptions): Pr
       console.log("🔨 Building TypeScript for production...");
       const buildDir = join(dirname(fullPath), ".bs9-build");
       mkdirSync(buildDir, { recursive: true });
-      
-      const outputFile = join(buildDir, `${finalServiceName}.js`);
+
+      const outputFile = join(buildDir, basename(fullPath, '.ts') + '.js');
       try {
-        execSync(`bun build ${fullPath} --outdir ${buildDir} --target bun --minify --splitting`, { stdio: "inherit" });
+        execSync(`bun build "${fullPath}" --outdir "${buildDir}" --target bun --minify --splitting`, { stdio: "inherit" });
         execPath = outputFile;
         isBuilt = true;
         console.log(`✅ Built to: ${execPath}`);
@@ -294,35 +291,35 @@ function findServiceFile(serviceName: string): string | null {
     join(process.cwd(), 'app', `${serviceName}.js`),
     join(process.cwd(), 'app', `${serviceName}.ts`),
   ];
-  
+
   for (const path of possiblePaths) {
     if (existsSync(path)) {
       return path;
     }
   }
-  
+
   return null;
 }
 
 function displayBatchResults(results: PromiseSettledResult<{ service: string; status: string; error: string | null }>[], operation: string): void {
   console.log(`\n📊 Batch ${operation} Results`);
   console.log("=".repeat(50));
-  
+
   const successful = results.filter(r => r.status === 'fulfilled' && r.value.status === 'success');
   const failed = results.filter(r => r.status === 'fulfilled' && r.value.status === 'failed');
-  
+
   successful.forEach(result => {
     if (result.status === 'fulfilled') {
       console.log(`✅ ${result.value.service} - ${operation} successful`);
     }
   });
-  
+
   failed.forEach(result => {
     if (result.status === 'fulfilled') {
       console.log(`❌ ${result.value.service} - Failed: ${result.value.error}`);
     }
   });
-  
+
   console.log(`\n📈 Summary:`);
   console.log(`   Total: ${results.length} services`);
   console.log(`   Success: ${successful.length}/${results.length} (${((successful.length / results.length) * 100).toFixed(1)}%)`);
@@ -344,17 +341,17 @@ async function createLinuxService(serviceName: string, execPath: string, host: s
 
   const platformInfo = getPlatformInfo();
   const unitPath = join(platformInfo.serviceDir, `${serviceName}.service`);
-  
+
   // Create user systemd directory if it doesn't exist
   if (!existsSync(platformInfo.serviceDir)) {
     mkdirSync(platformInfo.serviceDir, { recursive: true });
     console.log(`📁 Created user systemd directory: ${platformInfo.serviceDir}`);
   }
-  
+
   try {
     // Check if service already exists
     const serviceExists = existsSync(unitPath);
-    
+
     if (!serviceExists) {
       // First time: Create service file
       writeFileSync(unitPath, unitContent);
@@ -365,10 +362,10 @@ async function createLinuxService(serviceName: string, execPath: string, host: s
     } else {
       console.log(`📋 Service '${serviceName}' already exists, starting...`);
     }
-    
+
     // Always start the service
     execSync(`systemctl --user start ${serviceName}`);
-    
+
     console.log(`🚀 Service '${serviceName}' started successfully`);
     console.log(`   Health: ${protocol}://${host}:${port}/healthz`);
     console.log(`   Metrics: ${protocol}://${host}:${port}/metrics`);
@@ -380,7 +377,7 @@ async function createLinuxService(serviceName: string, execPath: string, host: s
 
 async function createMacOSService(serviceName: string, execPath: string, host: string, port: string, protocol: string, options: StartOptions): Promise<void> {
   const { launchdCommand } = await import("../macos/launchd.js");
-  
+
   const envVars: Record<string, string> = {
     PORT: port,
     HOST: host,
@@ -393,12 +390,12 @@ async function createMacOSService(serviceName: string, execPath: string, host: s
       return acc;
     }, {} as Record<string, string>)
   };
-  
+
   if (options.otel) {
     envVars.OTEL_SERVICE_NAME = serviceName;
     envVars.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = "http://localhost:4318/v1/traces";
   }
-  
+
   try {
     await launchdCommand('create', {
       name: `bs9.${serviceName}`,
@@ -410,7 +407,7 @@ async function createMacOSService(serviceName: string, execPath: string, host: s
       logOut: `${getPlatformInfo().logDir}/${serviceName}.out.log`,
       logErr: `${getPlatformInfo().logDir}/${serviceName}.err.log`
     });
-    
+
     console.log(`🚀 Service '${serviceName}' started successfully`);
     console.log(`   Health: ${protocol}://${host}:${port}/healthz`);
     console.log(`   Metrics: ${protocol}://${host}:${port}/metrics`);
@@ -422,7 +419,7 @@ async function createMacOSService(serviceName: string, execPath: string, host: s
 
 async function createWindowsService(serviceName: string, execPath: string, host: string, port: string, protocol: string, options: StartOptions): Promise<void> {
   const { windowsCommand } = await import("../windows/service.js");
-  
+
   const envVars: Record<string, string> = {
     PORT: port,
     HOST: host,
@@ -435,26 +432,26 @@ async function createWindowsService(serviceName: string, execPath: string, host:
       return acc;
     }, {} as Record<string, string>)
   };
-  
+
   if (options.otel) {
     envVars.OTEL_SERVICE_NAME = serviceName;
     envVars.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = "http://localhost:4318/v1/traces";
   }
-  
+
   try {
+    // windowsCommand internally handles admin vs non-admin (background process)
     await windowsCommand('create', {
       name: `BS9_${serviceName}`,
       file: execPath,
       displayName: `BS9 Service: ${serviceName}`,
-      description: `BS9 managed service: ${serviceName}`,
-      workingDir: dirname(execPath),
+      description: `BS9 managed service: ${serviceName} (port ${port})`,
+      workingDir: resolve(dirname(execPath)),
       args: ['run', execPath],
       env: JSON.stringify(envVars)
     });
-    
-    console.log(`🚀 Service '${serviceName}' started successfully`);
+
+    console.log(`🚀 Service '${serviceName}' initialization complete`);
     console.log(`   Health: ${protocol}://${host}:${port}/healthz`);
-    console.log(`   Metrics: ${protocol}://${host}:${port}/metrics`);
   } catch (error) {
     console.error(`❌ Failed to start Windows service: ${error}`);
     process.exit(1);
@@ -471,8 +468,8 @@ async function securityAudit(filePath: string): Promise<SecurityAuditResult> {
   const content = readFileSync(filePath, "utf-8");
   const stat = statSync(filePath);
 
-  // Check file permissions
-  if (stat.mode & 0o002) {
+  // Check file permissions (Unix-style world-writable check is unreliable on Windows)
+  if (process.platform !== "win32" && (stat.mode & 0o002)) {
     result.critical.push("File is world-writable");
   }
 

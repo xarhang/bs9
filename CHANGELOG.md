@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.17] - 2026-01-26
+
+### 🐛 Bug Fixes
+- **Windows Persistence**
+  - Fixed `save all` and `resurrect all` for background processes
+  - Resolved double-prefix issue (e.g. `BS9_BS9_app`)
+- **CLI Updates**
+  - Fixed `update` command version detection when running from source
+  - Improved multi-service argument handling (space-separated lists)
+  - Added `--force` flag to `stop` and `restart` commands
+
+### 🔧 Technical Improvements
+- **Automated Verification**
+  - Added comprehensive `verification.ts` suite
+  - Standardized command dispatch logic
+
 ## [1.5.16] - 2026-01-26
 
 ### ✨ New Features

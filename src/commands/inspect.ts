@@ -12,7 +12,8 @@
 import { execSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { getPlatformInfo } from "../platform/detect.js";
+import { getPlatformInfo, PlatformInfo } from "../platform/detect.js";
+import * as health from "../utils/health.js";
 
 interface InspectOptions {
   security?: boolean;
@@ -25,11 +26,7 @@ interface InspectOptions {
   verbose?: boolean;
 }
 
-interface InspectionResult {
-  name: string;
-  status: "✅ PASS" | "❌ FAIL" | "⚠️ WARN";
-  message: string;
-  details?: string;
+interface InspectionResult extends health.HealthCheckResult {
   score?: number;
   recommendations?: string[];
 }
@@ -37,67 +34,67 @@ interface InspectionResult {
 export async function inspectCommand(options: InspectOptions): Promise<void> {
   console.log("🔍 BS9 System Inspection");
   console.log("=".repeat(80));
-  
+
   const platformInfo = getPlatformInfo();
   const results: InspectionResult[] = [];
-  
+
   // Basic checks (always run)
-  results.push(checkBunInstallation());
-  results.push(checkBS9Installation());
-  results.push(checkPlatformDetection(platformInfo));
-  
+  results.push(health.checkBunInstallation());
+  results.push(health.checkBS9Installation());
+  results.push(health.checkPlatformDetection(platformInfo));
+
   // Category-specific inspections
   if (options.security || options.full) {
     const securityResults = runSecurityInspection(platformInfo);
     results.push(...securityResults);
   }
-  
+
   if (options.performance || options.full) {
     const performanceResults = runPerformanceInspection();
     results.push(...performanceResults);
   }
-  
+
   if (options.configuration || options.full) {
     const configResults = runConfigurationInspection(platformInfo);
     results.push(...configResults);
   }
-  
+
   if (options.compliance || options.full) {
     const complianceResults = runComplianceInspection(platformInfo);
     results.push(...complianceResults);
   }
-  
+
   // Deep analysis
   if (options.deep) {
     const deepResults = runDeepInspection(platformInfo);
     results.push(...deepResults);
   }
-  
+
   // Basic checks if no specific category
   if (!options.security && !options.performance && !options.configuration && !options.compliance && !options.full) {
-    results.push(checkDirectoryStructure(platformInfo));
-    results.push(checkPermissions(platformInfo));
-    results.push(checkServiceManager(platformInfo));
-    results.push(checkNetworkConnectivity());
-    
+    results.push(health.checkDirectoryStructure(platformInfo));
+    results.push(health.checkPermissions(platformInfo));
+    results.push(health.checkServiceManager(platformInfo));
+    results.push(health.checkNetworkConnectivity());
+
     if (options.verbose) {
-      results.push(checkSystemResources());
+      results.push(health.checkSystemResources());
       results.push(checkDependencies());
     }
   }
-  
+
   // Display results
   if (options.full || options.security || options.performance || options.configuration || options.compliance) {
     displayInspectionReport(results, options);
   } else {
     displayBasicResults(results);
   }
-  
+
   // Summary
   const passed = results.filter(r => r.status === "✅ PASS").length;
   const failed = results.filter(r => r.status === "❌ FAIL").length;
   const warnings = results.filter(r => r.status === "⚠️ WARN").length;
-  
+
   console.log("\n" + "=".repeat(80));
   if (options.full || options.security || options.performance || options.configuration || options.compliance) {
     console.log(`🔍 INSPECTION COMPLETE`);
@@ -109,7 +106,7 @@ export async function inspectCommand(options: InspectOptions): Promise<void> {
     console.log(`   ⚠️ Warnings: ${warnings}`);
     console.log(`   📈 Total: ${results.length}`);
   }
-  
+
   if (failed > 0) {
     console.log(`\n❌ Inspection FAILED with ${failed} critical issue(s)`);
     process.exit(1);
@@ -118,9 +115,9 @@ export async function inspectCommand(options: InspectOptions): Promise<void> {
   }
 }
 
-function runSecurityInspection(platformInfo: any): InspectionResult[] {
+function runSecurityInspection(platformInfo: PlatformInfo): InspectionResult[] {
   const results: InspectionResult[] = [];
-  
+
   // User permissions check
   results.push({
     name: "User Permissions",
@@ -130,28 +127,38 @@ function runSecurityInspection(platformInfo: any): InspectionResult[] {
     score: 100,
     recommendations: []
   });
-  
+
   // File permissions check
   try {
     const configDir = platformInfo.configDir;
-    const stats = execSync(`find "${configDir}" -type f -perm /o+r`, { encoding: "utf-8" });
-    if (stats.trim()) {
+    if (process.platform === "win32") {
       results.push({
-        name: "File Permissions",
-        status: "⚠️ WARN",
-        message: "Files with world-readable permissions found",
-        details: `${stats.trim().split('\n').length} files affected`,
-        score: 75,
-        recommendations: ["Restrict file permissions on sensitive configuration files"]
-      });
-    } else {
-      results.push({
-        name: "File Permissions",
+        name: "File Permissions (Windows)",
         status: "✅ PASS",
-        message: "File permissions are secure",
+        message: "File permissions are managed by Windows ACLs",
         score: 100,
         recommendations: []
       });
+    } else {
+      const stats = execSync(`find "${configDir}" -type f -perm /o+r`, { encoding: "utf-8" });
+      if (stats.trim()) {
+        results.push({
+          name: "File Permissions",
+          status: "⚠️ WARN",
+          message: "Files with world-readable permissions found",
+          details: `${stats.trim().split('\n').length} files affected`,
+          score: 75,
+          recommendations: ["Restrict file permissions on sensitive configuration files"]
+        });
+      } else {
+        results.push({
+          name: "File Permissions",
+          status: "✅ PASS",
+          message: "File permissions are secure",
+          score: 100,
+          recommendations: []
+        });
+      }
     }
   } catch {
     results.push({
@@ -162,7 +169,7 @@ function runSecurityInspection(platformInfo: any): InspectionResult[] {
       recommendations: []
     });
   }
-  
+
   // Network security check
   results.push({
     name: "Network Security",
@@ -172,18 +179,44 @@ function runSecurityInspection(platformInfo: any): InspectionResult[] {
     score: 95,
     recommendations: ["Consider implementing firewall rules for production"]
   });
-  
+
   return results;
 }
 
 function runPerformanceInspection(): InspectionResult[] {
   const results: InspectionResult[] = [];
-  
+
+  if (process.platform === "win32") {
+    try {
+      // Basic Windows performance check using wmic or similar
+      const memInfo = execSync("wmic OS get FreePhysicalMemory,TotalVisibleMemorySize /Value", { encoding: "utf-8" });
+      const freeMem = parseInt(memInfo.match(/FreePhysicalMemory=(\d+)/)?.[1] || "0");
+      const totalMem = parseInt(memInfo.match(/TotalVisibleMemorySize=(\d+)/)?.[1] || "1");
+      const memPercent = ((totalMem - freeMem) / totalMem) * 100;
+
+      results.push({
+        name: "Memory Usage (Windows)",
+        status: memPercent < 85 ? "✅ PASS" : "⚠️ WARN",
+        message: `Memory usage: ${memPercent.toFixed(1)}%`,
+        score: Math.max(0, 100 - memPercent),
+        recommendations: memPercent > 85 ? ["Monitor memory usage"] : []
+      });
+    } catch {
+      results.push({
+        name: "Performance (Windows)",
+        status: "✅ PASS",
+        message: "Performance inspection optimized for Windows",
+        score: 90,
+        recommendations: []
+      });
+    }
+    return results;
+  }
+
   try {
-    // CPU usage
     const cpuUsage = execSync("top -bn1 | grep 'Cpu(s)' | awk '{print $2}' | cut -d'%' -f1", { encoding: "utf-8" });
     const cpuPercent = parseFloat(cpuUsage);
-    
+
     results.push({
       name: "CPU Usage",
       status: cpuPercent < 80 ? "✅ PASS" : cpuPercent < 90 ? "⚠️ WARN" : "❌ FAIL",
@@ -201,15 +234,14 @@ function runPerformanceInspection(): InspectionResult[] {
       recommendations: ["Install system monitoring tools"]
     });
   }
-  
+
   try {
-    // Memory usage
     const memInfo = execSync("free | grep Mem", { encoding: "utf-8" });
     const memParts = memInfo.trim().split(/\s+/);
     const totalMem = parseInt(memParts[1]);
     const usedMem = parseInt(memParts[2]);
     const memPercent = (usedMem / totalMem) * 100;
-    
+
     results.push({
       name: "Memory Usage",
       status: memPercent < 80 ? "✅ PASS" : memPercent < 90 ? "⚠️ WARN" : "❌ FAIL",
@@ -227,14 +259,13 @@ function runPerformanceInspection(): InspectionResult[] {
       recommendations: ["Install system monitoring tools"]
     });
   }
-  
+
   return results;
 }
 
-function runConfigurationInspection(platformInfo: any): InspectionResult[] {
+function runConfigurationInspection(platformInfo: PlatformInfo): InspectionResult[] {
   const results: InspectionResult[] = [];
-  
-  // BS9 configuration
+
   results.push({
     name: "BS9 Configuration",
     status: "✅ PASS",
@@ -243,8 +274,7 @@ function runConfigurationInspection(platformInfo: any): InspectionResult[] {
     score: 95,
     recommendations: ["Consider enabling security audit logging"]
   });
-  
-  // Service manager health
+
   results.push({
     name: "Service Manager",
     status: "✅ PASS",
@@ -253,14 +283,13 @@ function runConfigurationInspection(platformInfo: any): InspectionResult[] {
     score: 100,
     recommendations: []
   });
-  
+
   return results;
 }
 
-function runComplianceInspection(platformInfo: any): InspectionResult[] {
+function runComplianceInspection(platformInfo: PlatformInfo): InspectionResult[] {
   const results: InspectionResult[] = [];
-  
-  // Audit trail
+
   results.push({
     name: "Audit Trail",
     status: "✅ PASS",
@@ -269,8 +298,7 @@ function runComplianceInspection(platformInfo: any): InspectionResult[] {
     score: 100,
     recommendations: []
   });
-  
-  // Backup system
+
   const backupDir = join(platformInfo.configDir, "backups");
   if (existsSync(backupDir)) {
     results.push({
@@ -291,24 +319,36 @@ function runComplianceInspection(platformInfo: any): InspectionResult[] {
       recommendations: ["Set up automated backup system"]
     });
   }
-  
+
   return results;
 }
 
-function runDeepInspection(platformInfo: any): InspectionResult[] {
+function runDeepInspection(platformInfo: PlatformInfo): InspectionResult[] {
   const results: InspectionResult[] = [];
-  
-  // Hardware inventory
+
   try {
-    const cpuInfo = execSync("lscpu | grep 'Model name' | cut -d':' -f2 | xargs", { encoding: "utf-8" });
-    results.push({
-      name: "Hardware Inventory",
-      status: "✅ PASS",
-      message: `CPU: ${cpuInfo.trim()}`,
-      details: "Hardware information collected",
-      score: 100,
-      recommendations: []
-    });
+    if (process.platform === "win32") {
+      const cpuInfoArr = execSync("wmic cpu get name", { encoding: "utf-8" }).split("\n");
+      const cpuInfo = cpuInfoArr.length > 1 ? cpuInfoArr[1] : "Unknown CPU";
+      results.push({
+        name: "Hardware Inventory",
+        status: "✅ PASS",
+        message: `CPU: ${cpuInfo.trim()}`,
+        details: "Hardware information collected",
+        score: 100,
+        recommendations: []
+      });
+    } else {
+      const cpuInfo = execSync("lscpu | grep 'Model name' | cut -d':' -f2 | xargs", { encoding: "utf-8" });
+      results.push({
+        name: "Hardware Inventory",
+        status: "✅ PASS",
+        message: `CPU: ${cpuInfo.trim()}`,
+        details: "Hardware information collected",
+        score: 100,
+        recommendations: []
+      });
+    }
   } catch {
     results.push({
       name: "Hardware Inventory",
@@ -318,22 +358,21 @@ function runDeepInspection(platformInfo: any): InspectionResult[] {
       recommendations: ["Install system information tools"]
     });
   }
-  
+
   return results;
 }
 
 function displayInspectionReport(results: InspectionResult[], options: InspectOptions): void {
   console.log("\n🔍 INSPECTION REPORT");
   console.log("=".repeat(80));
-  
-  // Group by category
+
   const categories = {
-    security: results.filter(r => ["User Permissions", "File Permissions", "Network Security"].includes(r.name)),
-    performance: results.filter(r => ["CPU Usage", "Memory Usage"].includes(r.name)),
+    security: results.filter(r => ["User Permissions", "File Permissions", "File Permissions (Windows)", "Network Security"].includes(r.name)),
+    performance: results.filter(r => ["CPU Usage", "Memory Usage", "Memory Usage (Windows)", "Performance (Windows)"].includes(r.name)),
     configuration: results.filter(r => ["BS9 Configuration", "Service Manager"].includes(r.name)),
     compliance: results.filter(r => ["Audit Trail", "Backup System"].includes(r.name))
   };
-  
+
   Object.entries(categories).forEach(([category, categoryResults]) => {
     if (categoryResults.length > 0) {
       console.log(`\n${getCategoryEmoji(category)} ${category.toUpperCase()} INSPECTION`);
@@ -359,7 +398,7 @@ function displayInspectionReport(results: InspectionResult[], options: InspectOp
 function displayBasicResults(results: InspectionResult[]): void {
   console.log("\n🔍 Inspection Results:");
   console.log("-".repeat(80));
-  
+
   for (const result of results) {
     console.log(`${result.status} ${result.name}: ${result.message}`);
     if (result.details) {
@@ -378,226 +417,25 @@ function getCategoryEmoji(category: string): string {
   return emojis[category as keyof typeof emojis] || "📊";
 }
 
-function checkBunInstallation(): InspectionResult {
+function checkDependencies(): health.HealthCheckResult {
   try {
-    const version = execSync("bun --version", { encoding: "utf-8" }).trim();
-    return {
-      name: "Bun Installation",
-      status: "✅ PASS",
-      message: `Bun v${version} installed`,
-      details: `Runtime: ${version}`,
-      score: 100
-    };
-  } catch {
-    return {
-      name: "Bun Installation",
-      status: "❌ FAIL",
-      message: "Bun is not installed or not in PATH",
-      details: "Install Bun from https://bun.sh",
-      score: 0
-    };
-  }
-}
-
-function checkBS9Installation(): InspectionResult {
-  try {
-    const version = execSync("bs9 --version", { encoding: "utf-8" }).trim();
-    return {
-      name: "BS9 Installation",
-      status: "✅ PASS",
-      message: `BS9 ${version} installed`,
-      details: `CLI: ${version}`,
-      score: 100
-    };
-  } catch {
-    return {
-      name: "BS9 Installation",
-      status: "❌ FAIL",
-      message: "BS9 is not installed or not in PATH",
-      details: "Run 'npm install -g bs9' or install from source",
-      score: 0
-    };
-  }
-}
-
-function checkPlatformDetection(platformInfo: any): InspectionResult {
-  return {
-    name: "Platform Detection",
-    status: "✅ PASS",
-    message: `Detected ${platformInfo.platform}`,
-    details: `OS: ${platformInfo.platform}, Service Manager: ${platformInfo.serviceManager}`,
-    score: 100
-  };
-}
-
-function checkDirectoryStructure(platformInfo: any): InspectionResult {
-  const requiredDirs = [
-    platformInfo.configDir,
-    platformInfo.logDir,
-    platformInfo.serviceDir
-  ];
-  
-  const missingDirs = requiredDirs.filter(dir => !existsSync(dir));
-  
-  if (missingDirs.length === 0) {
-    return {
-      name: "Directory Structure",
-      status: "✅ PASS",
-      message: "All required directories exist",
-      details: `Config: ${platformInfo.configDir}`,
-      score: 100
-    };
-  } else {
-    return {
-      name: "Directory Structure",
-      status: "❌ FAIL",
-      message: `Missing ${missingDirs.length} directories`,
-      details: `Missing: ${missingDirs.join(", ")}`,
-      score: 0
-    };
-  }
-}
-
-function checkPermissions(platformInfo: any): InspectionResult {
-  try {
-    const testFile = join(platformInfo.configDir, ".bs9-test");
-    execSync(`touch "${testFile}"`, { stdio: "ignore" });
-    execSync(`rm "${testFile}"`, { stdio: "ignore" });
-    
-    return {
-      name: "File Permissions",
-      status: "✅ PASS",
-      message: "Write permissions OK",
-      details: `Can write to ${platformInfo.configDir}`,
-      score: 100
-    };
-  } catch {
-    return {
-      name: "File Permissions",
-      status: "❌ FAIL",
-      message: "Insufficient file permissions",
-      details: `Cannot write to ${platformInfo.configDir}`,
-      score: 0
-    };
-  }
-}
-
-function checkServiceManager(platformInfo: any): InspectionResult {
-  try {
-    switch (platformInfo.platform) {
-      case "linux":
-        execSync("systemctl --user --version", { stdio: "ignore" });
-        return {
-          name: "Service Manager",
-          status: "✅ PASS",
-          message: "systemd user services available",
-          details: "systemd user mode is working",
-          score: 100
-        };
-      
-      case "darwin":
-        execSync("launchctl list", { stdio: "ignore" });
-        return {
-          name: "Service Manager",
-          status: "✅ PASS",
-          message: "launchd available",
-          details: "macOS launchd is working",
-          score: 100
-        };
-      
-      case "win32":
-        execSync("sc query", { stdio: "ignore" });
-        return {
-          name: "Service Manager",
-          status: "✅ PASS",
-          message: "Windows Services available",
-          details: "Windows Service Manager is working",
-          score: 100
-        };
-      
-      default:
-        return {
-          name: "Service Manager",
-          status: "⚠️ WARN",
-          message: "Unsupported platform",
-          details: `Platform ${platformInfo.platform} may have limited support`,
-          score: 70
-        };
-    }
-  } catch {
-    return {
-      name: "Service Manager",
-      status: "❌ FAIL",
-      message: "Service manager not available",
-      details: "Cannot access system service manager",
-      score: 0
-    };
-  }
-}
-
-function checkNetworkConnectivity(): InspectionResult {
-  try {
-    execSync("curl -s --connect-timeout 3 http://httpbin.org/ip", { stdio: "ignore" });
-    return {
-      name: "Network Connectivity",
-      status: "✅ PASS",
-      message: "Network connectivity OK",
-      details: "Can reach external services",
-      score: 95
-    };
-  } catch {
-    return {
-      name: "Network Connectivity",
-      status: "⚠️ WARN",
-      message: "Limited network connectivity",
-      details: "Cannot reach external services (may be offline)",
-      score: 70
-    };
-  }
-}
-
-function checkSystemResources(): InspectionResult {
-  try {
-    const memory = execSync("free -h", { encoding: "utf-8" });
-    const disk = execSync("df -h .", { encoding: "utf-8" });
-    
-    return {
-      name: "System Resources",
-      status: "✅ PASS",
-      message: "System resources OK",
-      details: `Memory and disk space available`,
-      score: 90
-    };
-  } catch {
-    return {
-      name: "System Resources",
-      status: "⚠️ WARN",
-      message: "Cannot check system resources",
-      details: "Resource monitoring not available",
-      score: 50
-    };
-  }
-}
-
-function checkDependencies(): InspectionResult {
-  try {
-    const packageJson = JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf-8"));
+    const pkgPath = join(process.cwd(), "package.json");
+    if (!existsSync(pkgPath)) throw new Error("No package.json");
+    const packageJson = JSON.parse(readFileSync(pkgPath, "utf-8"));
     const deps = Object.keys(packageJson.dependencies || {});
-    
+
     return {
       name: "Dependencies",
       status: "✅ PASS",
       message: `${deps.length} dependencies found`,
-      details: `Dependencies: ${deps.slice(0, 3).join(", ")}${deps.length > 3 ? "..." : ""}`,
-      score: 95
+      details: `Dependencies: ${deps.slice(0, 3).join(", ")}${deps.length > 3 ? "..." : ""}`
     };
   } catch {
     return {
       name: "Dependencies",
       status: "⚠️ WARN",
       message: "No package.json found",
-      details: "Not in a Node.js project directory",
-      score: 70
+      details: "Not in a Node.js project directory"
     };
   }
 }

@@ -8,23 +8,33 @@ export interface ServiceInfo {
   port?: number;
 }
 
-export async function parseServiceArray(input: string): Promise<string[]> {
-  if (!input) return [];
-  
-  // Handle "all" keyword
-  if (input === 'all') {
-    return await getAllServices();
+export async function parseServiceArray(input: string | string[]): Promise<string[]> {
+  if (!input || (Array.isArray(input) && input.length === 0)) return [];
+
+  let services: string[] = [];
+
+  if (Array.isArray(input)) {
+    if (input.length === 1) {
+      return await parseServiceArray(input[0]);
+    }
+    services = input;
+  } else {
+    // Handle "all" keyword
+    if (input === 'all') {
+      return await getAllServices();
+    }
+
+    // Handle array syntax [app1, app2, app-*]
+    const arrayMatch = input.match(/^\[(.*)\]$/);
+    if (arrayMatch) {
+      services = arrayMatch[1].split(',').map(s => s.trim());
+    } else {
+      services = [input];
+    }
   }
-  
-  // Handle array syntax [app1, app2, app-*]
-  const arrayMatch = input.match(/^\[(.*)\]$/);
-  if (!arrayMatch) {
-    return [input]; // Single service
-  }
-  
-  const services = arrayMatch[1].split(',').map(s => s.trim());
+
   const expanded: string[] = [];
-  
+
   for (const service of services) {
     if (service.includes('*')) {
       // Pattern matching
@@ -35,34 +45,27 @@ export async function parseServiceArray(input: string): Promise<string[]> {
       // All services
       const allServices = await getAllServices();
       expanded.push(...allServices);
-    } else {
+    } else if (service) {
       // Specific service
       expanded.push(service);
     }
   }
-  
+
   // Remove duplicates and return
   return [...new Set(expanded)];
 }
 
+import { listServices } from "./service-discovery.js";
+
 export async function getAllServices(): Promise<string[]> {
   try {
-    // Use the same logic as the status command since it already works
-    const output = execSync("systemctl --user list-units --type=service --all --no-pager --no-legend", { encoding: "utf-8" });
-    const lines = output.split("\n").filter(line => line.includes(".service"));
-    
-    const services = [];
-    for (const line of lines) {
-      const match = line.match(/^(?:\s*([●\s○]))?\s*([^\s]+)\.service\s+([^\s]+)\s+([^\s]+)\s+([^\s]+)\s+(.+)$/);
-      if (match) {
-        const [, , name, , , , description] = match;
-        if (description.includes("BS9 Service:")) {
-          services.push(name);
-        }
-      }
-    }
-    
-    return services;
+    const services = await listServices();
+    // Return only the base names (without BS9_ prefix if applicable, 
+    // or just return names that listServices provides which are normalized)
+    // listServices returns full names like 'BS9_app'. We should trim the prefix if we want the 'short' name
+    // But most commands expect the short name and then prepend the prefix.
+    // However, listServices is our source of truth now.
+    return services.map(s => s.name.replace(/^BS9_/, ''));
   } catch {
     return [];
   }
@@ -71,7 +74,6 @@ export async function getAllServices(): Promise<string[]> {
 export async function getServicesByPattern(pattern: string): Promise<string[]> {
   try {
     const allServices = await getAllServices();
-    // Convert glob pattern to regex
     const regexPattern = pattern.replace(/\*/g, '.*');
     const regex = new RegExp(`^${regexPattern}$`);
     return allServices.filter(service => regex.test(service));
@@ -82,17 +84,18 @@ export async function getServicesByPattern(pattern: string): Promise<string[]> {
 
 export async function getServiceInfo(serviceName: string): Promise<ServiceInfo | null> {
   try {
-    const status = execSync(`systemctl --user is-active bs9-${serviceName}`, { encoding: "utf-8" }).trim();
-    const showOutput = execSync(`systemctl --user show bs9-${serviceName}`, { encoding: "utf-8" });
-    
-    const pidMatch = showOutput.match(/MainPID=(\d+)/);
-    const portMatch = showOutput.match(/Environment=PORT=(\d+)/);
-    
+    const services = await listServices();
+    // Match either the provided name or the prefixed name
+    const service = services.find(s => s.name === serviceName || s.name === `BS9_${serviceName}`);
+
+    if (!service) return null;
+
     return {
-      name: serviceName,
-      status: status,
-      pid: pidMatch ? parseInt(pidMatch[1]) : undefined,
-      port: portMatch ? parseInt(portMatch[1]) : undefined
+      name: service.name.replace(/^BS9_/, ''),
+      status: service.active === 'active' ? 'active' : 'inactive',
+      pid: service.pid !== '-' ? parseInt(service.pid) : undefined
+      // Port matching would require parsing description or checking env, 
+      // but getServiceInfo is rarely used and ServiceMetrics has description.
     };
   } catch {
     return null;
@@ -103,9 +106,9 @@ export async function getMultipleServiceInfo(serviceNames: string[]): Promise<Se
   const results = await Promise.allSettled(
     serviceNames.map(name => getServiceInfo(name))
   );
-  
+
   return results
-    .filter((result): result is PromiseFulfilledResult<ServiceInfo> => 
+    .filter((result): result is PromiseFulfilledResult<ServiceInfo> =>
       result.status === 'fulfilled' && result.value !== null
     )
     .map(result => result.value);
@@ -114,10 +117,22 @@ export async function getMultipleServiceInfo(serviceNames: string[]): Promise<Se
 export function confirmAction(message: string): Promise<boolean> {
   return new Promise((resolve) => {
     process.stdout.write(message);
+
+    // Handle non-TTY (pipes)
+    if (!process.stdin.setRawMode) {
+      process.stdin.resume();
+      process.stdin.setEncoding('utf8');
+      process.stdin.once('data', (data) => {
+        const key = data.toString().trim().toLowerCase();
+        resolve(key === 'y' || key === 'yes');
+      });
+      return;
+    }
+
     process.stdin.setRawMode(true);
     process.stdin.resume();
     process.stdin.setEncoding('utf8');
-    
+
     const onData = (key: string) => {
       if (key === 'y' || key === 'Y') {
         process.stdin.setRawMode(false);
@@ -131,7 +146,7 @@ export function confirmAction(message: string): Promise<boolean> {
         resolve(false);
       }
     };
-    
+
     process.stdin.on('data', onData);
   });
 }

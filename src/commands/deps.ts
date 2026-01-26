@@ -11,6 +11,9 @@
 
 import { execSync } from "node:child_process";
 import { setTimeout } from "node:timers/promises";
+import { getPlatformInfo, PlatformInfo } from "../platform/detect.js";
+import { join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 
 interface DepOptions {
   format?: string;
@@ -38,10 +41,10 @@ interface DependencyGraph {
 export async function depsCommand(options: DepOptions): Promise<void> {
   console.log('🔗 BS9 Service Dependency Visualization');
   console.log('='.repeat(80));
-  
+
   try {
     const graph = await buildDependencyGraph();
-    
+
     if (options.format === 'dot') {
       const dotOutput = generateDotGraph(graph);
       if (options.output) {
@@ -61,7 +64,7 @@ export async function depsCommand(options: DepOptions): Promise<void> {
     } else {
       displayDependencyGraph(graph);
     }
-    
+
   } catch (error) {
     console.error(`❌ Failed to analyze dependencies: ${error}`);
     process.exit(1);
@@ -70,62 +73,98 @@ export async function depsCommand(options: DepOptions): Promise<void> {
 
 async function buildDependencyGraph(): Promise<DependencyGraph> {
   const services: ServiceDependency[] = [];
-  const edges: Array<{from: string; to: string; type: 'http' | 'database' | 'message' | 'custom'}> = [];
-  
+  const edges: Array<{ from: string; to: string; type: 'http' | 'database' | 'message' | 'custom' }> = [];
+  const platformInfo = getPlatformInfo();
+
   try {
-    // Get all BS9 services
-    const listOutput = execSync("systemctl --user list-units --type=service --no-pager --no-legend", { encoding: "utf-8" });
-    const lines = listOutput.split("\n").filter(line => line.includes(".service"));
-    
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      
-      const match = line.match(/^(?:\s*([●\s○]))?\s*([^\s]+)\.service\s+([^\s]+)\s+([^\s]+)\s+([^\s]+)\s+(.+)$/);
-      if (!match) continue;
-      
-      const [, statusIndicator, name, loaded, active, sub, description] = match;
-      
-      if (!description.includes("Bun Service:") && !description.includes("BS9 Service:")) continue;
-      
-      const service: ServiceDependency = {
-        name,
-        dependsOn: [],
-        status: getServiceStatus(active, sub),
-        health: 'unknown',
-        endpoints: [],
-      };
-      
-      // Extract port from description
-      const portMatch = description.match(/port[=:]?\s*(\d+)/i);
-      if (portMatch) {
-        service.port = Number(portMatch[1]);
+    if (platformInfo.isWindows) {
+      const { WindowsServiceManager } = await import("../windows/service.js");
+      const manager = new WindowsServiceManager();
+      const winServices = await manager.listServices();
+
+      for (const svc of winServices) {
+        const service: ServiceDependency = {
+          name: svc.name,
+          dependsOn: [],
+          status: svc.state === 'running' ? 'running' : 'stopped',
+          health: 'unknown',
+          endpoints: [],
+        };
+
+        // Windows services don't have descriptions in listServices output currently, 
+        // but we can try to find config
+        const deps = await analyzeServiceDependencies(svc.name, platformInfo);
+        service.dependsOn = deps.dependsOn;
+        service.endpoints = deps.endpoints;
+
+        services.push(service);
+
+        for (const dep of deps.dependsOn) {
+          edges.push({ from: svc.name, to: dep, type: deps.type });
+        }
       }
-      
-      // Analyze service for dependencies
-      const deps = await analyzeServiceDependencies(name, service.port);
-      service.dependsOn = deps.dependsOn;
-      service.endpoints = deps.endpoints;
-      
-      services.push(service);
-      
-      // Add edges to graph
-      for (const dep of deps.dependsOn) {
-        edges.push({
-          from: name,
-          to: dep,
-          type: deps.type,
-        });
+    } else {
+      // Linux/macOS path
+      const listCmd = platformInfo.isLinux
+        ? "systemctl --user list-units --type=service --no-pager --no-legend"
+        : "launchctl list | grep bs9"; // Simplified for demonstration
+
+      try {
+        const listOutput = execSync(listCmd, { encoding: "utf-8" });
+        const lines = listOutput.split("\n");
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+
+          let name = "";
+          let active = "";
+          let sub = "";
+          let description = "";
+
+          if (platformInfo.isLinux) {
+            const match = line.match(/^(?:\s*([●\s○]))?\s*([^\s]+)\.service\s+([^\s]+)\s+([^\s]+)\s+([^\s]+)\s+(.+)$/);
+            if (!match) continue;
+            [, , name, , active, sub, description] = match;
+            if (!description.includes("Bun Service:") && !description.includes("BS9 Service:")) continue;
+          } else {
+            // MacOS placeholder logic
+            const parts = line.split(/\s+/);
+            name = parts[parts.length - 1];
+            active = "active"; // Simplified
+            sub = "running";
+          }
+
+          const service: ServiceDependency = {
+            name,
+            dependsOn: [],
+            status: getServiceStatus(active, sub),
+            health: 'unknown',
+            endpoints: [],
+          };
+
+          const deps = await analyzeServiceDependencies(name, platformInfo);
+          service.dependsOn = deps.dependsOn;
+          service.endpoints = deps.endpoints;
+
+          services.push(service);
+
+          for (const dep of deps.dependsOn) {
+            edges.push({ from: name, to: dep, type: deps.type });
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching services:', err);
       }
     }
-    
+
   } catch (error) {
-    console.error('Error fetching services:', error);
+    console.error('Error in buildDependencyGraph:', error);
   }
-  
+
   return { services, edges };
 }
 
-async function analyzeServiceDependencies(serviceName: string, port?: number): Promise<{
+async function analyzeServiceDependencies(serviceName: string, platformInfo: PlatformInfo): Promise<{
   dependsOn: string[];
   endpoints: string[];
   type: 'http' | 'database' | 'message' | 'custom';
@@ -133,34 +172,34 @@ async function analyzeServiceDependencies(serviceName: string, port?: number): P
   const dependsOn: string[] = [];
   const endpoints: string[] = [];
   let type: 'http' | 'database' | 'message' | 'custom' = 'custom';
-  
+
   try {
-    // Check if service has health endpoints
-    if (port) {
-      endpoints.push(`http://localhost:${port}/healthz`);
-      endpoints.push(`http://localhost:${port}/readyz`);
-      endpoints.push(`http://localhost:${port}/metrics`);
-      
-      // Check for common dependency patterns
-      try {
-        const response = Bun.fetch(`http://localhost:${port}/dependencies`, { timeout: 1000 });
-        if (response.ok) {
-          const deps = await response.json();
-          if (Array.isArray(deps)) {
-            dependsOn.push(...deps);
-            type = 'http';
-          }
+    // Try to find environment variables in service config file
+    let serviceContent = "";
+    if (platformInfo.isLinux) {
+      const servicePath = join(platformInfo.serviceDir, `${serviceName}.service`);
+      if (existsSync(servicePath)) serviceContent = readFileSync(servicePath, "utf-8");
+    } else if (platformInfo.isWindows) {
+      // For Windows, we might store this in windows-services.json
+      const configPath = join(process.env.USERPROFILE || "", '.bs9', 'windows-services.json');
+      if (existsSync(configPath)) {
+        const configs = JSON.parse(readFileSync(configPath, 'utf-8'));
+        if (configs[serviceName]) {
+          const env = configs[serviceName].environment || {};
+          serviceContent = Object.entries(env).map(([k, v]) => `Environment=${k}=${v}`).join("\n");
         }
-      } catch {
-        // Service doesn't expose dependencies endpoint
       }
     }
-    
-    // Analyze service files for dependency patterns
-    try {
-      const servicePath = `/home/xarhang/.config/systemd/user/${serviceName}.service`;
-      const serviceContent = Bun.file(servicePath).text();
-      
+
+    if (serviceContent) {
+      // Extract port
+      const portMatch = serviceContent.match(/PORT=(\d+)/i);
+      if (portMatch) {
+        const port = Number(portMatch[1]);
+        endpoints.push(`http://localhost:${port}/healthz`);
+        endpoints.push(`http://localhost:${port}/metrics`);
+      }
+
       // Look for environment variables that suggest dependencies
       const envMatches = serviceContent.match(/Environment=([^\n]+)/g) || [];
       for (const env of envMatches) {
@@ -180,14 +219,11 @@ async function analyzeServiceDependencies(serviceName: string, port?: number): P
           }
         }
       }
-    } catch {
-      // Service file not accessible
     }
-    
   } catch (error) {
-    console.error(`Error analyzing dependencies for ${serviceName}:`, error);
+    // Silent fail for dependency analysis
   }
-  
+
   return { dependsOn, endpoints, type };
 }
 
@@ -201,41 +237,41 @@ function getServiceStatus(active: string, sub: string): 'running' | 'stopped' | 
 function displayDependencyGraph(graph: DependencyGraph): void {
   console.log('\n📊 Service Dependencies:');
   console.log('-'.repeat(60));
-  
+
   for (const service of graph.services) {
     const statusIcon = getStatusIcon(service.status);
     const healthIcon = getHealthIcon(service.health);
-    
+
     console.log(`${statusIcon} ${service.name} ${healthIcon}`);
-    
+
     if (service.dependsOn.length > 0) {
       console.log(`   └─ Depends on: ${service.dependsOn.join(', ')}`);
     }
-    
+
     if (service.endpoints.length > 0) {
       console.log(`   └─ Endpoints: ${service.endpoints.slice(0, 2).join(', ')}${service.endpoints.length > 2 ? '...' : ''}`);
     }
-    
+
     console.log('');
   }
-  
+
   console.log('\n🔗 Dependency Relationships:');
   console.log('-'.repeat(60));
-  
+
   if (graph.edges.length === 0) {
     console.log('No dependencies found between services.');
   } else {
     for (const edge of graph.edges) {
       const fromService = graph.services.find(s => s.name === edge.from);
       const toService = graph.services.find(s => s.name === edge.to);
-      
+
       const fromIcon = fromService ? getStatusIcon(fromService.status) : '❓';
       const toIcon = toService ? getStatusIcon(toService.status) : '❓';
-      
+
       console.log(`${fromIcon} ${edge.from} → ${edge.to} ${toIcon} (${edge.type})`);
     }
   }
-  
+
   console.log('\n📈 Summary:');
   console.log(`   Total Services: ${graph.services.length}`);
   console.log(`   Dependencies: ${graph.edges.length}`);
@@ -247,24 +283,24 @@ function generateDotGraph(graph: DependencyGraph): string {
   let dot = 'digraph BS9_Dependencies {\n';
   dot += '  rankdir=LR;\n';
   dot += '  node [shape=box, style=filled];\n\n';
-  
+
   // Add nodes
   for (const service of graph.services) {
     const color = getNodeColor(service.status);
     const label = `${service.name}\\n${service.status}`;
     dot += `  "${service.name}" [label="${label}", fillcolor="${color}"];\n`;
   }
-  
+
   dot += '\n';
-  
+
   // Add edges
   for (const edge of graph.edges) {
     const color = getEdgeColor(edge.type);
     dot += `  "${edge.from}" -> "${edge.to}" [color="${color}", label="${edge.type}"];\n`;
   }
-  
+
   dot += '}\n';
-  
+
   return dot;
 }
 

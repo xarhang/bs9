@@ -33,6 +33,10 @@ import { advancedMonitoringCommand } from "../src/monitoring/advanced.js";
 import { consulCommand } from "../src/discovery/consul.js";
 import { doctorCommand } from "../src/commands/doctor.js";
 import { inspectCommand } from "../src/commands/inspect.js";
+import { initializePlatformDirectories } from "../src/platform/detect.js";
+
+// Initialize platform directories at startup
+initializePlatformDirectories();
 
 const program = new Command();
 
@@ -59,12 +63,14 @@ program
   .command("stop")
   .description("Stop one or more services")
   .argument("[name...]", "Service name, array [app1,app2], pattern [app-*], or [all]")
+  .option("-f, --force", "Force stop without confirmation")
   .action(stopCommand);
 
 program
   .command("restart")
   .description("Restart one or more services")
   .argument("[name...]", "Service name, array [app1,app2], pattern [app-*], or [all]")
+  .option("-f, --force", "Force restart without confirmation")
   .action(restartCommand);
 
 program
@@ -76,7 +82,7 @@ program
 
 program
   .command("logs")
-  .description("Show logs for a service (via journalctl)")
+  .description("Show logs for a service (auto-detects systemd/file-based)")
   .argument("<name>", "Service name")
   .option("-f, --follow", "Follow logs")
   .option("-n, --lines <number>", "Number of lines", "50")
@@ -248,6 +254,24 @@ program
   .action(consulCommand);
 
 program
+  .command("windows")
+  .description("Windows service management")
+  .argument("<action>", "Action to perform (create|start|stop|restart|delete|status)")
+  .option("-n, --name <name>", "Service name")
+  .option("-f, --file <file>", "Application file path")
+  .option("--display-name <name>", "Service display name")
+  .option("--description <text>", "Service description")
+  .action(windowsCommand);
+
+program
+  .command("macos")
+  .description("macOS launchd service management")
+  .argument("<action>", "Action to perform (create|start|stop|restart|delete|status)")
+  .option("-n, --name <name>", "Service name")
+  .option("-f, --file <file>", "Application file path")
+  .action(launchdCommand);
+
+program
   .command("doctor")
   .description("Perform comprehensive health check")
   .option("--check <type>", "Specific check to run (dependencies|configuration|platform)")
@@ -266,5 +290,11 @@ program
   .option("--deep", "Deep system analysis")
   .option("-v, --verbose", "Verbose output with detailed analysis")
   .action(inspectCommand);
+
+// Explicitly handle no arguments case
+if (!process.argv.slice(2).length) {
+  program.outputHelp();
+  process.exit(0);
+}
 
 program.parse();

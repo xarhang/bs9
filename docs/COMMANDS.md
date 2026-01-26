@@ -261,7 +261,7 @@ bs9 save my-app --force
 **Backup Location:**
 - Linux: `~/.config/bs9/backups/`
 - macOS: `~/Library/Application Support/BS9/backups/`
-- Windows: `%APPDATA%/BS9/backups/`
+- Windows: `%userprofile%/.bs9/backups/`
 
 **Backup Format:**
 ```json

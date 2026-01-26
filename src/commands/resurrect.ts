@@ -30,47 +30,47 @@ function isValidServiceName(name: string): boolean {
 export async function resurrectCommand(name: string, options: ResurrectOptions): Promise<void> {
   // Initialize platform directories
   initializePlatformDirectories();
-  
+
   const platformInfo = getPlatformInfo();
-  
-  // Handle resurrect all services
-  if (options.all) {
+
+  // Handle resurrect all services or patterns
+  if (options.all || name === 'all' || name.includes('[') || name.includes(' ')) {
     await resurrectAllServices(platformInfo, options);
     return;
   }
-  
+
   // Security: Validate service name
   if (!isValidServiceName(name)) {
     console.error(`❌ Security: Invalid service name: ${name}`);
     process.exit(1);
   }
-  
+
   try {
     if (platformInfo.isLinux) {
       // Security: Use shell escaping to prevent injection
       const escapedName = name.replace(/[^a-zA-Z0-9._-]/g, '');
-      
+
       // Check if service exists in backup
       const backupFile = join(platformInfo.backupDir, `${escapedName}.json`);
-      
+
       if (!require('node:fs').existsSync(backupFile)) {
         console.error(`❌ No backup found for service '${name}'`);
         process.exit(1);
       }
-      
+
       // Load backup configuration
       const backupConfig = JSON.parse(require('node:fs').readFileSync(backupFile, 'utf8'));
-      
+
       // Check if the file exists
       const filePath = backupConfig.file;
       if (!require('node:fs').existsSync(filePath)) {
         console.error(`❌ Service file not found: ${filePath}`);
         process.exit(1);
       }
-      
+
       // Restore service using backup configuration
       const { startCommand } = await import("./start.js");
-      await startCommand(backupConfig.file, {
+      await startCommand([backupConfig.file], {
         name: backupConfig.name,
         port: backupConfig.port?.toString(),
         host: backupConfig.host,
@@ -80,13 +80,13 @@ export async function resurrectCommand(name: string, options: ResurrectOptions):
         build: backupConfig.build,
         https: backupConfig.https
       });
-      
+
       console.log(`✅ Service '${name}' resurrected successfully from backup`);
-      
+
     } else if (platformInfo.isMacOS) {
       const { launchdCommand } = await import("../macos/launchd.js");
       await launchdCommand('resurrect', { name: `bs9.${name}` });
-      
+
       if (options.config) {
         const plistFile = join(platformInfo.serviceDir, `bs9.${name}.plist`);
         try {
@@ -96,13 +96,13 @@ export async function resurrectCommand(name: string, options: ResurrectOptions):
           console.error(`❌ Failed to restore configuration: ${error}`);
         }
       }
-      
+
       console.log(`✅ Service '${name}' resurrected successfully`);
-      
+
     } else if (platformInfo.isWindows) {
       const { windowsCommand } = await import("../windows/service.js");
       await windowsCommand('resurrect', { name: `BS9_${name}` });
-      
+
       console.log(`✅ Service '${name}' resurrected successfully`);
     }
   } catch (err) {
@@ -116,31 +116,31 @@ export async function resurrectCommand(name: string, options: ResurrectOptions):
 async function resurrectAllServices(platformInfo: any, options: ResurrectOptions): Promise<void> {
   try {
     console.log("🔄 Resurrecting all BS9 services from backup...");
-    
+
     // Initialize platform directories
     initializePlatformDirectories();
-    
+
     if (platformInfo.isLinux) {
       // Get all backup files
       const backupFiles = require('node:fs').readdirSync(platformInfo.backupDir)
         .filter((file: string) => file.endsWith('.json'));
-      
+
       if (backupFiles.length === 0) {
         console.log("ℹ️ No backup files found to resurrect");
         return;
       }
-      
+
       console.log(`Found ${backupFiles.length} backup files to restore...`);
-      
+
       for (const backupFile of backupFiles) {
         try {
           const serviceName = backupFile.replace('.json', '');
           const backupPath = join(platformInfo.backupDir, backupFile);
           const backupConfig = JSON.parse(require('node:fs').readFileSync(backupPath, 'utf8'));
-          
+
           // Restore service using backup configuration
           const { startCommand } = await import("./start.js");
-          await startCommand(backupConfig.file, {
+          await startCommand([backupConfig.file], {
             name: backupConfig.name,
             port: backupConfig.port?.toString(),
             host: backupConfig.host,
@@ -150,22 +150,38 @@ async function resurrectAllServices(platformInfo: any, options: ResurrectOptions
             build: backupConfig.build,
             https: backupConfig.https
           });
-          
+
           console.log(`  ✅ Resurrected service: ${serviceName}`);
         } catch (error) {
           console.error(`  ⚠️  Failed to resurrect service '${backupFile}': ${error}`);
         }
       }
-      
+
     } else if (platformInfo.isMacOS) {
       console.log("📝 To resurrect all services on macOS, you need to manually restore the plist files from:");
       console.log(`   ${platformInfo.backupDir}/*.plist`);
       console.log("   And then run: launchctl load ~/Library/LaunchAgents/bs9.*.plist");
     } else if (platformInfo.isWindows) {
-      console.log("📝 To resurrect all services on Windows, use PowerShell:");
-      console.log("   Get-ChildItem -Path \"${platformInfo.backupDir}\" | ForEach-Object { Restore-Service $_.Name }");
+      const backupDir = platformInfo.backupDir;
+      const fs = require('node:fs');
+      if (fs.existsSync(backupDir)) {
+        const files = fs.readdirSync(backupDir).filter((f: string) => f.endsWith('.json'));
+        console.log(`Found ${files.length} backups to resurrect on Windows...`);
+        for (const file of files) {
+          try {
+            const serviceName = file.replace('.json', '');
+            const { windowsCommand } = await import("../windows/service.js");
+            await windowsCommand('resurrect', { name: serviceName });
+            console.log(`  ✅ Resurrected service: ${serviceName}`);
+          } catch (e) {
+            console.error(`  ⚠️  Failed to resurrect service '${file}': ${e}`);
+          }
+        }
+      } else {
+        console.log("ℹ️ No backup files found to resurrect");
+      }
     }
-    
+
     console.log(`✅ All BS9 services resurrection process completed`);
   } catch (err) {
     console.error(`❌ Failed to resurrect all services: ${err}`);

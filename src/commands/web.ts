@@ -36,15 +36,15 @@ export async function webCommand(options: WebOptions): Promise<void> {
     console.error(`❌ Security: Invalid port number: ${port}. Must be 1-65535`);
     process.exit(1);
   }
-  
+
   const dashboardPath = `${import.meta.dir}/../web/dashboard.ts`;
-  
+
   // Security: Generate session token for authentication
   const sessionToken = generateSessionToken();
-  
+
   console.log(`🌐 Starting BS9 Web Dashboard on port ${port}`);
   console.log(`🔐 Session Token: ${sessionToken}`);
-  
+
   if (options.detach) {
     // Run in background with security
     const child = spawn("bun", ["run", dashboardPath], {
@@ -57,9 +57,9 @@ export async function webCommand(options: WebOptions): Promise<void> {
         NODE_ENV: "production",
       },
     });
-    
+
     child.unref();
-    
+
     console.log(`✅ Web dashboard started in background`);
     console.log(`   URL: http://localhost:${port}`);
     console.log(`   Process ID: ${child.pid}`);
@@ -71,10 +71,16 @@ export async function webCommand(options: WebOptions): Promise<void> {
     console.log(`   🔐 Session token: ${sessionToken}`);
     console.log(`   Press Ctrl+C to stop`);
     console.log('');
-    
+
     try {
-      execSync(`WEB_DASHBOARD_PORT=${port} WEB_SESSION_TOKEN=${sessionToken} NODE_ENV=production bun run ${dashboardPath}`, { 
-        stdio: "inherit" 
+      execSync(`bun run "${dashboardPath}"`, {
+        stdio: "inherit",
+        env: {
+          ...process.env,
+          WEB_DASHBOARD_PORT: port,
+          WEB_SESSION_TOKEN: sessionToken,
+          NODE_ENV: "production",
+        }
       });
     } catch (error) {
       console.error(`❌ Failed to start web dashboard: ${error}`);

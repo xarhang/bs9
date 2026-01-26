@@ -30,41 +30,41 @@ function isValidServiceName(name: string): boolean {
 export async function saveCommand(name: string, options: SaveOptions): Promise<void> {
   // Initialize platform directories
   initializePlatformDirectories();
-  
+
   const platformInfo = getPlatformInfo();
-  
-  // Handle save all services
-  if (options.all) {
+
+  // Handle save all services or multi-service patterns
+  if (options.all || name === 'all' || name.includes('[') || name.includes(' ')) {
     await saveAllServices(platformInfo, options);
     return;
   }
-  
+
   // Security: Validate service name
   if (!isValidServiceName(name)) {
     console.error(`❌ Security: Invalid service name: ${name}`);
     process.exit(1);
   }
-  
+
   try {
     if (platformInfo.isLinux) {
       // Security: Use shell escaping to prevent injection
       const escapedName = name.replace(/[^a-zA-Z0-9._-]/g, '');
-      
+
       // Get service status and configuration
       const statusOutput = execSync(`systemctl --user show "${escapedName}"`, { encoding: "utf-8" });
       const serviceFile = join(platformInfo.serviceDir, `${escapedName}.service`);
-      
+
       if (!require('node:fs').existsSync(serviceFile)) {
         console.error(`❌ Service configuration not found for '${name}'`);
         process.exit(1);
       }
-      
+
       // Read service configuration
       const serviceConfig = require('node:fs').readFileSync(serviceFile, 'utf8');
-      
+
       // Parse service configuration to extract startup parameters
       const config = parseServiceConfig(serviceConfig, statusOutput);
-      
+
       // Save configuration to backup
       const backupFile = join(platformInfo.backupDir, `${escapedName}.json`);
       const backupData = {
@@ -80,11 +80,11 @@ export async function saveCommand(name: string, options: SaveOptions): Promise<v
         savedAt: new Date().toISOString(),
         platform: platformInfo.platform
       };
-      
+
       require('node:fs').writeFileSync(backupFile, JSON.stringify(backupData, null, 2));
-      
+
       console.log(`💾 Service '${name}' configuration saved to: ${backupFile}`);
-      
+
       if (options.backup) {
         // Create additional backup with timestamp
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -92,17 +92,17 @@ export async function saveCommand(name: string, options: SaveOptions): Promise<v
         require('node:fs').writeFileSync(timestampedBackup, JSON.stringify(backupData, null, 2));
         console.log(`📦 Additional backup created: ${timestampedBackup}`);
       }
-      
+
     } else if (platformInfo.isMacOS) {
       const { launchdCommand } = await import("../macos/launchd.js");
       await launchdCommand('save', { name: `bs9.${name}` });
-      
+
       console.log(`💾 Service '${name}' configuration saved`);
-      
+
     } else if (platformInfo.isWindows) {
       const { windowsCommand } = await import("../windows/service.js");
       await windowsCommand('save', { name: `BS9_${name}` });
-      
+
       console.log(`💾 Service '${name}' configuration saved`);
     }
   } catch (err) {
@@ -116,45 +116,45 @@ export async function saveCommand(name: string, options: SaveOptions): Promise<v
 async function saveAllServices(platformInfo: any, options: SaveOptions): Promise<void> {
   try {
     console.log("💾 Saving all BS9 service configurations...");
-    
+
     // Initialize platform directories
     initializePlatformDirectories();
-    
+
     if (platformInfo.isLinux) {
       // Get all BS9 services
       const listOutput = execSync("systemctl --user list-units --type=service --no-pager --no-legend", { encoding: "utf-8" });
       const lines = listOutput.split("\n").filter(line => line.includes(".service"));
-      
+
       const bs9Services: string[] = [];
-      
+
       for (const line of lines) {
         const match = line.match(/^(?:\s*([●\s○]))?\s*([^\s]+)\.service\s+([^\s]+)\s+([^\s]+)\s+(.+)$/);
         if (match) {
           const [, , serviceName] = match; // Skip the status symbol, capture service name
-          
+
           // Only process BS9 services
           if (match[5].includes("Bun Service:") || match[5].includes("BS9 Service:")) {
             bs9Services.push(serviceName);
           }
         }
       }
-      
+
       if (bs9Services.length === 0) {
         console.log("ℹ️ No BS9 services found to save");
         return;
       }
-      
+
       console.log(`Found ${bs9Services.length} BS9 services to save...`);
-      
+
       for (const serviceName of bs9Services) {
         try {
           const serviceFile = join(platformInfo.serviceDir, `${serviceName}.service`);
-          
+
           if (require('node:fs').existsSync(serviceFile)) {
             const serviceConfig = require('node:fs').readFileSync(serviceFile, 'utf8');
             const statusOutput = execSync(`systemctl --user show "${serviceName}"`, { encoding: "utf-8" });
             const config = parseServiceConfig(serviceConfig, statusOutput);
-            
+
             const backupFile = join(platformInfo.backupDir, `${serviceName}.json`);
             const backupData = {
               name: serviceName,
@@ -169,7 +169,7 @@ async function saveAllServices(platformInfo: any, options: SaveOptions): Promise
               savedAt: new Date().toISOString(),
               platform: platformInfo.platform
             };
-            
+
             require('node:fs').writeFileSync(backupFile, JSON.stringify(backupData, null, 2));
             console.log(`  💾 Saved service: ${serviceName}`);
           }
@@ -177,15 +177,32 @@ async function saveAllServices(platformInfo: any, options: SaveOptions): Promise
           console.error(`  ⚠️  Failed to save service '${serviceName}': ${error}`);
         }
       }
-      
+
     } else if (platformInfo.isMacOS) {
       console.log("📝 To save all services on macOS, you need to manually backup the plist files from:");
       console.log(`   ${platformInfo.serviceDir}/bs9.*.plist`);
     } else if (platformInfo.isWindows) {
-      console.log("📝 To save all services on Windows, use PowerShell:");
-      console.log("   Get-Service -Name \"BS9_*\" | ForEach-Object { Export-ServiceConfiguration $_.Name }");
+      // Get all services metadata files
+      const servicesDir = platformInfo.serviceDir;
+      const fs = require('node:fs');
+      if (fs.existsSync(servicesDir)) {
+        const files = fs.readdirSync(servicesDir).filter((f: string) => f.endsWith('.json'));
+        console.log(`Found ${files.length} BS9 services to save on Windows...`);
+        for (const file of files) {
+          try {
+            const serviceName = file.replace('.json', '');
+            const { windowsCommand } = await import("../windows/service.js");
+            await windowsCommand('save', { name: serviceName });
+            console.log(`  💾 Saved service: ${serviceName}`);
+          } catch (e) {
+            console.error(`  ⚠️  Failed to save service '${file}': ${e}`);
+          }
+        }
+      } else {
+        console.log("ℹ️ No BS9 services found to save");
+      }
     }
-    
+
     console.log(`✅ All BS9 services save process completed`);
   } catch (err) {
     console.error(`❌ Failed to save all services: ${err}`);
@@ -198,37 +215,37 @@ async function saveAllServices(platformInfo: any, options: SaveOptions): Promise
 // Helper function to parse service configuration
 function parseServiceConfig(serviceConfig: string, statusOutput: string): any {
   const config: any = {};
-  
+
   // Extract port from service config
   const portMatch = serviceConfig.match(/--port[=\s]+(\d+)/);
   if (portMatch) {
     config.port = parseInt(portMatch[1]);
   }
-  
+
   // Extract host from service config
   const hostMatch = serviceConfig.match(/--host[=\s]+([^\s]+)/);
   if (hostMatch) {
     config.host = hostMatch[1];
   }
-  
+
   // Extract environment variables
   const envMatches = serviceConfig.match(/--env[=\s]+([^\s]+)/g);
   if (envMatches) {
     config.env = envMatches.map((env: string) => env.replace(/--env[=\s]+/, ''));
   }
-  
+
   // Extract OpenTelemetry flag
   config.otel = serviceConfig.includes('--otel') || serviceConfig.includes('--opentelemetry');
-  
+
   // Extract Prometheus flag
   config.prometheus = serviceConfig.includes('--prometheus');
-  
+
   // Extract build flag
   config.build = serviceConfig.includes('--build');
-  
+
   // Extract HTTPS flag
   config.https = serviceConfig.includes('--https');
-  
+
   return config;
 }
 
@@ -246,7 +263,7 @@ function extractFileFromConfig(serviceConfig: string): string {
       // Extract the file path from "bun <file>"
       fileMatch = execLine.match(/bun\s+(?:'([^']+)'|"([^"]+)"|([^\s]+))/);
     }
-    
+
     if (fileMatch) {
       const filePath = fileMatch[1] || fileMatch[2] || fileMatch[3];
       // If it's a relative path, resolve it relative to the working directory
