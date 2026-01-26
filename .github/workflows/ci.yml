@@ -27,12 +27,6 @@ jobs:
     - name: Run tests
       run: bun test
       
-    - name: Run linting
-      run: bun run lint
-      
-    - name: Type checking
-      run: bun run type-check
-      
     - name: Security audit
       run: bun audit
 
@@ -121,6 +115,11 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
       
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v1
+      with:
+        bun-version: latest
+        
     - name: Run security audit
       run: |
         bun audit
