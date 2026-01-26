@@ -243,7 +243,7 @@ jobs:
       
     - name: Start test services
       run: |
-        bun install -g bs9
+        bun install -g .
         bs9 start examples/express-app.js --name perf-test --instances 3 --detach
         sleep 5
         
