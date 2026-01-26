@@ -52,7 +52,7 @@ Authenticate and get session token.
 ```json
 {
   "success": true,
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token": "REDACTED",
   "expiresIn": 3600,
   "user": {
     "id": "admin",
