@@ -27,7 +27,7 @@ jobs:
         run: bun run audit
 
       - name: Secret Scan (gitleaks)
-        uses: gitleaks/gitleaks-action@v2
+        uses: zricethezav/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
