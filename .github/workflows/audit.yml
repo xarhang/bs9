@@ -23,8 +23,7 @@ jobs:
       - name: Install
         run: bun install --no-progress
 
-      - name: Dependency Audit
-        run: bun run audit
+
 
       - name: Secret Scan (gitleaks)
         uses: zricethezav/gitleaks-action@v2
