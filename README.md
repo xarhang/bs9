@@ -26,7 +26,9 @@ chmod +x ~/.local/bin/bs9
 
 ### for mac after install you must run this to make it work 
 
-```bash echo 'export PATH="$HOME/.bun/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc ```
+```bash
+echo 'export PATH="$HOME/.bun/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc 
+```
 ---
 
 ### 🌐 Platform Support
