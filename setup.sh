@@ -137,7 +137,7 @@ fi
 
 # 2. UPDATED: Verify installation with fallback instructions
 if command -v bs9 >/dev/null 2>&1; then
-  echo "✅ BS9 installed successfully: $(bs9 --version 2>/dev/null || echo 'v1.3.1')"
+  echo "✅ BS9 installed successfully: $(bs9 --version 2>/dev/null || echo 'v1.5.19')"
 else
   # Detect Shell for the fix message
   SHELL_NAME=$(basename "$SHELL")
@@ -145,12 +145,16 @@ else
   [[ "$SHELL_NAME" == "zsh" ]] && PROFILE_FILE="~/.zshrc"
   [[ "$SHELL_NAME" == "bash" ]] && PROFILE_FILE="~/.bashrc"
 
-  echo "--------------------------------------------------------"
-  echo "⚠️  BS9 is installed but NOT yet in your PATH."
-  echo "To fix this, run the command below:"
+  echo ""
+  echo "⚠️  --------------------------------------------------------"
+  echo "⚠️  ACTION REQUIRED: UPDATE YOUR PATH"
+  echo "BS9 is installed, but your shell cannot find it yet."
+  echo ""
+  echo "To fix this, copy and paste the command below:"
   echo ""
   echo "echo 'export PATH=\"\$HOME/.bun/bin:\$PATH\"' >> $PROFILE_FILE && source $PROFILE_FILE"
   echo "--------------------------------------------------------"
+  echo ""
   
   # Allow the script to continue by manually setting path one last time
   export PATH="$HOME/.bun/bin:$PATH"
