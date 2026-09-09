@@ -35,15 +35,19 @@ bs9 save --all             # JSON-based backup
 
 ### Q: "How does BS9 compare to PM2?"
 
-| Feature | PM2 | BS9 |
+| Feature | PM2 (v7.0+) | BS9 (v1.5.22+) |
 |--------|-----|-----|
-| **Setup** | `pm2 start app.js` | `bs9 deploy app.js` |
-| **Systemd** | Manual setup | ✅ Auto-configured |
-| **Health Checks** | Manual setup | ✅ Built-in |
+| **Runtime Efficiency** | Node.js Tax (~60-120MB+ idle) | ⚡ Bun Native (~15-30MB idle) |
+| **Clustering** | Node IPC cluster master | 🚀 Bun `SO_REUSEPORT` kernel load balancing |
+| **Cluster Start** | `pm2 start -i max` | `bs9 start app.ts -i max` |
+| **Ecosystem Config** | `ecosystem.config.js` | 🔄 Drop-in `bs9 start ecosystem.config.js` |
+| **Crash Protection** | Infinite restart loops common | 🛡️ Circuit breaker + Exponential backoff |
+| **Setup & Systemd** | Manual `pm2 startup` + `pm2 save` | ✅ Auto-configured zero-config |
+| **Web Dashboard** | PM2 Plus ($99+/mo) | 🌐 Free Real-time WebSocket Glassmorphism UI |
+| **Health Checks** | Manual setup / plugin | ✅ Built-in `/healthz`, `/metrics` |
 | **Database Required** | ❌ No | ✅ **No** |
-| **Zero-Config** | ❌ | ✅ |
-| **Status Display** | Basic | ✅ Enhanced with indicators |
-| **Backup/Restore** | ❌ | ✅ Built-in |
+| **Status Display** | Basic table | ✅ Visual indicators (✅🔄❌⚠️⏸️) |
+| **Backup/Restore** | Manual | ✅ Built-in `save` & `resurrect` |
 
 ---
 

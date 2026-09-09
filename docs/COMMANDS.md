@@ -14,50 +14,37 @@ Starts a Bun application as a managed service with built-in security and monitor
 # Basic usage
 bs9 start app.js
 
-# With service name
-bs9 start app.js --name my-app
+# Cluster mode: Spawn multiple workers sharing port via Bun reusePort
+bs9 start app.js -i 4 --port 3000
+bs9 start app.js -i max --name my-api
+
+# PM2 ecosystem.config.js drop-in compatibility
+bs9 start ecosystem.config.js
+bs9 start bs9.config.json
+
+# With service name and custom host
+bs9 start app.js --name my-app --host 0.0.0.0 --port 3000
 
 # With environment variables
 bs9 start app.js --name my-app --env NODE_ENV=production --env PORT=3000
 
-# With multiple instances
-bs9 start app.js --name my-app --instances 4
+# With TypeScript production build
+bs9 start app.ts --build --name my-app
 
-# With custom working directory
-bs9 start app.js --name my-app --cwd /path/to/app
-
-# With restart policy
-bs9 start app.js --name my-app --restart always
-
-# With port binding
-bs9 start app.js --name my-app --port 3000
-
-# With logging configuration
-bs9 start app.js --name my-app --log-level info --log-file my-app.log
-
-# With resource limits
-bs9 start app.js --name my-app --memory 512M --cpu 0.5
-
-# With security audit (default)
-bs9 start app.js --name my-app --security-audit
-
-# Skip security audit (not recommended)
-bs9 start app.js --name my-app --no-security-audit
+# With OpenTelemetry & Prometheus (defaults to true)
+bs9 start app.js --name my-app --otel --prometheus
 ```
 
 **Options:**
-- `--name, -n`: Service name (required)
+- `--name, -n`: Service name
+- `--port, -p`: Port number (default: 3000)
+- `--host, -h`: Host address (default: localhost)
+- `--https`: Use HTTPS protocol
 - `--env, -e`: Environment variables (multiple)
-- `--instances, -i`: Number of instances (default: 1)
-- `--cwd, -c`: Working directory
-- `--restart, -r`: Restart policy (always|on-failure|never)
-- `--port, -p`: Port to bind
-- `--log-level`: Log level (debug|info|warn|error)
-- `--log-file`: Log file path
-- `--memory`: Memory limit (e.g., 512M)
-- `--cpu`: CPU limit (0.1-1.0)
-- `--security-audit`: Enable security audit (default: true)
-- `--no-security-audit`: Skip security audit
+- `-i, --instances <n>`: Number of cluster workers (or 'max' for CPU count)
+- `--otel`: Enable OpenTelemetry instrumentation
+- `--prometheus`: Enable Prometheus metrics
+- `--build`: Build TypeScript to JavaScript before starting
 
 **Security Features:**
 - Path traversal protection

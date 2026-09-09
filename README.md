@@ -1,10 +1,10 @@
 # BS9 (Bun Sentinel 9) 🚀
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-1.5.20-blue.svg)](https://github.com/xarhang/bs9)
+[![Version](https://img.shields.io/badge/version-1.5.22-blue.svg)](https://github.com/xarhang/bs9)
 [![Security](https://img.shields.io/badge/security-Enterprise-green.svg)](SECURITY.md)
 [![Production Ready](https://img.shields.io/badge/production-Ready-brightgreen.svg)](PRODUCTION.md)
-[![Cross-Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](https://github.com/bs9/bs9)
+[![Cross-Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](https://github.com/xarhang/bs9)
 
 **Enterprise-grade, mission-critical process manager for Bun applications with built-in security, monitoring, and observability. Works on Windows, macOS, and Linux.**
 
@@ -48,8 +48,8 @@ echo 'export PATH="$HOME/.bun/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
 - **Commands**: All commands work automatically on macOS
 
 #### 🪟 Windows
-- **Service Manager**: Windows Services
-- **Features**: PowerShell automation, event log integration, background process persistence
+- **Service Manager**: Windows Services / Dedicated Background Watchdog
+- **Features**: Event log integration, non-admin background watchdog, exponential backoff recovery
 - **Commands**: All commands work automatically on Windows (including save/resurrect all)
 
 ```bash
@@ -95,6 +95,14 @@ bs9 start app.js                                    # Default: localhost:3000, H
 bs9 start app.js --host 0.0.0.0 --port 8080        # Custom host and port
 bs9 start app.js --host 192.168.1.100 --https      # Custom host with HTTPS
 bs9 start app.ts --build --name myapp --port 8080 --env NODE_ENV=production --host 0.0.0.0 --https
+
+# 🚀 Bun-Native Zero-Downtime Clustering (NEW!)
+bs9 start app.ts -i 4 --port 3000                  # Spawn 4 workers on same port (reusePort)
+bs9 start app.ts -i max --name my-api              # Spawn workers matching CPU count
+
+# 🔄 Drop-in PM2 Compatibility (NEW!)
+bs9 start ecosystem.config.js                      # Directly run PM2 ecosystem configuration
+bs9 start bs9.config.json                          # Load multi-app config
 
 # 🆕 Multi-Service Management (NEW!)
 bs9 start [app1, app2, app3]                       # Start multiple services
@@ -211,6 +219,25 @@ bs9 resurrect --all               # Restore all services
 - **Hot Reload**: Update configurations without downtime
 - **Port Detection**: Automatic service discovery and access URLs
 - **Environment Management**: Easy environment variable updates
+
+### 🚀 **Bun-Native Zero-Downtime Clustering**: Outperform PM2 with `SO_REUSEPORT`
+- **Kernel Load Balancing**: Multiple Bun processes bind the exact same port transparently
+- **Preload Hook**: Automatic injection of `reusePort: true` into `Bun.serve(...)`
+- **High Concurrency**: Exploit all CPU cores with `bs9 start app.ts -i max`
+
+### 🔄 **Drop-in PM2 Compatibility**:
+- **Zero Migration Friction**: Run `bs9 start ecosystem.config.js` directly
+- **Field Support**: Auto-maps `script`, `instances`, `env`, `port`, `cwd`, and `args`
+
+### 🛡️ **Smart Self-Healing & Exponential Backoff**:
+- **Crash Loop Circuit Breaker**: Halts infinite restart storms (5 crashes / 60s trigger)
+- **Exponential Backoff**: Delays restarts smoothly (1s → 2s → 4s → 8s → 16s → 60s)
+- **Dedicated Watchdog**: Non-admin background supervisor on Windows persists after CLI exits
+
+### 🌐 **Modern Web Dashboard**: Real-time Glassmorphism UI (Free PM2 Plus alternative)
+- **WebSocket Streaming**: Live metric push every 2 seconds without HTTP polling overhead
+- **Control Actions**: Start, stop, and restart directly from the browser with Bearer token authentication
+- **Dark Glassmorphism Design**: High-contrast, responsive metrics layout
 
 ### ✅ **Enhanced Status Display**: Visual indicators (✅🔄❌⚠️⏸️) with detailed metrics
 - **Visual Indicators**: ✅🔄❌⚠️⏸️ for instant health assessment

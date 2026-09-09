@@ -51,17 +51,23 @@ BS9 (Bun Sentinel 9) is a mission-critical process manager CLI designed to repla
   - `export`: Historical data export
 
 ### 2. Command Modules (`src/commands/`)
-- **start.ts**: Service startup with TypeScript JIT/AOT support
+- **start.ts**: Service startup with TypeScript JIT/AOT, Bun-native clustering (`-i max`), and `ecosystem.config.js` loader
 - **stop.ts**: Service termination
 - **restart.ts**: Service restart
 - **status.ts**: Status and SRE metrics
 - **logs.ts**: Log streaming
 - **monit.ts**: Terminal dashboard
-- **web.ts**: Web dashboard server
+- **web.ts**: Web dashboard server with WebSocket live streaming and action endpoints
 - **alert.ts**: Alert management
 - **export.ts**: Data export functionality
 
-### 3. Monitoring System
+### 3. Core Engine & Resilience Utilities (`src/utils/`)
+- **cluster-preload.ts**: Runtime hook injecting `reusePort: true` into `Bun.serve(...)` for zero-downtime clustering
+- **ecosystem-config.ts**: Parser translating PM2 config files (`ecosystem.config.js`, `bs9.config.json`) into BS9 execution plans
+- **crash-tracker.ts**: Crash loop detector and exponential backoff calculator (1s → 2s → 4s → 8s → 16s → 60s)
+- **watchdog-agent.ts**: Non-admin Windows background supervisor maintaining independent service persistence
+
+### 4. Monitoring System
 
 #### Terminal Dashboard (`src/commands/monit.ts`)
 - **Real-time Updates**: Configurable refresh intervals
@@ -71,11 +77,10 @@ BS9 (Bun Sentinel 9) is a mission-critical process manager CLI designed to repla
 - **Color Coding**: Status indicators
 
 #### Web Dashboard (`src/web/dashboard.ts`)
-- **Browser Interface**: Modern responsive UI
-- **REST API**: `/api/metrics` endpoint
-- **Auto-refresh**: 5-second intervals
-- **Historical Charts**: Time-based visualization
-- **Service Cards**: Visual status indicators
+- **Browser Interface**: Modern Glassmorphism dark UI
+- **WebSocket Streaming**: 2-second real-time telemetry push
+- **Control Actions**: Start, stop, and restart directly with Bearer token authentication
+- **Cluster Hierarchy**: Worker group visualization
 
 #### Metrics Storage (`src/storage/metrics.ts`)
 - **Local Storage**: JSON-based persistence
