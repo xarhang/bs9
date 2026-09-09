@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bun
+#!/usr/bin/env bun
 
 /**
  * BS9 - Bun Sentinel 9
@@ -33,6 +33,8 @@ export interface PM2AppConfig {
   name?: string;
   script?: string;
   file?: string;
+  cwd?: string;
+  args?: string | string[];
   instances?: number | "max";
   port?: number | string;
   host?: string;
@@ -50,6 +52,8 @@ export interface PM2EcosystemConfig {
 export interface BS9AppEntry {
   file: string;
   name?: string;
+  cwd?: string;
+  args?: string[];
   instances?: number;
   port?: string;
   host?: string;
@@ -197,9 +201,19 @@ function mapAppToBS9(app: PM2AppConfig, idx: number, configPath: string): BS9App
     app.name ||
     basename(scriptField).replace(/\.(ts|js|mjs|cjs)$/, "");
 
+  const cwd = app.cwd ? resolve(configDir, app.cwd) : configDir;
+  let args: string[] | undefined;
+  if (Array.isArray(app.args)) {
+    args = app.args.map(String);
+  } else if (typeof app.args === "string" && app.args.trim().length > 0) {
+    args = app.args.trim().split(/\s+/);
+  }
+
   return {
     file: resolvedScript,
     name,
+    cwd,
+    args,
     instances,
     port,
     host,

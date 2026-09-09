@@ -479,10 +479,15 @@ async function createMacOSService(serviceName: string, execPath: string, host: s
     envVars.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = "http://localhost:4318/v1/traces";
   }
 
+  const isClusterWorker = (options.env || []).some(e => e.includes("BS9_REUSE_PORT=true"));
+  const preloadPath = resolve(join(dirname(import.meta.path), '..', 'utils', 'cluster-preload.ts'));
+  const preloadArgs = isClusterWorker && existsSync(preloadPath) ? ['--preload', preloadPath] : [];
+
   try {
     await launchdCommand('create', {
       name: `bs9.${serviceName}`,
       file: execPath,
+      args: preloadArgs,
       workingDir: dirname(execPath),
       env: JSON.stringify(envVars),
       autoStart: true,
@@ -502,6 +507,10 @@ async function createMacOSService(serviceName: string, execPath: string, host: s
 
 async function createWindowsService(serviceName: string, execPath: string, host: string, port: string, protocol: string, options: StartOptions): Promise<void> {
   const { windowsCommand } = await import("../windows/service.js");
+
+  const isClusterWorker = (options.env || []).some(e => e.includes("BS9_REUSE_PORT=true"));
+  const preloadPath = resolve(join(dirname(import.meta.path), '..', 'utils', 'cluster-preload.ts'));
+  const preloadArgs = isClusterWorker && existsSync(preloadPath) ? ['--preload', preloadPath] : [];
 
   const envVars: Record<string, string> = {
     PORT: port,
@@ -529,7 +538,7 @@ async function createWindowsService(serviceName: string, execPath: string, host:
       displayName: `BS9 Service: ${serviceName}`,
       description: `BS9 managed service: ${serviceName} (port ${port})`,
       workingDir: resolve(dirname(execPath)),
-      args: ['run', execPath],
+      args: ['run', ...preloadArgs, execPath],
       env: JSON.stringify(envVars)
     });
 
@@ -616,6 +625,10 @@ function generateSystemdUnit(opts: SystemdUnitOptions): string {
   const envSection = envVars.map(e => `Environment=${e}`).join("\n");
   const workingDir = dirname(opts.fullPath);
 
+  const isClusterWorker = opts.env.some(e => e.includes("BS9_REUSE_PORT=true"));
+  const preloadPath = resolve(join(dirname(import.meta.path), '..', 'utils', 'cluster-preload.ts'));
+  const preloadFlag = isClusterWorker && existsSync(preloadPath) ? `--preload "${preloadPath}" ` : "";
+
   const bunPath = execSync("which bun", { encoding: "utf-8" }).trim();
   return `[Unit]
 Description=BS9 Service: ${opts.serviceName}
@@ -629,7 +642,7 @@ RestartSec=2s
 TimeoutStartSec=30s
 TimeoutStopSec=30s
 WorkingDirectory=${workingDir}
-ExecStart=${bunPath} run ${opts.fullPath}
+ExecStart=${bunPath} run ${preloadFlag}${opts.fullPath}
 ${envSection}
 
 # Security hardening (user systemd compatible)
