@@ -48,7 +48,7 @@ program
 program
   .command("start")
   .description("Start one or more services")
-  .argument("[file...]", "Application file, service name, array [app1,app2], pattern [app-*], or [all]")
+  .argument("[file...]", "Application file, service name, array [app1,app2], pattern [app-*], ecosystem.config.js, or [all]")
   .option("-n, --name <name>", "Service name")
   .option("-p, --port <port>", "Port number", "3000")
   .option("-h, --host <host>", "Host address", "localhost")
@@ -57,6 +57,7 @@ program
   .option("--otel", "Enable OpenTelemetry instrumentation", true)
   .option("--prometheus", "Enable Prometheus metrics", true)
   .option("--build", "Build TypeScript to JavaScript before starting")
+  .option("-i, --instances <n>", "Number of cluster workers (use 'max' for CPU count)", "1")
   .action(startCommand);
 
 program

@@ -10,10 +10,12 @@
  */
 
 import { execSync } from "node:child_process";
-import { existsSync, writeFileSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
+import { existsSync, writeFileSync, mkdirSync, readFileSync, unlinkSync, openSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
+import { spawn } from "node:child_process";
 import { getPlatformInfo } from "../platform/detect.js";
+import { recordCrash, resetCrash, sleep, startHealthyTimer, formatCrashState } from "../utils/crash-tracker.js";
 
 interface WindowsServiceConfig {
   name: string;
@@ -167,7 +169,7 @@ export class WindowsServiceManager {
     this.saveConfigs(configs);
 
     const metaPath = join(this.servicesDir, `${serviceName}.json`);
-    if (existsSync(metaPath)) require('node:fs').unlinkSync(metaPath);
+    if (existsSync(metaPath)) unlinkSync(metaPath);
 
     console.log(`✅ Service '${serviceName}' deleted successfully`);
   }
@@ -214,31 +216,84 @@ export class WindowsServiceManager {
 
   private async startBackgroundProcess(metadata: any): Promise<void> {
     console.log(`🚀 Starting background process for '${metadata.name}'...`);
-    const { spawn } = require('node:child_process');
-    const out = require('node:fs').openSync(join(homedir(), '.bs9', 'logs', `${metadata.name}.out.log`), 'a');
-    const err = require('node:fs').openSync(join(homedir(), '.bs9', 'logs', `${metadata.name}.err.log`), 'a');
+
+    const logsDir = join(homedir(), '.bs9', 'logs');
+    if (!existsSync(logsDir)) mkdirSync(logsDir, { recursive: true });
 
     let exe = metadata.executable;
-    let args = metadata.arguments;
+    let args: string[] = metadata.arguments ?? [];
 
     // Windows EFTYPE fix: If it's a script, run it with Bun
     if (exe.endsWith('.js') || exe.endsWith('.ts')) {
       exe = process.execPath;
-      // args already contains ['run', scriptPath] from start.ts call
+      // args already contains ['run', scriptPath] from start.ts
     }
 
-    const spawned = spawn(exe, args, {
-      cwd: metadata.workingDir,
-      env: { ...process.env, ...metadata.environment },
-      detached: true,
-      stdio: ['ignore', out, err]
-    });
+    const startProcess = (): { pid: number; cleanup: () => void } => {
+      const out = openSync(join(logsDir, `${metadata.name}.out.log`), 'a');
+      const err = openSync(join(logsDir, `${metadata.name}.err.log`), 'a');
 
-    spawned.unref();
-    metadata.pid = spawned.pid;
+      const spawned = spawn(exe, args, {
+        cwd: metadata.workingDir,
+        env: { ...process.env, ...metadata.environment },
+        detached: false,   // Keep attached so we can watch 'exit' event
+        stdio: ['ignore', out, err],
+      });
+
+      // Start healthy-uptime timer: if process lives 30s+ reset crash count
+      let healthyTimer = startHealthyTimer(metadata.name);
+
+      spawned.on('exit', async (code, signal) => {
+        clearTimeout(healthyTimer);
+
+        // Check if we were intentionally stopped
+        const currentMeta = this.getProcessMetadata(metadata.name);
+        if (!currentMeta || currentMeta.status === 'stopped') {
+          // Intentional stop — do not restart
+          return;
+        }
+
+        const decision = recordCrash(metadata.name, code);
+
+        if (!decision.shouldRestart) {
+          console.error(`\n🚨 [BS9 Crash Loop] '${metadata.name}': ${decision.reason}`);
+          console.error(`   Run 'bs9 start ${metadata.name}' after fixing the issue to reset.`);
+          // Update metadata to reflect crash-loop state
+          currentMeta.status = 'crash-loop';
+          this.saveProcessMetadata(metadata.name, currentMeta);
+          return;
+        }
+
+        console.warn(`\n⚠️  [BS9 Watchdog] '${metadata.name}' exited (code ${code ?? signal}). ${decision.reason}`);
+
+        await sleep(decision.delayMs);
+
+        // Check again — user may have manually stopped it during backoff
+        const freshMeta = this.getProcessMetadata(metadata.name);
+        if (!freshMeta || freshMeta.status === 'stopped') return;
+
+        console.log(`🔄 [BS9 Watchdog] Restarting '${metadata.name}'...`);
+        const { pid, cleanup } = startProcess();
+        freshMeta.pid = pid;
+        freshMeta.startTime = new Date().toISOString();
+        this.saveProcessMetadata(metadata.name, freshMeta);
+      });
+
+      return {
+        pid: spawned.pid!,
+        cleanup: () => spawned.kill(),
+      };
+    };
+
+    // Reset circuit breaker on explicit start
+    resetCrash(metadata.name);
+
+    const { pid } = startProcess();
+    metadata.pid = pid;
     metadata.startTime = new Date().toISOString();
+    metadata.status = 'running';
     this.saveProcessMetadata(metadata.name, metadata);
-    console.log(`✅ Started with PID: ${spawned.pid}`);
+    console.log(`✅ Started with PID: ${pid} (watchdog active — auto-restart with exponential backoff)`);
   }
 
   private async stopBackgroundProcess(metadata: any): Promise<void> {

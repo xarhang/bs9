@@ -14,9 +14,10 @@ import { join, basename, resolve, dirname } from "node:path";
 import { execSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { writeFileSync, mkdirSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, cpus } from "node:os";
 import { getPlatformInfo } from "../platform/detect.js";
 import { parseServiceArray, getMultipleServiceInfo, confirmAction, displayBatchResults } from "../utils/array-parser.js";
+import { isEcosystemConfig, parseEcosystemConfig } from "../utils/ecosystem-config.js";
 
 // Security: Host validation function
 function isValidHost(host: string): boolean {
@@ -59,10 +60,26 @@ interface StartOptions {
   prometheus?: boolean;
   build?: boolean;
   https?: boolean;
+  instances?: string;  // "1", "4", "max"
+}
+
+/** Resolve "max" or numeric string to an integer instance count */
+function resolveInstances(raw: string | undefined): number {
+  if (!raw || raw === "1") return 1;
+  if (raw === "max") return cpus().length;
+  const n = parseInt(raw, 10);
+  if (isNaN(n) || n < 1) return 1;
+  return n;
 }
 
 export async function startCommand(files: string[], options: StartOptions): Promise<void> {
   const platformInfo = getPlatformInfo();
+
+  // --- Feature: ecosystem.config.js / bs9.config.json detection ---
+  if (files.length === 1 && isEcosystemConfig(resolve(files[0]))) {
+    await handleEcosystemStart(files[0], options);
+    return;
+  }
 
   // Multi-service if: multiple files, single file with array syntax, or 'all' keyword
   if (files.length > 1 || (files.length === 1 && (files[0].includes('[') || files[0] === 'all'))) {
@@ -70,9 +87,99 @@ export async function startCommand(files: string[], options: StartOptions): Prom
     return;
   }
 
+  const instanceCount = resolveInstances(options.instances);
+
+  // --- Feature: Cluster mode (instances > 1) ---
+  if (instanceCount > 1) {
+    await handleClusterStart(files[0] || '', options, instanceCount);
+    return;
+  }
+
   // Single service operation
   await handleSingleServiceStart(files[0] || '', options);
 }
+
+/** Handle ecosystem.config.js / bs9.config.json */
+async function handleEcosystemStart(configFile: string, options: StartOptions): Promise<void> {
+  console.log(`📋 Loading ecosystem config: ${configFile}`);
+  let entries;
+  try {
+    entries = await parseEcosystemConfig(configFile);
+  } catch (err) {
+    console.error(`❌ Failed to parse ecosystem config: ${err}`);
+    process.exit(1);
+  }
+
+  console.log(`🚀 Starting ${entries.length} app(s) from ecosystem config...`);
+
+  const results = await Promise.allSettled(
+    entries.map(async (app) => {
+      try {
+        const instanceCount = app.instances ?? resolveInstances(options.instances);
+        const appOptions: StartOptions = {
+          name: app.name,
+          port: app.port ?? options.port,
+          host: app.host ?? options.host,
+          env: app.env ?? options.env,
+          otel: app.otel ?? options.otel,
+          prometheus: app.prometheus ?? options.prometheus,
+          https: app.https ?? options.https,
+          build: app.build ?? options.build,
+          instances: String(instanceCount),
+        };
+
+        if (instanceCount > 1) {
+          await handleClusterStart(app.file, appOptions, instanceCount);
+        } else {
+          await handleSingleServiceStart(app.file, appOptions);
+        }
+        return { service: app.name || app.file, status: 'success', error: null };
+      } catch (error) {
+        return { service: app.name || app.file, status: 'failed', error: (error as Error).message };
+      }
+    })
+  );
+
+  displayBatchResults(results, 'start');
+}
+
+/** Handle cluster mode: spawn N workers sharing the same port via reusePort preload */
+async function handleClusterStart(file: string, options: StartOptions, instanceCount: number): Promise<void> {
+  const baseName = options.name || basename(file).replace(/\.(ts|js|mjs|cjs)$/, '');
+  const port = options.port || '3000';
+
+  console.log(`🔀 Starting ${instanceCount} cluster workers for '${baseName}' on port ${port}...`);
+  console.log(`   Using Bun reusePort — kernel load balances across all workers`);
+
+  const results = await Promise.allSettled(
+    Array.from({ length: instanceCount }, async (_, i) => {
+      const workerName = `${baseName}-${i}`;
+      try {
+        await handleSingleServiceStart(file, {
+          ...options,
+          name: workerName,
+          env: [
+            ...(options.env || []),
+            `BS9_CLUSTER=true`,
+            `BS9_CLUSTER_ID=${i}`,
+            `BS9_CLUSTER_TOTAL=${instanceCount}`,
+            `BS9_REUSE_PORT=true`,
+          ],
+          instances: '1', // each worker is a single service
+        });
+        return { service: workerName, status: 'success', error: null };
+      } catch (error) {
+        return { service: workerName, status: 'failed', error: (error as Error).message };
+      }
+    })
+  );
+
+  displayBatchResults(results, 'start');
+  console.log(`\n✅ Cluster '${baseName}' — ${instanceCount} workers running on port ${port}`);
+  console.log(`   Stop all workers: bs9 stop [${baseName}-0..${baseName}-${instanceCount - 1}]`);
+  console.log(`   Status: bs9 status [${baseName}-*]`);
+}
+
 
 async function handleMultiServiceStart(file: string | string[], options: StartOptions): Promise<void> {
   const services = await parseServiceArray(file);
