@@ -137,7 +137,7 @@ fi
 
 # 2. UPDATED: Verify installation with fallback instructions
 if command -v bs9 >/dev/null 2>&1; then
-  echo "✅ BS9 installed successfully: $(bs9 --version 2>/dev/null || echo 'v1.5.19')"
+  echo "✅ BS9 installed successfully: $(bs9 --version 2>/dev/null || echo 'v1.5.20')"
 else
   # Detect Shell for the fix message
   SHELL_NAME=$(basename "$SHELL")
