@@ -42,7 +42,7 @@ export function checkBS9Installation(): HealthCheckResult {
     try {
         let version = "";
         try {
-            version = execSync("bs9 --version", { encoding: "utf-8" }).trim();
+            version = execSync("bs9 --version", { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
         } catch {
             const pkgPath = join(process.cwd(), "package.json");
             if (existsSync(pkgPath)) {
