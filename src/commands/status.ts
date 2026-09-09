@@ -20,7 +20,7 @@ interface StatusOptions {
   watch?: boolean;
 }
 
-export async function statusCommand(options: StatusOptions, names: string[] = []): Promise<void> {
+export async function statusCommand(names: string[], options: StatusOptions): Promise<void> {
   // Multi-service if: multiple args, single arg with array syntax, or 'all' keyword
   if (names.length > 1 || (names.length === 1 && (names[0].includes('[') || names[0] === 'all'))) {
     await handleMultiServiceStatus(names, options);
@@ -115,7 +115,7 @@ function displayServices(services: ServiceMetrics[]): void {
   // Sort services by status (running first, then by name)
   const sortedServices = services.sort((a, b) => {
     const aRunning = a.active === "active" && a.sub === "running";
-    const bRunning = b.active === "active" && a.sub === "running";
+    const bRunning = b.active === "active" && b.sub === "running";
     if (aRunning !== bRunning) return bRunning ? 1 : -1;
     return a.name.localeCompare(b.name);
   });

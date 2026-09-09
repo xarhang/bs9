@@ -137,8 +137,8 @@ class MetricsStorage {
     }
     
     return {
-      avgCpu: totalCpu / (snapshots.length * Math.max(1, snapshots[0]?.services.length || 1)),
-      avgMemory: totalMemory / Math.max(1, snapshots.length * Math.max(1, snapshots[0]?.services.length || 1)),
+      avgCpu: totalCpu / Math.max(1, totalCount),
+      avgMemory: totalMemory / Math.max(1, totalCount),
       uptime: (healthyCount / Math.max(1, totalCount)) * 100,
       totalRequests: totalCount,
       errorRate: ((totalCount - healthyCount) / Math.max(1, totalCount)) * 100,

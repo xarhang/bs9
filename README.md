@@ -749,8 +749,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines.
 - **GitHub**: https://github.com/xarhang/bs9
 - **Issues**: https://github.com/xarhang/bs9/issues
 - **Discussions**: https://github.com/xarhang/bs9/discussions
-- **Security**: security@bs9.dev
-- **Enterprise**: enterprise@bs9.dev
+- **Security**: [Security Policy](SECURITY.md)
 
 ## 🔒 Security
 

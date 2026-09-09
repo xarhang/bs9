@@ -26,7 +26,7 @@ BS9 is designed for production-ready, mission-critical deployments across all ma
 
 ```bash
 # Install BS9
-curl -fsSL https://bs9.dev/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/xarhang/bs9/main/setup.sh | bash
 
 # Verify installation
 bs9 --version
@@ -39,26 +39,28 @@ loginctl enable-linger $USER
 
 ```bash
 # Install BS9
-curl -fsSL https://bs9.dev/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/xarhang/bs9/main/setup.sh | bash
 
 # Verify installation
 bs9 --version
 
-# Check platform support
-bs9 platform
+# Check platform health
+bs9 doctor
 ```
 
 ### Windows Installation
 
-```powersShell
-# Install BS9 (PowerShell as Administrator)
-iwr -useb https://bs9.dev/install.ps1 | iex
+```powershell
+# Clone and install BS9
+git clone https://github.com/xarhang/bs9.git
+cd bs9
+bun install
 
 # Verify installation
-bs9 --version
+bun run bin/bs9 --version
 
-# Check platform support
-bs9 platform
+# Check platform health
+bun run bin/bs9 doctor
 ```
 
 ## Configuration
@@ -302,29 +304,26 @@ sudo chmod 600 /secure/backup/bs9-*
 # Restore from encrypted backup
 gpg --decrypt bs9-backup.tar.gz.gpg | tar -xzf -
 
-# Verify service integrity
-bs9 status --verify
-bs9 security-audit
+# Verify service integrity and security
+bs9 status
+bs9 inspect --security
 ```
 
-### Compliance & Auditing
+### Auditing and Monitoring
 
-#### Security Compliance Check
+#### System Inspection
 ```bash
-# Run security compliance check
-bs9 security-compliance --standard SOC2
+# Run comprehensive system and security inspection
+bs9 inspect --security
 
-# Generate security report
-bs9 security-report --format pdf --output security-report.pdf
+# Inspect health diagnostics
+bs9 doctor --verbose
 ```
 
-#### Audit Trail
+#### Log Review
 ```bash
-# Enable comprehensive audit logging
-export BS9_AUDIT_LEVEL=comprehensive
-
-# Review audit trail
-bs9 audit-trail --service myapp --last 7d
+# Review service logs
+bs9 logs myapp --lines 100
 ```
 
 ### System Security
@@ -347,14 +346,11 @@ sudo ufw allow from 10.0.0.0/8 to any port 3000
 ### Application Security
 
 ```bash
-# Enable security audit
+# Start service with security audit
 bs9 start app.js --security-audit
 
-# Check security status
-bs9 security-check my-service
-
-# Generate security report
-bs9 security-report --output security-report.json
+# Check service and security inspection
+bs9 inspect --security
 ```
 
 ### SSL/TLS Configuration
@@ -654,46 +650,34 @@ EOF
 sudo cp ~/.config/bs9/logrotate.conf /etc/logrotate.d/bs9-$USER
 ```
 
-## Compliance and Auditing
+## Inspection and Diagnostics
 
-### Audit Logging
+### System Inspection
 
 ```bash
-# Enable comprehensive audit logging
-bs9 start app.js \
-  --env AUDIT_ENABLED=true \
-  --env AUDIT_LOG_PATH=~/.local/share/bs9/audit.log
+# Run comprehensive system inspection
+bs9 inspect
 
-# Generate audit report
-bs9 audit-report --start-date "2024-01-01" --end-date "2024-01-31"
+# Run health diagnostics
+bs9 doctor --verbose
 ```
 
-### Compliance Checks
+### Metrics Export
 
 ```bash
-# SOC 2 compliance check
-bs9 compliance-check --standard soc2
-
-# Generate compliance report
-bs9 compliance-report --output compliance-report.json
+# Export historical metrics
+bs9 export --format json
 ```
 
 ## Support
 
 ### Getting Help
 
-- **Documentation**: https://bs9.dev/docs
-- **Issues**: https://github.com/bs9/bs9/issues
-- **Discussions**: https://github.com/bs9/bs9/discussions
-- **Security**: security@bs9.dev
-
-### Enterprise Support
-
-For enterprise support, SLAs, and custom deployments:
-- **Email**: enterprise@bs9.dev
-- **Phone**: +1-555-BS9-HELP
-- **Chat**: https://bs9.dev/chat
+- **Documentation**: [README.md](README.md)
+- **Issues**: [GitHub Issues](https://github.com/xarhang/bs9/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/xarhang/bs9/discussions)
+- **Security**: [Security Policy](SECURITY.md)
 
 ---
 
-For additional questions or support requests, please refer to the [documentation](https://bs9.dev/docs) or open an issue on GitHub.
+For additional questions or support requests, please refer to the [documentation](README.md) or open an issue on [GitHub](https://github.com/xarhang/bs9/issues).

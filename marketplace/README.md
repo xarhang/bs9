@@ -359,7 +359,7 @@ bs9 marketplace check-updates
 bs9 config set marketplace.enabled true
 
 # Set marketplace URL
-bs9 config set marketplace.url https://marketplace.bs9.dev
+bs9 config set marketplace.url https://plugins.example.com
 
 # Set authentication token
 bs9 config set marketplace.token <token>

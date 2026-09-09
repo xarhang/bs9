@@ -10,7 +10,7 @@
  */
 
 import { execSync } from "node:child_process";
-import { existsSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, writeFileSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 
@@ -58,7 +58,7 @@ class LaunchdServiceManager {
   private loadConfigs(): Record<string, LaunchdServiceConfig> {
     try {
       if (existsSync(this.configPath)) {
-        const content = require('fs').readFileSync(this.configPath, 'utf-8');
+        const content = readFileSync(this.configPath, 'utf-8');
         return JSON.parse(content);
       }
     } catch (error) {
@@ -169,7 +169,7 @@ ${Object.entries(plistContent).map(([key, value]) => {
       execSync(`launchctl unload "${plistPath}"`, { stdio: 'inherit' });
       
       // Remove plist file
-      require('fs').unlinkSync(plistPath);
+      unlinkSync(plistPath);
       
       // Remove from config
       const configs = this.loadConfigs();

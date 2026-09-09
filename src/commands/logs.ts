@@ -31,12 +31,18 @@ export async function logsCommand(name: string, options: LogsOptions): Promise<v
     if (platformInfo.isLinux) {
       // On Linux, try journalctl first as it's the standard
       try {
-        const args = ["--no-pager"];
-        if (options.follow) args.push("-f");
+        const args = ["--user", "--no-pager"];
         if (options.lines) args.push("-n", options.lines || "50");
+        args.push("-u", `${fullName}.service`);
 
-        const cmd = `journalctl --user ${args.join(" ")} -u ${fullName}.service`;
-        execSync(cmd, { stdio: "inherit" });
+        if (options.follow) {
+          // Use spawn for follow mode so Ctrl+C works cleanly
+          args.push("-f");
+          const child = spawn("journalctl", args, { stdio: "inherit" });
+          await new Promise<void>((resolve) => child.on("close", resolve));
+        } else {
+          execSync(`journalctl ${args.join(" ")}`, { stdio: "inherit" });
+        }
         return;
       } catch {
         // Fallback to file-based logs if journalctl fails

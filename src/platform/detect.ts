@@ -11,6 +11,7 @@
 
 import { platform, homedir } from "node:os";
 import { join } from "node:path";
+import { mkdirSync } from "node:fs";
 
 export type Platform = 'linux' | 'darwin' | 'win32';
 
@@ -156,14 +157,11 @@ Windows-specific:
 export function initializePlatformDirectories(): void {
   const platformInfo = getPlatformInfo();
 
-  // Create directories if they don't exist
-  const fs = require('node:fs');
-
   try {
-    fs.mkdirSync(platformInfo.configDir, { recursive: true });
-    fs.mkdirSync(platformInfo.logDir, { recursive: true });
-    fs.mkdirSync(platformInfo.backupDir, { recursive: true });
-    fs.mkdirSync(platformInfo.serviceDir, { recursive: true });
+    mkdirSync(platformInfo.configDir, { recursive: true });
+    mkdirSync(platformInfo.logDir, { recursive: true });
+    mkdirSync(platformInfo.backupDir, { recursive: true });
+    mkdirSync(platformInfo.serviceDir, { recursive: true });
   } catch (error) {
     console.warn(`⚠️  Warning: Could not create platform directories: ${error}`);
   }

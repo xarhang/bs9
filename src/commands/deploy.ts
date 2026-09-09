@@ -95,8 +95,10 @@ export async function deployCommand(file: string, options: DeployOptions): Promi
   // Step 3: Enable linger for user services persistence
   if (options.linger !== false && platformInfo.isLinux) {
     try {
+      const { userInfo } = await import("node:os");
+      const username = userInfo().username;
       console.log("🔧 Enabling user services persistence...");
-      execSync("loginctl enable-linger $USER", { stdio: "pipe" });
+      execSync(`loginctl enable-linger ${username}`, { stdio: "pipe" });
       console.log("✅ User services persistence enabled");
     } catch (error: any) {
       console.warn("⚠️  Could not enable linger (may require root):", error?.message || error);

@@ -1,11 +1,41 @@
-import { execSync } from "child_process";
-import { existsSync } from "fs";
+import { execSync } from "node:child_process";
+import { existsSync } from "node:fs";
 
 export interface ServiceInfo {
   name: string;
   status: string;
   pid?: number;
   port?: number;
+}
+
+// Shared batch result display — used by start, stop, restart, delete commands
+export function displayBatchResults(
+  results: PromiseSettledResult<{ service: string; status: string; error: string | null }>[],
+  operation: string
+): void {
+  console.log(`\n📊 Batch ${operation} Results`);
+  console.log("=".repeat(50));
+
+  const successful = results.filter(r => r.status === 'fulfilled' && r.value.status === 'success');
+  const failed = results.filter(r => r.status === 'fulfilled' && r.value.status === 'failed');
+
+  successful.forEach(result => {
+    if (result.status === 'fulfilled') {
+      console.log(`✅ ${result.value.service} - ${operation} successful`);
+    }
+  });
+
+  failed.forEach(result => {
+    if (result.status === 'fulfilled') {
+      console.log(`❌ ${result.value.service} - Failed: ${result.value.error}`);
+    }
+  });
+
+  const total = results.length;
+  console.log(`\n📈 Summary:`);
+  console.log(`   Total: ${total} services`);
+  console.log(`   Success: ${successful.length}/${total} (${((successful.length / Math.max(1, total)) * 100).toFixed(1)}%)`);
+  console.log(`   Failed: ${failed.length}/${total} (${((failed.length / Math.max(1, total)) * 100).toFixed(1)}%)`);
 }
 
 export async function parseServiceArray(input: string | string[]): Promise<string[]> {
@@ -37,9 +67,8 @@ export async function parseServiceArray(input: string | string[]): Promise<strin
 
   for (const service of services) {
     if (service.includes('*')) {
-      // Pattern matching
-      const pattern = service.replace('*', '.*');
-      const matching = await getServicesByPattern(pattern);
+      // Pattern matching — pass raw pattern with * to getServicesByPattern
+      const matching = await getServicesByPattern(service);
       expanded.push(...matching);
     } else if (service === 'all') {
       // All services
@@ -133,16 +162,23 @@ export function confirmAction(message: string): Promise<boolean> {
     process.stdin.resume();
     process.stdin.setEncoding('utf8');
 
+    const cleanup = () => {
+      process.stdin.setRawMode(false);
+      process.stdin.pause();
+      process.stdin.off('data', onData);
+    };
+
     const onData = (key: string) => {
-      if (key === 'y' || key === 'Y') {
-        process.stdin.setRawMode(false);
-        process.stdin.pause();
-        process.stdin.off('data', onData);
+      if (key === '\x03') {
+        // Ctrl+C — restore terminal and exit gracefully
+        cleanup();
+        process.stdout.write('\n');
+        resolve(false);
+      } else if (key === 'y' || key === 'Y') {
+        cleanup();
         resolve(true);
       } else if (key === '\n' || key === '\r' || key === 'n' || key === 'N') {
-        process.stdin.setRawMode(false);
-        process.stdin.pause();
-        process.stdin.off('data', onData);
+        cleanup();
         resolve(false);
       }
     };

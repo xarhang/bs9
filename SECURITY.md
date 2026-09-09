@@ -137,24 +137,20 @@ BS9_AUDIT_LOGGING=true                # Enable security audit logging
 
 ### Security Contact
 
-- **Email**: security@bs9.dev
-- **PGP Key**: Available on request
-- **Response Time**: Within 24 hours for critical issues
+- **GitHub Security Advisory**: [Report a vulnerability](https://github.com/xarhang/bs9/security/advisories/new)
+- **GitHub Issues** (for non-sensitive issues): [Open an issue](https://github.com/xarhang/bs9/issues)
+- **Response Time**: Within 72 hours for critical issues
 
 ### Responsible Disclosure
 
-1. **Report**: Send detailed vulnerability report to security@bs9.dev
-2. **Acknowledgment**: We'll acknowledge receipt within 24 hours
+1. **Report**: Use [GitHub Security Advisories](https://github.com/xarhang/bs9/security/advisories/new) for private disclosure
+2. **Acknowledgment**: We'll acknowledge receipt within 72 hours
 3. **Assessment**: We'll assess and validate the vulnerability
 4. **Fix**: We'll develop and test a fix
-5. **Disclosure**: Coordinated disclosure with credit
+5. **Disclosure**: Coordinated public disclosure after patch is released
 
-### Security Rewards
-
-- **Critical**: Up to $10,000
-- **High**: Up to $5,000
-- **Medium**: Up to $2,000
-- **Low**: Up to $500
+> [!NOTE]
+> BS9 is an open-source project maintained by individual contributors. There is no commercial bug bounty program. All valid security reports will be credited in the release notes.
 
 ## 📋 Security Checklist
 
@@ -196,17 +192,17 @@ BS9 security updates are released on a regular schedule:
 ### Built-in Security Tools
 
 ```bash
-# Security audit command
-bs9 start app.js --security-audit
+# Run comprehensive health & security checks
+bs9 doctor --verbose
 
-# Security status check
-bs9 security-status
+# Inspect system security posture
+bs9 inspect --security
 
-# Security logs
-bs9 logs --security
+# View service logs for security events
+bs9 logs <service-name> --follow
 
-# Security configuration
-bs9 security-config
+# Check running service status
+bs9 status
 ```
 
 ### External Security Tools
@@ -236,21 +232,20 @@ BS9 tracks security metrics:
 5. **Recovery**: Restore secure operations
 6. **Post-mortem**: Security incident analysis
 
-### Emergency Contacts
+### Contact
 
-- **Security Team**: security@bs9.dev
-- **Incident Response**: incident@bs9.dev
-- **Emergency**: emergency@bs9.dev
+- **Security Reports**: [GitHub Security Advisories](https://github.com/xarhang/bs9/security/advisories/new)
+- **General Issues**: [GitHub Issues](https://github.com/xarhang/bs9/issues)
+- **Maintainer**: [@xarhang](https://github.com/xarhang)
 
 ---
 
 ## 📚 Additional Resources
 
-- [Security Best Practices Guide](https://bs9.dev/security/best-practices)
-- [Security API Documentation](https://bs9.dev/security/api)
-- [Security Training Materials](https://bs9.dev/security/training)
-- [Security Community Forum](https://bs9.dev/security/forum)
+- [BS9 README](https://github.com/xarhang/bs9#readme)
+- [Contributing Guide](https://github.com/xarhang/bs9/blob/main/CONTRIBUTING.md)
+- [Changelog](https://github.com/xarhang/bs9/blob/main/CHANGELOG.md)
 
-**Last Updated**: January 25, 2026
-**Security Version**: 1.0.0
-**Next Review**: April 25, 2026
+**Last Updated**: September 10, 2026
+**Security Version**: 1.5.19
+**Next Review**: December 10, 2026

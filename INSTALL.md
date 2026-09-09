@@ -240,8 +240,8 @@ bs9 web --detach --port 8080
 ### Getting Help
 
 - **Documentation**: [README.md](README.md)
-- **Issues**: [GitHub Issues](https://github.com/bs9/bs9/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/bs9/bs9/discussions)
+- **Issues**: [GitHub Issues](https://github.com/xarhang/bs9/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/xarhang/bs9/discussions)
 - **Contributing**: [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## Uninstallation

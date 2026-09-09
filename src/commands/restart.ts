@@ -11,7 +11,7 @@
 
 import { execSync } from "node:child_process";
 import { getPlatformInfo } from "../platform/detect.js";
-import { parseServiceArray, confirmAction } from "../utils/array-parser.js";
+import { parseServiceArray, confirmAction, displayBatchResults } from "../utils/array-parser.js";
 
 interface RestartOptions {
   force?: boolean;
@@ -73,8 +73,7 @@ async function handleMultiServiceRestart(name: string | string[], options: Resta
 async function handleSingleServiceRestart(name: string): Promise<void> {
   // Security: Validate service name
   if (!isValidServiceName(name)) {
-    console.error(`❌ Security: Invalid service name: ${name}`);
-    process.exit(1);
+    throw new Error(`Security: Invalid service name: ${name}`);
   }
 
   const platformInfo = getPlatformInfo();
@@ -91,8 +90,17 @@ async function handleSingleServiceRestart(name: string): Promise<void> {
       const { WindowsServiceManager } = await import("../windows/service.js");
       const manager = new WindowsServiceManager();
       const fullName = name.startsWith('BS9_') ? name : `BS9_${name}`;
-      await manager.stopService(fullName);
-      await manager.startService(fullName);
+      // Stop first (ignore error if already stopped), then always attempt start
+      try {
+        await manager.stopService(fullName);
+      } catch {
+        // Service may already be stopped — proceed to start
+      }
+      try {
+        await manager.startService(fullName);
+      } catch (startErr) {
+        throw new Error(`Restart failed: service stopped but could not start: ${startErr}`);
+      }
     }
   } catch (err) {
     console.error(`❌ Failed to restart service '${name}': ${err}`);
@@ -100,27 +108,3 @@ async function handleSingleServiceRestart(name: string): Promise<void> {
   }
 }
 
-function displayBatchResults(results: PromiseSettledResult<{ service: string; status: string; error: string | null }>[], operation: string): void {
-  console.log(`\n📊 Batch ${operation} Results`);
-  console.log("=".repeat(50));
-
-  const successful = results.filter(r => r.status === 'fulfilled' && r.value.status === 'success');
-  const failed = results.filter(r => r.status === 'fulfilled' && r.value.status === 'failed');
-
-  successful.forEach(result => {
-    if (result.status === 'fulfilled') {
-      console.log(`✅ ${result.value.service} - ${operation} successful`);
-    }
-  });
-
-  failed.forEach(result => {
-    if (result.status === 'fulfilled') {
-      console.log(`❌ ${result.value.service} - Failed: ${result.value.error}`);
-    }
-  });
-
-  console.log(`\n📈 Summary:`);
-  console.log(`   Total: ${results.length} services`);
-  console.log(`   Success: ${successful.length}/${results.length} (${((successful.length / results.length) * 100).toFixed(1)}%)`);
-  console.log(`   Failed: ${failed.length}/${results.length} (${((failed.length / results.length) * 100).toFixed(1)}%)`);
-}

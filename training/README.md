@@ -371,20 +371,13 @@ Welcome to the comprehensive BS9 training program! This program is designed to t
 - [CLI Commands](../docs/COMMANDS.md)
 - [Examples](../examples/)
 
-### 🤝 Community
-- [Discord Server](https://discord.gg/bs9)
+### 🤝 Community & Support
 - [GitHub Repository](https://github.com/xarhang/bs9)
-- [Stack Overflow](https://stackoverflow.com/questions/tagged/bs9)
-- [Reddit Community](https://reddit.com/r/bs9)
-
-### 📞 Support
-- [Training Support](mailto:training@bs9.dev)
-- [Technical Support](mailto:support@bs9.dev)
-- [Sales Inquiries](mailto:sales@bs9.dev)
-- [Partnership Inquiries](mailto:partners@bs9.dev)
+- [GitHub Issues](https://github.com/xarhang/bs9/issues)
+- [GitHub Discussions](https://github.com/xarhang/bs9/discussions)
+- [Security Policy](../SECURITY.md)
 
 ---
 
-*Last Updated: January 25, 2026*
-*BS9 Version: 1.3.5*
-*Training Program Version: 1.0.0*
+*Last Updated: September 10, 2026*  
+*BS9 Version: 1.5.19*

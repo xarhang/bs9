@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.20] - 2026-09-10
+
+### 🐛 Bug Fixes & Code Audit
+- **CLI Commands**:
+  - `status`: Fixed argument order `(names, options)` and sort comparator (`b.sub` instead of `a.sub`)
+  - `stop`, `restart`, `delete`: Replaced `process.exit(1)` inside batch loops with thrown errors to prevent premature exit
+  - `save`, `resurrect`: Added null guard for optional `name` parameter preventing `TypeError` on `--all`
+  - `metrics`: Fixed `avgCpu` and `avgMemory` denominator calculation using `totalCount`
+  - `deploy`: Replaced `$USER` shell variable in `enable-linger` with safe `os.userInfo().username`
+  - `logs`: Switched `journalctl -f` from blocking `execSync` to interactive `spawn`
+  - `array-parser`: Fixed regex pattern escaping to prevent wildcard double-expansion; added Ctrl+C handler in raw mode
+  - `service-discovery`: Implemented real macOS service listing via launchd instead of empty stub
+  - `restart`: Handled Windows restart race condition with graceful fallback
+- **ESM Compatibility**:
+  - Replaced inline `require()` calls with top-level ESM imports in `detect.ts`, `save.ts`, `resurrect.ts`, and `launchd.ts`
+  - Deep merged alert threshold configurations in `AlertManager.loadConfig()`
+
+### 📚 Documentation & Security Policy Cleanup
+- Removed fictional bug bounty reward tiers from `SECURITY.md`
+- Replaced non-existent `bs9.dev` emails and domains across all docs with official GitHub repository links
+- Cleaned up hallucinated CLI commands across documentation (`bs9 platform`, `bs9 security-audit`, etc.)
+- Replaced fake paid support tiers in `SUPPORT.md` with true open-source community support channels
+
 ## [1.5.17] - 2026-01-26
 
 ### 🐛 Bug Fixes

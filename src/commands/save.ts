@@ -11,6 +11,7 @@
 
 import { execSync } from "node:child_process";
 import { join, resolve } from "node:path";
+import { existsSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { getPlatformInfo, initializePlatformDirectories } from "../platform/detect.js";
 
 interface SaveOptions {
@@ -34,7 +35,7 @@ export async function saveCommand(name: string, options: SaveOptions): Promise<v
   const platformInfo = getPlatformInfo();
 
   // Handle save all services or multi-service patterns
-  if (options.all || name === 'all' || name.includes('[') || name.includes(' ')) {
+  if (options.all || !name || name === 'all' || name.includes('[') || name.includes(' ')) {
     await saveAllServices(platformInfo, options);
     return;
   }
@@ -54,13 +55,13 @@ export async function saveCommand(name: string, options: SaveOptions): Promise<v
       const statusOutput = execSync(`systemctl --user show "${escapedName}"`, { encoding: "utf-8" });
       const serviceFile = join(platformInfo.serviceDir, `${escapedName}.service`);
 
-      if (!require('node:fs').existsSync(serviceFile)) {
+      if (!existsSync(serviceFile)) {
         console.error(`❌ Service configuration not found for '${name}'`);
         process.exit(1);
       }
 
       // Read service configuration
-      const serviceConfig = require('node:fs').readFileSync(serviceFile, 'utf8');
+      const serviceConfig = readFileSync(serviceFile, 'utf8');
 
       // Parse service configuration to extract startup parameters
       const config = parseServiceConfig(serviceConfig, statusOutput);
@@ -81,7 +82,7 @@ export async function saveCommand(name: string, options: SaveOptions): Promise<v
         platform: platformInfo.platform
       };
 
-      require('node:fs').writeFileSync(backupFile, JSON.stringify(backupData, null, 2));
+      writeFileSync(backupFile, JSON.stringify(backupData, null, 2));
 
       console.log(`💾 Service '${name}' configuration saved to: ${backupFile}`);
 
@@ -89,7 +90,7 @@ export async function saveCommand(name: string, options: SaveOptions): Promise<v
         // Create additional backup with timestamp
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
         const timestampedBackup = join(platformInfo.backupDir, `${escapedName}-${timestamp}.json`);
-        require('node:fs').writeFileSync(timestampedBackup, JSON.stringify(backupData, null, 2));
+        writeFileSync(timestampedBackup, JSON.stringify(backupData, null, 2));
         console.log(`📦 Additional backup created: ${timestampedBackup}`);
       }
 
@@ -150,8 +151,8 @@ async function saveAllServices(platformInfo: any, options: SaveOptions): Promise
         try {
           const serviceFile = join(platformInfo.serviceDir, `${serviceName}.service`);
 
-          if (require('node:fs').existsSync(serviceFile)) {
-            const serviceConfig = require('node:fs').readFileSync(serviceFile, 'utf8');
+          if (existsSync(serviceFile)) {
+            const serviceConfig = readFileSync(serviceFile, 'utf8');
             const statusOutput = execSync(`systemctl --user show "${serviceName}"`, { encoding: "utf-8" });
             const config = parseServiceConfig(serviceConfig, statusOutput);
 
@@ -170,7 +171,7 @@ async function saveAllServices(platformInfo: any, options: SaveOptions): Promise
               platform: platformInfo.platform
             };
 
-            require('node:fs').writeFileSync(backupFile, JSON.stringify(backupData, null, 2));
+            writeFileSync(backupFile, JSON.stringify(backupData, null, 2));
             console.log(`  💾 Saved service: ${serviceName}`);
           }
         } catch (error) {
@@ -184,9 +185,8 @@ async function saveAllServices(platformInfo: any, options: SaveOptions): Promise
     } else if (platformInfo.isWindows) {
       // Get all services metadata files
       const servicesDir = platformInfo.serviceDir;
-      const fs = require('node:fs');
-      if (fs.existsSync(servicesDir)) {
-        const files = fs.readdirSync(servicesDir).filter((f: string) => f.endsWith('.json'));
+      if (existsSync(servicesDir)) {
+        const files = readdirSync(servicesDir).filter((f: string) => f.endsWith('.json'));
         console.log(`Found ${files.length} BS9 services to save on Windows...`);
         for (const file of files) {
           try {

@@ -11,6 +11,7 @@
 
 import { execSync } from "node:child_process";
 import { join } from "node:path";
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { getPlatformInfo, initializePlatformDirectories } from "../platform/detect.js";
 
 interface ResurrectOptions {
@@ -34,7 +35,7 @@ export async function resurrectCommand(name: string, options: ResurrectOptions):
   const platformInfo = getPlatformInfo();
 
   // Handle resurrect all services or patterns
-  if (options.all || name === 'all' || name.includes('[') || name.includes(' ')) {
+  if (options.all || !name || name === 'all' || name.includes('[') || name.includes(' ')) {
     await resurrectAllServices(platformInfo, options);
     return;
   }
@@ -53,17 +54,17 @@ export async function resurrectCommand(name: string, options: ResurrectOptions):
       // Check if service exists in backup
       const backupFile = join(platformInfo.backupDir, `${escapedName}.json`);
 
-      if (!require('node:fs').existsSync(backupFile)) {
+      if (!existsSync(backupFile)) {
         console.error(`❌ No backup found for service '${name}'`);
         process.exit(1);
       }
 
       // Load backup configuration
-      const backupConfig = JSON.parse(require('node:fs').readFileSync(backupFile, 'utf8'));
+      const backupConfig = JSON.parse(readFileSync(backupFile, 'utf8'));
 
       // Check if the file exists
       const filePath = backupConfig.file;
-      if (!require('node:fs').existsSync(filePath)) {
+      if (!existsSync(filePath)) {
         console.error(`❌ Service file not found: ${filePath}`);
         process.exit(1);
       }
@@ -90,7 +91,7 @@ export async function resurrectCommand(name: string, options: ResurrectOptions):
       if (options.config) {
         const plistFile = join(platformInfo.serviceDir, `bs9.${name}.plist`);
         try {
-          require('node:fs').writeFileSync(plistFile, options.config);
+          writeFileSync(plistFile, options.config);
           console.log(`📝 Configuration restored: ${plistFile}`);
         } catch (error) {
           console.error(`❌ Failed to restore configuration: ${error}`);
@@ -122,7 +123,7 @@ async function resurrectAllServices(platformInfo: any, options: ResurrectOptions
 
     if (platformInfo.isLinux) {
       // Get all backup files
-      const backupFiles = require('node:fs').readdirSync(platformInfo.backupDir)
+      const backupFiles = readdirSync(platformInfo.backupDir)
         .filter((file: string) => file.endsWith('.json'));
 
       if (backupFiles.length === 0) {
@@ -136,7 +137,7 @@ async function resurrectAllServices(platformInfo: any, options: ResurrectOptions
         try {
           const serviceName = backupFile.replace('.json', '');
           const backupPath = join(platformInfo.backupDir, backupFile);
-          const backupConfig = JSON.parse(require('node:fs').readFileSync(backupPath, 'utf8'));
+          const backupConfig = JSON.parse(readFileSync(backupPath, 'utf8'));
 
           // Restore service using backup configuration
           const { startCommand } = await import("./start.js");
@@ -163,9 +164,8 @@ async function resurrectAllServices(platformInfo: any, options: ResurrectOptions
       console.log("   And then run: launchctl load ~/Library/LaunchAgents/bs9.*.plist");
     } else if (platformInfo.isWindows) {
       const backupDir = platformInfo.backupDir;
-      const fs = require('node:fs');
-      if (fs.existsSync(backupDir)) {
-        const files = fs.readdirSync(backupDir).filter((f: string) => f.endsWith('.json'));
+      if (existsSync(backupDir)) {
+        const files = readdirSync(backupDir).filter((f: string) => f.endsWith('.json'));
         console.log(`Found ${files.length} backups to resurrect on Windows...`);
         for (const file of files) {
           try {

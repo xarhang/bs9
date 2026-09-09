@@ -71,8 +71,7 @@ serve({
 ### 🔗 Links and Resources
 - **BS9 Website**: https://github.com/xarhang/bs9
 - **Installation Guide**: https://github.com/xarhang/bs9#-quick-start
-- **Documentation**: https://github.com/xarhang/learning-bs9
-- **Discord Community**: https://discord.gg/bs9
+- **GitHub Discussions**: https://github.com/xarhang/bs9/discussions
 
 ## 🎯 Learning Objectives
 

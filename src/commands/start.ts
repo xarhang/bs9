@@ -16,7 +16,7 @@ import { randomUUID } from "node:crypto";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { getPlatformInfo } from "../platform/detect.js";
-import { parseServiceArray, getMultipleServiceInfo, confirmAction } from "../utils/array-parser.js";
+import { parseServiceArray, getMultipleServiceInfo, confirmAction, displayBatchResults } from "../utils/array-parser.js";
 
 // Security: Host validation function
 function isValidHost(host: string): boolean {
@@ -150,7 +150,7 @@ async function handleSingleServiceStart(file: string, options: StartOptions): Pr
   }
 
   // Security: Validate and sanitize service name
-  const rawServiceName = options.name || basename(fullPath, fullPath.endsWith('.ts') ? '.ts' : '.js');
+  const rawServiceName = options.name || basename(fullPath).replace(/\.(ts|js|mjs|cjs)$/, '');
   const finalServiceName = rawServiceName.replace(/[^a-zA-Z0-9-_]/g, "_").replace(/^[^a-zA-Z]/, "_").substring(0, 64);
 
   // Security: Validate port number
@@ -301,30 +301,6 @@ function findServiceFile(serviceName: string): string | null {
   return null;
 }
 
-function displayBatchResults(results: PromiseSettledResult<{ service: string; status: string; error: string | null }>[], operation: string): void {
-  console.log(`\n📊 Batch ${operation} Results`);
-  console.log("=".repeat(50));
-
-  const successful = results.filter(r => r.status === 'fulfilled' && r.value.status === 'success');
-  const failed = results.filter(r => r.status === 'fulfilled' && r.value.status === 'failed');
-
-  successful.forEach(result => {
-    if (result.status === 'fulfilled') {
-      console.log(`✅ ${result.value.service} - ${operation} successful`);
-    }
-  });
-
-  failed.forEach(result => {
-    if (result.status === 'fulfilled') {
-      console.log(`❌ ${result.value.service} - Failed: ${result.value.error}`);
-    }
-  });
-
-  console.log(`\n📈 Summary:`);
-  console.log(`   Total: ${results.length} services`);
-  console.log(`   Success: ${successful.length}/${results.length} (${((successful.length / results.length) * 100).toFixed(1)}%)`);
-  console.log(`   Failed: ${failed.length}/${results.length} (${((failed.length / results.length) * 100).toFixed(1)}%)`);
-}
 
 async function createLinuxService(serviceName: string, execPath: string, host: string, port: string, protocol: string, options: StartOptions): Promise<void> {
   // Phase 1: Generate hardened systemd unit

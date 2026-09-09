@@ -57,7 +57,14 @@ class AlertManager {
     if (existsSync(this.configPath)) {
       try {
         const content = readFileSync(this.configPath, 'utf-8');
-        return { ...defaultConfig, ...JSON.parse(content) };
+        const parsed = JSON.parse(content);
+        // Deep merge: preserve defaultConfig nested objects when partial config is loaded
+        return {
+          ...defaultConfig,
+          ...parsed,
+          thresholds: { ...defaultConfig.thresholds, ...parsed.thresholds },
+          services: { ...defaultConfig.services, ...parsed.services },
+        };
       } catch (error) {
         console.error('Failed to load alert config, using defaults:', error);
       }

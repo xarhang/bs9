@@ -80,14 +80,12 @@ When representing BS9:
 If you experience or witness unacceptable behavior, please report it to:
 
 **Primary Contact:**
-- Email: devcorelab@protonmail.com
 - GitHub: [@xarhang](https://github.com/xarhang)
-- Discord: Direct message to maintainers
+- GitHub Issues: [Open an issue](https://github.com/xarhang/bs9/issues)
+- GitHub Discussions: [Community Discussions](https://github.com/xarhang/bs9/discussions)
 
 **Alternative Contacts:**
-- Any project maintainer
-- GitHub Issues (for public concerns)
-- Discord moderators
+- Project maintainers via GitHub profile
 
 ### What to Include in Reports
 

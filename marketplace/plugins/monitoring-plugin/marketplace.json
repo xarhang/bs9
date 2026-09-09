@@ -118,9 +118,7 @@
     "examples": "https://github.com/xarhang/bs9-marketplace/tree/main/plugins/monitoring-plugin/examples"
   },
   "support": {
-    "issues": "https://github.com/xarhang/bs9-marketplace/issues",
-    "discord": "https://discord.gg/bs9",
-    "email": "support@bs9.dev"
+    "issues": "https://github.com/xarhang/bs9/issues"
   },
   "changelog": {
     "1.0.0": [
@@ -152,9 +150,8 @@
   "lastUpdated": "2026-01-25T00:00:00Z",
   "maintainers": [
     {
-      "name": "BS9 Community",
-      "email": "community@bs9.dev",
-      "github": "bs9"
+      "name": "xarhang",
+      "github": "xarhang"
     }
   ],
   "tags": [

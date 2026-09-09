@@ -12,7 +12,7 @@
 import { execSync } from "node:child_process";
 import { join } from "node:path";
 import { getPlatformInfo } from "../platform/detect.js";
-import { parseServiceArray, confirmAction } from "../utils/array-parser.js";
+import { parseServiceArray, confirmAction, displayBatchResults } from "../utils/array-parser.js";
 
 interface StopOptions {
   force?: boolean;
@@ -74,8 +74,7 @@ async function handleMultiServiceStop(name: string | string[], options: StopOpti
 async function handleSingleServiceStop(name: string): Promise<void> {
   // Security: Validate service name
   if (!isValidServiceName(name)) {
-    console.error(`❌ Security: Invalid service name: ${name}`);
-    process.exit(1);
+    throw new Error(`Security: Invalid service name: ${name}`);
   }
 
   const platformInfo = getPlatformInfo();
@@ -104,27 +103,3 @@ async function handleSingleServiceStop(name: string): Promise<void> {
   }
 }
 
-function displayBatchResults(results: PromiseSettledResult<{ service: string; status: string; error: string | null }>[], operation: string): void {
-  console.log(`\n📊 Batch ${operation} Results`);
-  console.log("=".repeat(50));
-
-  const successful = results.filter(r => r.status === 'fulfilled' && r.value.status === 'success');
-  const failed = results.filter(r => r.status === 'fulfilled' && r.value.status === 'failed');
-
-  successful.forEach(result => {
-    if (result.status === 'fulfilled') {
-      console.log(`✅ ${result.value.service} - ${operation} successful`);
-    }
-  });
-
-  failed.forEach(result => {
-    if (result.status === 'fulfilled') {
-      console.log(`❌ ${result.value.service} - Failed: ${result.value.error}`);
-    }
-  });
-
-  console.log(`\n📈 Summary:`);
-  console.log(`   Total: ${results.length} services`);
-  console.log(`   Success: ${successful.length}/${results.length} (${((successful.length / results.length) * 100).toFixed(1)}%)`);
-  console.log(`   Failed: ${failed.length}/${results.length} (${((failed.length / results.length) * 100).toFixed(1)}%)`);
-}

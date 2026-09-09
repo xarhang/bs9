@@ -218,7 +218,63 @@ async function getWindowsServices(): Promise<ServiceMetrics[]> {
 }
 
 async function getMacOSServices(): Promise<ServiceMetrics[]> {
-    return [];
+    try {
+        const { execSync } = await import("node:child_process");
+        const { existsSync, readFileSync } = await import("node:fs");
+        const { join } = await import("node:path");
+        const { homedir } = await import("node:os");
+
+        const configPath = join(homedir(), '.bs9', 'launchd-services.json');
+        if (!existsSync(configPath)) return [];
+
+        const configs: Record<string, any> = JSON.parse(readFileSync(configPath, 'utf-8'));
+        const services: ServiceMetrics[] = [];
+
+        for (const label of Object.keys(configs)) {
+            let pid = '-';
+            let active = 'inactive';
+            let sub = 'stopped';
+            let cpu = '-';
+            let memory = '-';
+            let uptime = '-';
+
+            try {
+                // launchctl list <label> → "PID\tLastExitStatus\tLabel"
+                const out = execSync(`launchctl list "${label}"`, { encoding: 'utf-8' });
+                const lines = out.split('\n');
+                // Find the data line (not the header)
+                const dataLine = lines.find(l => l.includes(label) && !l.startsWith('PID'));
+                if (dataLine) {
+                    const parts = dataLine.trim().split(/\s+/);
+                    if (parts[0] !== '-') {
+                        pid = parts[0];
+                        active = 'active';
+                        sub = 'running';
+                    }
+                }
+            } catch {
+                // service not loaded in launchd
+            }
+
+            services.push({
+                name: label,
+                loaded: 'loaded',
+                active,
+                sub,
+                state: `${active}/${sub}`,
+                description: `BS9 macOS Service: ${label.replace(/^bs9\./, '')}`,
+                cpu,
+                memory,
+                uptime,
+                tasks: '-',
+                pid,
+            });
+        }
+
+        return services;
+    } catch {
+        return [];
+    }
 }
 
 function formatMemory(bytes: number): string {

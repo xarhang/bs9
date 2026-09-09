@@ -224,10 +224,8 @@ bs9 stop test-app
 - [Configuration Options](../README.md#-configuration)
 
 ### 🔗 Community Support
-- [Discord Community](https://discord.gg/bs9)
 - [GitHub Issues](https://github.com/xarhang/bs9/issues)
-- [Stack Overflow](https://stackoverflow.com/questions/tagged/bs9)
-- [Reddit Community](https://reddit.com/r/bs9)
+- [GitHub Discussions](https://github.com/xarhang/bs9/discussions)
 
 ### 🎯 Learning Path
 After successful installation, continue with:
