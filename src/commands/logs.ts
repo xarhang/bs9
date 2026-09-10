@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bun
+#!/usr/bin/env bun
 
 /**
  * BS9 - Bun Sentinel 9
@@ -84,12 +84,16 @@ export async function logsCommand(name?: string, options: LogsOptions = {}): Pro
 
         watch(filePath, (event) => {
           if (event === 'change') {
-            const currentContent = readFileSync(filePath);
-            if (currentContent.length > fileSize) {
-              const newContent = currentContent.slice(fileSize).toString();
-              process.stdout.write(newContent);
-              fileSize = currentContent.length;
-            }
+            try {
+              const currentContent = readFileSync(filePath);
+              if (currentContent.length < fileSize) {
+                fileSize = currentContent.length;
+              } else if (currentContent.length > fileSize) {
+                const newContent = currentContent.slice(fileSize).toString();
+                process.stdout.write(newContent);
+                fileSize = currentContent.length;
+              }
+            } catch {}
           }
         });
       };
@@ -148,7 +152,9 @@ async function showAllLogs(options: LogsOptions, platformInfo: any): Promise<voi
         if (event === "change") {
           try {
             const currentContent = readFileSync(fullPath);
-            if (currentContent.length > fileSize) {
+            if (currentContent.length < fileSize) {
+              fileSize = currentContent.length;
+            } else if (currentContent.length > fileSize) {
               const chunk = currentContent.slice(fileSize).toString();
               const labeled = chunk.split("\n").map(l => l ? `[${file}] ${l}` : l).join("\n");
               process.stdout.write(labeled);

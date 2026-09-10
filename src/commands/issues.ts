@@ -169,15 +169,23 @@ export async function issuesCommand(name?: string, options: IssuesOptions = {}):
   // If --clear requested:
   if (options.clear) {
     const files = readdirSync(logDir).filter(f => f.endsWith(".err.log"));
+    const tClean = name ? name.replace(/^(BS9_|bs9\.)/, "") : "";
     let cleared = 0;
     for (const f of files) {
-      if (!name || f.includes(name.replace(/^(BS9_|bs9\.)/, ""))) {
+      if (!name) {
         writeFileSync(join(logDir, f), "");
         cleared++;
+      } else {
+        const fileBase = f.replace(/\.err\.log$/, "").replace(/^(BS9_|bs9\.)/, "");
+        const isWorker = new RegExp(`^${tClean}-\\d+$`).test(fileBase);
+        if (fileBase === tClean || isWorker) {
+          writeFileSync(join(logDir, f), "");
+          cleared++;
+        }
       }
     }
     if (name) {
-      forceResetCircuit(name.replace(/^(BS9_|bs9\.)/, ""));
+      forceResetCircuit(tClean);
     }
     console.log(`🧹 Cleared error logs and reset issue records (${cleared} file(s) truncated).`);
     return;
@@ -188,7 +196,8 @@ export async function issuesCommand(name?: string, options: IssuesOptions = {}):
     ? allServices.filter(s => {
         const clean = s.name.replace(/^(BS9_|bs9\.)/, "");
         const tClean = name.replace(/^(BS9_|bs9\.)/, "");
-        return s.name === name || clean === tClean || clean.startsWith(`${tClean}-`);
+        const isWorker = new RegExp(`^${tClean}-\\d+$`).test(clean);
+        return s.name === name || clean === tClean || isWorker;
       })
     : allServices;
 

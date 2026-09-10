@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.2] - 2026-09-10
+
+### 🛡️ Critical Bug Fixes & Ruthless Stability Hardening
+- **Startup Boot Persistence (`bs9 startup`)**:
+  - Replaced naive `process.cwd()` with true absolute binary path resolution (`resolve(process.argv[1])`). Fixed critical bug where booting resurrected services from the directory where `startup` was triggered instead of the installed CLI.
+- **Windows Resurrect**:
+  - Fixed Windows `resurrect` executing the interpreter `bun.exe` instead of the target application script stored in metadata.
+- **False-Positive Worker Matching**:
+  - Replaced loose `clean.startsWith("${cleanName}-")` with strict numeric worker regex `^${cleanName}-\\d+$` across `send-signal`, `scale`, `reload`, `status`, and `issues`. Prevented accidental termination of unrelated services (e.g. `app-database` when managing `app`).
+- **Cluster Reload & Scaling**:
+  - Fixed `bs9 reload` failure when cluster has only 1 worker (`-i 1` or scaled down).
+  - Fixed systemd scale unit replacement naively replacing paths matching the app name.
+  - Implemented missing macOS cluster worker scaling up and LaunchAgent generation.
+- **Background Watchdog Supervisor**:
+  - Fixed critical file descriptor leak in `watchdog-agent.ts` by properly closing parent `openSync` file descriptors after child spawn.
+  - Fixed script argument prepending when converting `.js`/`.ts` executable paths to Bun.
+- **Log Streaming (`logs -f`)**:
+  - Fixed permanent stream deafness after `bs9 flush` by resetting tracked file size when file length decreases.
+- **Status Watch Mode**:
+  - Fixed prefix normalization in `status -w` interval ticks on Windows and macOS.
+- **Service Discovery & Metrics**:
+  - Hardened `formatMemory` against `NaN`, negative byte values, and out-of-bound array access for TB+ memory.
+- **Systemd Hardening & Linux Cleanup**:
+  - Changed user systemd hardening from `ProtectHome=true` to `ProtectHome=read-only` preventing permission denied errors for apps inside home directories.
+  - Added `systemctl --user daemon-reload` after service unit file removal in `bs9 delete`.
+- **Test Suite Expansion**:
+  - Expanded to **128 unit tests** across 21 test files with 100% pass rate.
+
 ## [1.6.1] - 2026-09-10
 
 ### 🚀 Polyglot Multi-Runtime & Built-in Issue Tracker (Free PM2 Plus Feature)

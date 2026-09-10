@@ -258,15 +258,23 @@ async function handleSingleServiceStart(file: string, options: StartOptions): Pr
   }
 
   // Security: Prevent directory traversal and ensure file is within allowed paths
-  const allowedPaths = [process.cwd(), homedir()];
-  const isAllowedPath = allowedPaths.some(allowed => fullPath.startsWith(allowed));
+  const allowedPaths = [
+    process.cwd(),
+    homedir(),
+    "/var/www",
+    "/srv",
+    "/opt",
+    process.platform === "win32" ? "D:\\" : "",
+    process.platform === "win32" ? "E:\\" : "",
+  ].filter(Boolean);
+  const isAllowedPath = allowedPaths.some(allowed => fullPath.toLowerCase().startsWith(allowed.toLowerCase()));
   if (!isAllowedPath) {
     console.error(`❌ Security: File path outside allowed directories: ${fullPath}`);
     process.exit(1);
   }
 
   // Security: Validate and sanitize service name
-  const rawServiceName = options.name || basename(fullPath).replace(/\.(ts|js|mjs|cjs)$/, '');
+  const rawServiceName = options.name || basename(fullPath).replace(/\.[a-zA-Z0-9]+$/, '');
   const finalServiceName = rawServiceName.replace(/[^a-zA-Z0-9-_]/g, "_").replace(/^[^a-zA-Z]/, "_").substring(0, 64);
 
   // Security: Validate port number
@@ -558,7 +566,8 @@ async function createWindowsService(serviceName: string, execPath: string, host:
       maxMemoryRestart: options.maxMemoryRestart,
       restartDelay: options.restartDelay ? parseInt(options.restartDelay, 10) : undefined,
       noAutorestart: options.autorestart === false,
-      time: options.time
+      time: options.time,
+      scriptFile: execPath
     });
 
     console.log(`🚀 Service '${serviceName}' [${runtime.runtimeName}] initialization complete`);
@@ -657,7 +666,7 @@ function generateSystemdUnit(opts: SystemdUnitOptions): string {
   return `[Unit]
 Description=BS9 Service: ${opts.serviceName}
 After=network.target
-Documentation=https://github.com/bs9/bs9
+Documentation=https://github.com/xarhang/bs9
 
 [Service]
 Type=simple
@@ -672,7 +681,7 @@ ${envSection}
 # Security hardening (user systemd compatible)
 PrivateTmp=true
 ProtectSystem=strict
-ProtectHome=true
+ProtectHome=read-only
 ReadWritePaths=${workingDir}
 UMask=0022
 

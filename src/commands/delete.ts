@@ -10,6 +10,7 @@
  */
 
 import { execSync } from "node:child_process";
+import { unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { getPlatformInfo } from "../platform/detect.js";
 import { parseServiceArray, confirmAction, displayBatchResults } from "../utils/array-parser.js";
@@ -99,7 +100,8 @@ async function handleSingleServiceDelete(name: string, platformInfo: any, option
 
       if (options.remove) {
         const serviceFile = join(platformInfo.serviceDir, `${escapedName}.service`);
-        try { execSync(`rm -f "${serviceFile}"`, { stdio: "inherit" }); } catch { }
+        try { unlinkSync(serviceFile); } catch { }
+        try { execSync(`systemctl --user daemon-reload`, { stdio: "ignore" }); } catch { }
       }
       console.log(`🗑️ Service '${name}' deleted successfully`);
     } else if (platformInfo.isMacOS) {

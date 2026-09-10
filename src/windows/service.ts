@@ -30,6 +30,7 @@ interface WindowsServiceConfig {
   restartDelay?: number;
   noAutorestart?: boolean;
   time?: boolean;
+  scriptFile?: string;
 }
 
 interface WindowsServiceStatus {
@@ -122,7 +123,8 @@ export class WindowsServiceManager {
         maxMemoryRestart: config.maxMemoryRestart,
         restartDelay: config.restartDelay,
         noAutorestart: config.noAutorestart,
-        time: config.time
+        time: config.time,
+        scriptFile: config.scriptFile
       });
       console.log(`✅ Service '${config.name}' registered for background execution`);
     }
@@ -342,7 +344,8 @@ export async function windowsCommand(action: string, options: any): Promise<void
           maxMemoryRestart: options.maxMemoryRestart,
           restartDelay: options.restartDelay,
           noAutorestart: options.noAutorestart,
-          time: options.time
+          time: options.time,
+          scriptFile: options.scriptFile || (options.args && options.args.length > 0 ? options.args[options.args.length - 1] : options.file)
         });
         await manager.startService(options.name);
         break;
@@ -380,8 +383,8 @@ export async function windowsCommand(action: string, options: any): Promise<void
           if (existsSync(backupFile)) {
             const metadata = JSON.parse(readFileSync(backupFile, 'utf-8'));
             const { startCommand } = await import("../commands/start.js");
-            // metadata in background process is slightly different than startCommand options
-            await startCommand([metadata.executable], {
+            const targetFile = metadata.scriptFile || (metadata.arguments && metadata.arguments.length > 0 ? metadata.arguments[metadata.arguments.length - 1] : metadata.executable);
+            await startCommand([targetFile], {
               name: metadata.name.replace(/^BS9_/, ''),
               port: metadata.environment?.PORT,
               host: metadata.environment?.HOST,

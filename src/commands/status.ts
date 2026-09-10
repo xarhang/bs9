@@ -91,7 +91,8 @@ async function handleStatus(options: StatusOptions, name?: string): Promise<void
       const clean = name.replace(/^(BS9_|bs9\.)/, "");
       services = services.filter(service => {
         const sClean = service.name.replace(/^(BS9_|bs9\.)/, "");
-        return service.name === name || sClean === clean || sClean.startsWith(`${clean}-`);
+        const isWorker = new RegExp(`^${clean}-\\d+$`).test(sClean);
+        return service.name === name || sClean === clean || isWorker;
       });
     }
 
@@ -117,7 +118,12 @@ async function handleStatus(options: StatusOptions, name?: string): Promise<void
 
         // Filter by specific service if provided
         if (name) {
-          updatedServices = updatedServices.filter(service => service.name === name);
+          const clean = name.replace(/^(BS9_|bs9\.)/, "");
+          updatedServices = updatedServices.filter(service => {
+            const sClean = service.name.replace(/^(BS9_|bs9\.)/, "");
+            const isWorker = new RegExp(`^${clean}-\\d+$`).test(sClean);
+            return service.name === name || sClean === clean || isWorker;
+          });
         }
 
         displayServices(updatedServices);

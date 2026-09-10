@@ -12,7 +12,7 @@
  */
 
 import { spawn, execSync } from "node:child_process";
-import { openSync, existsSync, readFileSync, writeFileSync, mkdirSync, watch as fsWatch, appendFileSync } from "node:fs";
+import { openSync, closeSync, existsSync, readFileSync, writeFileSync, mkdirSync, watch as fsWatch, appendFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { recordCrash, resetCrash, sleep, startHealthyTimer } from "./crash-tracker.js";
@@ -61,10 +61,14 @@ async function runSupervisor() {
   }
 
   let exe = meta.executable;
-  let args: string[] = meta.arguments || [];
+  let args: string[] = meta.arguments ? [...meta.arguments] : [];
 
-  if (exe.endsWith(".js") || exe.endsWith(".ts")) {
+  if (exe && (exe.endsWith(".js") || exe.endsWith(".ts"))) {
+    const script = exe;
     exe = process.execPath;
+    if (!args.includes(script)) {
+      args = ["run", script, ...args];
+    }
   }
 
   // Record supervisor PID
@@ -153,6 +157,8 @@ async function runSupervisor() {
         env: { ...process.env, ...currentMeta.environment },
         stdio: ["ignore", out, err],
       });
+      try { closeSync(out); } catch {}
+      try { closeSync(err); } catch {}
     }
 
     currentMeta.pid = child.pid;

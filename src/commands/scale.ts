@@ -30,7 +30,8 @@ export async function scaleCommand(name: string, countStr: string): Promise<void
   const workers = allServices
     .filter(s => {
       const clean = s.name.replace(/^(BS9_|bs9\.)/, "");
-      return clean === cleanName || (clean.startsWith(`${cleanName}-`) && !isNaN(Number(clean.split("-").pop())));
+      const isWorker = new RegExp(`^${cleanName}-\\d+$`).test(clean);
+      return clean === cleanName || isWorker;
     })
     .sort((a, b) => {
       const idxA = Number(a.name.split("-").pop()) || 0;
@@ -129,7 +130,9 @@ export async function scaleCommand(name: string, countStr: string): Promise<void
         const workerName = `${cleanName}-${i}`;
         const newUnitPath = join(userUnitDir, `${workerName}.service`);
         const newContent = baseContent
-          .replace(new RegExp(baseClean, "g"), workerName)
+          .replace(new RegExp(`Description=BS9 Service: ${baseClean}`, "g"), `Description=BS9 Service: ${workerName}`)
+          .replace(new RegExp(`SERVICE_NAME=${baseClean}`, "g"), `SERVICE_NAME=${workerName}`)
+          .replace(new RegExp(`SyslogIdentifier=${baseClean}`, "g"), `SyslogIdentifier=${workerName}`)
           .replace(/BS9_CLUSTER_ID=\d+/, `BS9_CLUSTER_ID=${i}`)
           .replace(/BS9_CLUSTER_TOTAL=\d+/, `BS9_CLUSTER_TOTAL=${targetCount}`);
 
@@ -138,6 +141,34 @@ export async function scaleCommand(name: string, countStr: string): Promise<void
         execSync(`systemctl --user daemon-reload`, { stdio: "ignore" });
         execSync(`systemctl --user enable --now ${workerName}.service`, { stdio: "ignore" });
         console.log(`   ➕ Started worker ${workerName}`);
+      }
+    } else if (platformInfo.isMacOS) {
+      // macOS launchd plist scaling
+      const launchDir = join(homedir(), "Library", "LaunchAgents");
+      const basePlistPath = join(launchDir, `bs9.${baseClean}.plist`);
+
+      if (!existsSync(basePlistPath)) {
+        console.error(`❌ Base macOS launchd plist 'bs9.${baseClean}.plist' not found`);
+        process.exit(1);
+      }
+
+      const basePlist = readFileSync(basePlistPath, "utf-8");
+
+      for (let i = currentCount; i < targetCount; i++) {
+        const workerName = `${cleanName}-${i}`;
+        const newPlistPath = join(launchDir, `bs9.${workerName}.plist`);
+        const newPlist = basePlist
+          .replace(new RegExp(`<string>bs9\\.${baseClean}</string>`, "g"), `<string>bs9.${workerName}</string>`)
+          .replace(new RegExp(`<string>com\\.bs9\\.${baseClean}</string>`, "g"), `<string>com.bs9.${workerName}</string>`);
+
+        writeFileSync(newPlistPath, newPlist);
+        const { execSync } = await import("node:child_process");
+        try {
+          execSync(`launchctl load "${newPlistPath}"`, { stdio: "ignore" });
+          console.log(`   ➕ Started worker ${workerName}`);
+        } catch (e) {
+          console.warn(`   ⚠️ Warning while launching worker ${workerName}: ${e}`);
+        }
       }
     }
 

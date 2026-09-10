@@ -47,6 +47,17 @@ export async function envCommand(name: string): Promise<void> {
         }
       }
     }
+  } else if (platformInfo.isMacOS) {
+    const configPath = join(homedir(), ".bs9", "launchd-services.json");
+    if (existsSync(configPath)) {
+      try {
+        const configs = JSON.parse(readFileSync(configPath, "utf-8"));
+        const cfg = configs[`bs9.${cleanName}`] || configs[cleanName];
+        if (cfg?.env) {
+          envMap = typeof cfg.env === "string" ? JSON.parse(cfg.env) : cfg.env;
+        }
+      } catch {}
+    }
   }
 
   if (!envMap || Object.keys(envMap).length === 0) {

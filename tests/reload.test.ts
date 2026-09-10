@@ -22,12 +22,13 @@ describe("Reload Command", () => {
       "BS9_my-api-1",
       "BS9_my-api-2",
       "BS9_other-service",
-      "BS9_my-api-worker" // not numeric suffix
+      "BS9_my-api-worker", // not numeric suffix
+      "BS9_my-api-database-0" // false positive with another service
     ];
 
     const workers = serviceNames.filter(name => {
       const clean = name.replace(/^(BS9_|bs9\.)/, "");
-      return clean.startsWith(`${target}-`) && !isNaN(Number(clean.split("-").pop()));
+      return new RegExp(`^${target}-\\d+$`).test(clean);
     });
 
     expect(workers.length).toBe(3);
@@ -35,5 +36,6 @@ describe("Reload Command", () => {
     expect(workers).toContain("BS9_my-api-1");
     expect(workers).toContain("BS9_my-api-2");
     expect(workers).not.toContain("BS9_my-api-worker");
+    expect(workers).not.toContain("BS9_my-api-database-0");
   });
 });

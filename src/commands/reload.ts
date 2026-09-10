@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bun
+#!/usr/bin/env bun
 
 /**
  * BS9 - Zero-Downtime Reload Command
@@ -23,10 +23,10 @@ export async function reloadCommand(names: string[] = [], options: ReloadOptions
   const allServices = await listServices();
   const clusterWorkers = allServices.filter(s => {
     const clean = s.name.replace(/^(BS9_|bs9\.)/, "");
-    return clean.startsWith(`${target}-`) && !isNaN(Number(clean.split("-").pop()));
+    return new RegExp(`^${target}-\\d+$`).test(clean);
   });
 
-  if (clusterWorkers.length > 1) {
+  if (clusterWorkers.length >= 1) {
     console.log(`🔄 Performing Zero-Downtime Rolling Reload for cluster '${target}' (${clusterWorkers.length} workers)...`);
 
     for (let i = 0; i < clusterWorkers.length; i++) {

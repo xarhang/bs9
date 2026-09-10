@@ -24,7 +24,8 @@ export async function sendSignalCommand(signal: string, appName: string): Promis
 
   const matched = allServices.filter(s => {
     const clean = s.name.replace(/^(BS9_|bs9\.)/, "");
-    return clean === cleanName || clean.startsWith(`${cleanName}-`);
+    const isWorker = new RegExp(`^${cleanName}-\\d+$`).test(clean);
+    return clean === cleanName || isWorker;
   });
 
   if (matched.length === 0) {
@@ -42,10 +43,18 @@ export async function sendSignalCommand(signal: string, appName: string): Promis
     }
 
     try {
-      // Normalize signal format: e.g. "SIGTERM" or "15"
-      const formattedSig = signal.toUpperCase().startsWith("SIG") ? signal.toUpperCase() : `SIG${signal.toUpperCase()}`;
-      process.kill(pid, formattedSig as NodeJS.Signals);
-      console.log(`📡 Signal ${formattedSig} sent to '${svc.name}' (PID: ${pid})`);
+      // Normalize signal format: support numeric (e.g. "9", "15") or named (e.g. "SIGTERM", "TERM")
+      const isNumeric = /^\d+$/.test(signal.trim());
+      if (isNumeric) {
+        const sigNum = parseInt(signal.trim(), 10);
+        process.kill(pid, sigNum);
+        console.log(`📡 Signal ${sigNum} sent to '${svc.name}' (PID: ${pid})`);
+      } else {
+        const upper = signal.toUpperCase();
+        const formattedSig = upper.startsWith("SIG") ? upper : `SIG${upper}`;
+        process.kill(pid, formattedSig as NodeJS.Signals);
+        console.log(`📡 Signal ${formattedSig} sent to '${svc.name}' (PID: ${pid})`);
+      }
       signaledCount++;
     } catch (err: any) {
       console.error(`❌ Failed to send ${signal} to '${svc.name}' (PID: ${pid}): ${err.message}`);

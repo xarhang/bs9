@@ -11,18 +11,35 @@
 
 import { execSync } from "node:child_process";
 import { existsSync, writeFileSync, unlinkSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { getPlatformInfo } from "../platform/detect.js";
+
+function getBs9BinaryInfo(): { execPath: string; scriptArgs: string[] } {
+  const currentScript = process.argv[1] ? resolve(process.argv[1]) : "";
+  if (currentScript && existsSync(currentScript)) {
+    return {
+      execPath: process.execPath,
+      scriptArgs: [currentScript]
+    };
+  }
+  return {
+    execPath: "bs9",
+    scriptArgs: []
+  };
+}
 
 export async function startupCommand(): Promise<void> {
   const platformInfo = getPlatformInfo();
   console.log(`⚙️  Configuring BS9 system boot startup for ${platformInfo.platform}...`);
 
+  const { execPath, scriptArgs } = getBs9BinaryInfo();
+
   if (platformInfo.isWindows) {
     try {
-      const bs9Bin = process.execPath; // bun path
-      const resurrectCmd = `"${bs9Bin}" "${join(process.cwd(), 'bin', 'bs9')}" resurrect --all`;
+      const resurrectCmd = scriptArgs.length > 0
+        ? `"${execPath}" "${scriptArgs[0]}" resurrect --all`
+        : `"${execPath}" resurrect --all`;
       const schtask = `schtasks /Create /TN "BS9_AutoResurrect" /TR "${resurrectCmd.replace(/"/g, '\\"')}" /SC ONLOGON /F`;
 
       execSync(schtask, { stdio: "ignore" });
@@ -44,14 +61,19 @@ export async function startupCommand(): Promise<void> {
       const unitDir = join(homedir(), ".config", "systemd", "user");
       if (!existsSync(unitDir)) mkdirSync(unitDir, { recursive: true });
 
+      const execStartLine = scriptArgs.length > 0
+        ? `${execPath} "${scriptArgs[0]}" resurrect --all`
+        : `${execPath} resurrect --all`;
+
       const unitPath = join(unitDir, "bs9-resurrect.service");
       const unitContent = `[Unit]
 Description=BS9 Process Manager Auto Resurrect
 After=network.target
+Documentation=https://github.com/xarhang/bs9
 
 [Service]
 Type=oneshot
-ExecStart=${process.execPath} ${join(process.cwd(), 'bin', 'bs9')} resurrect --all
+ExecStart=${execStartLine}
 RemainAfterExit=yes
 
 [Install]
@@ -71,6 +93,10 @@ WantedBy=default.target
       const launchDir = join(homedir(), "Library", "LaunchAgents");
       if (!existsSync(launchDir)) mkdirSync(launchDir, { recursive: true });
 
+      const programArgs = scriptArgs.length > 0
+        ? `<string>${execPath}</string>\n        <string>${scriptArgs[0]}</string>`
+        : `<string>${execPath}</string>`;
+
       const plistPath = join(launchDir, "com.bs9.resurrect.plist");
       const plistContent = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -80,8 +106,7 @@ WantedBy=default.target
     <string>com.bs9.resurrect</string>
     <key>ProgramArguments</key>
     <array>
-        <string>${process.execPath}</string>
-        <string>${join(process.cwd(), 'bin', 'bs9')}</string>
+        ${programArgs}
         <string>resurrect</string>
         <string>--all</string>
     </array>
