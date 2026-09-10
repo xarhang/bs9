@@ -22,8 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `--no-autorestart`: Disable automatic crash restarts.
   - `--time`: Prefix stdout and stderr log lines with timestamps.
   - `--cron <pattern>`: Scheduled forced restart.
+- **Native Model Context Protocol (MCP) Server**: Added `bs9 mcp` exposing 13 tools (`bs9_list_processes`, `bs9_describe_process`, `bs9_scale_process`, `bs9_diagnose_crash`, `bs9_tail_logs`, etc.) for direct AI assistant integration (Claude Desktop, Cursor, Antigravity).
 - **JSON Output**: Added `bs9 status --json` and `--raw` (matching `pm2 jlist`/`pm2 prettylist`).
-- **Comprehensive Test Suite**: Expanded from 51 generic tests to **97 non-hallucinated unit tests** across 17 test files covering all real engine components with 100% pass rate.
+- **Comprehensive Test Suite**: Expanded from 51 generic tests to **103 non-hallucinated unit tests** across 18 test files covering all real engine components with 100% pass rate.
 
 ## [1.5.20] - 2026-09-10
 

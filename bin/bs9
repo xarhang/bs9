@@ -43,6 +43,7 @@ import { pingCommand } from "../src/commands/ping.js";
 import { ecosystemInitCommand } from "../src/commands/ecosystem-init.js";
 import { startupCommand, unstartupCommand } from "../src/commands/startup.js";
 import { envCommand } from "../src/commands/env.js";
+import { mcpCommand } from "../src/commands/mcp.js";
 import { initializePlatformDirectories } from "../src/platform/detect.js";
 
 // Initialize platform directories at startup
@@ -178,6 +179,12 @@ program
   .description("🌐 Display configured environment variables for a service (PM2 parity)")
   .argument("<name>", "Service name")
   .action(envCommand);
+
+program
+  .command("mcp")
+  .description("🤖 Start native Model Context Protocol (MCP) server for AI assistants (Claude, Cursor)")
+  .option("--install", "Output configuration snippet for Claude Desktop / Cursor")
+  .action(mcpCommand);
 
 program
   .command("monit")

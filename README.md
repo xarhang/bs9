@@ -158,6 +158,10 @@ bs9 unstartup                                      # Remove auto-resurrect on re
 # 🌐 Inspect Environment Variables (PM2 env parity)
 bs9 env myapp                                      # Dump configured environment variables
 
+# 🤖 Native Model Context Protocol (MCP) for AI Assistants (Claude, Cursor)
+bs9 mcp                                            # Launch stdio MCP server
+bs9 mcp --install                                  # Output JSON snippet for Claude Desktop / Cursor
+
 # 🔍 Describe / Show details (PM2 describe/show parity)
 bs9 show myapp                                     # Inspect PIDs, paths, logs, self-healing status
 bs9 describe myapp                                 # Alias for show

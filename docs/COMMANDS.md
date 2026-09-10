@@ -2,7 +2,7 @@
 
 ## Overview
 
-BS9 provides 32 powerful CLI commands for managing Bun applications. All commands are designed to be intuitive, secure, and production-ready with automatic platform detection and zero-configuration setup.
+BS9 provides 33 powerful CLI commands for managing Bun applications. All commands are designed to be intuitive, secure, and production-ready with automatic platform detection and zero-configuration setup.
 
 ## 🚀 Core Commands
 
@@ -870,6 +870,33 @@ Inspect the live configured environment variables for a service.
 ```bash
 bs9 env my-app
 ```
+
+### 33. `bs9 mcp` - Model Context Protocol (MCP) Server
+
+Exposes native Model Context Protocol (MCP) interface allowing AI assistants (Claude Desktop, Cursor, Antigravity) to query, control, diagnose, and restart services directly from AI chat.
+
+```bash
+# Launch stdio MCP server
+bs9 mcp
+
+# Output configuration JSON block for Claude Desktop / Cursor
+bs9 mcp --install
+```
+
+**Exposed MCP Tools:**
+- `bs9_list_processes`: List all managed services with status, CPU, memory, uptime.
+- `bs9_describe_process`: Detailed process metadata, environment variables, crash logs.
+- `bs9_tail_logs`: Tail recent stdout and stderr lines.
+- `bs9_restart_process`: Restart process or all.
+- `bs9_reload_process`: Zero-downtime rolling reload.
+- `bs9_scale_process`: Dynamically scale cluster worker count.
+- `bs9_stop_process`: Stop service gracefully.
+- `bs9_delete_process`: Delete service.
+- `bs9_diagnose_crash`: AI crash analysis, circuit breaker status, stderr trace.
+- `bs9_reset_crash`: Reset circuit breaker and restart delays.
+- `bs9_flush_logs`: Clear logs.
+- `bs9_send_signal`: Send OS signals to process.
+- `bs9_doctor`: Platform and environment diagnostics.
 
 ## 📝 Exit Codes
 
