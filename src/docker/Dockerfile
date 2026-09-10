@@ -40,5 +40,6 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
 # Set up systemd for user mode
 RUN echo "user" > /etc/hostname
 
-# Default command
-CMD ["/bin/bash"]
+# Default command: run BS9 web dashboard
+ENTRYPOINT ["bun", "run", "bin/bs9"]
+CMD ["web", "--port", "8080"]

@@ -19,6 +19,11 @@ interface LogsOptions {
   lines?: string;
 }
 
+function isValidServiceName(name: string): boolean {
+  const validPattern = /^[a-zA-Z0-9._-]+$/;
+  return validPattern.test(name) && name.length <= 64 && !name.includes('..') && !name.includes('/');
+}
+
 export async function logsCommand(name?: string, options: LogsOptions = {}): Promise<void> {
   const platformInfo = getPlatformInfo();
 
@@ -28,25 +33,28 @@ export async function logsCommand(name?: string, options: LogsOptions = {}): Pro
     return;
   }
 
+  // Security: Validate service name
+  if (!isValidServiceName(name)) {
+    console.error(`❌ Security: Invalid service name: ${name}`);
+    process.exit(1);
+  }
+
   // Resolve full name (e.g. handle BS9_ prefix on Windows)
   let fullName = name;
   if (platformInfo.isWindows && !name.startsWith('BS9_')) fullName = `BS9_${name}`;
   if (platformInfo.isMacOS && !name.startsWith('bs9.')) fullName = `bs9.${name}`;
 
+  const linesCount = options.lines ? Math.max(1, parseInt(options.lines, 10) || 50) : 50;
+
   try {
     if (platformInfo.isLinux) {
       try {
-        const args = ["--user", "--no-pager"];
-        if (options.lines) args.push("-n", options.lines || "50");
-        args.push("-u", `${fullName}.service`);
-
+        const args = ["--user", "--no-pager", "-n", String(linesCount), "-u", `${fullName}.service`];
         if (options.follow) {
           args.push("-f");
-          const child = spawn("journalctl", args, { stdio: "inherit" });
-          await new Promise<void>((resolve) => child.on("close", resolve));
-        } else {
-          execSync(`journalctl ${args.join(" ")}`, { stdio: "inherit" });
         }
+        const child = spawn("journalctl", args, { stdio: "inherit" });
+        await new Promise<void>((resolve) => child.on("close", () => resolve()));
         return;
       } catch {
         // Fallback to file-based logs
@@ -66,8 +74,7 @@ export async function logsCommand(name?: string, options: LogsOptions = {}): Pro
       if (!existsSync(filePath)) return;
       const content = readFileSync(filePath, 'utf-8');
       const lines = content.split('\n');
-      const count = parseInt(options.lines || "50");
-      const lastLines = lines.slice(-count);
+      const lastLines = lines.slice(-linesCount);
       console.log(`--- ${label} (${filePath}) ---`);
       console.log(lastLines.join('\n'));
     };

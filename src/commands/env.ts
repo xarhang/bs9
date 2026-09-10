@@ -15,6 +15,11 @@ import { homedir } from "node:os";
 import { getPlatformInfo } from "../platform/detect.js";
 import { listServices } from "../utils/service-discovery.js";
 
+function isValidServiceName(name: string): boolean {
+  const validPattern = /^[a-zA-Z0-9._-]+$/;
+  return validPattern.test(name) && name.length <= 64 && !name.includes('..') && !name.includes('/');
+}
+
 export async function envCommand(name: string): Promise<void> {
   if (!name) {
     console.error("❌ Service name required. Usage: bs9 env <app-name>");
@@ -22,6 +27,11 @@ export async function envCommand(name: string): Promise<void> {
   }
 
   const cleanName = name.replace(/^(BS9_|bs9\.)/, "");
+  if (!isValidServiceName(cleanName)) {
+    console.error(`❌ Security: Invalid service name: ${name}`);
+    process.exit(1);
+  }
+
   const platformInfo = getPlatformInfo();
 
   let envMap: Record<string, string> | null = null;

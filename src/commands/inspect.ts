@@ -118,67 +118,131 @@ export async function inspectCommand(options: InspectOptions): Promise<void> {
 function runSecurityInspection(platformInfo: PlatformInfo): InspectionResult[] {
   const results: InspectionResult[] = [];
 
-  // User permissions check
-  results.push({
-    name: "User Permissions",
-    status: "✅ PASS",
-    message: "Running with appropriate privileges",
-    details: "Non-root execution detected",
-    score: 100,
-    recommendations: []
-  });
-
-  // File permissions check
-  try {
-    const configDir = platformInfo.configDir;
-    if (process.platform === "win32") {
-      results.push({
-        name: "File Permissions (Windows)",
-        status: "✅ PASS",
-        message: "File permissions are managed by Windows ACLs",
-        score: 100,
-        recommendations: []
-      });
-    } else {
-      const stats = execSync(`find "${configDir}" -type f -perm /o+r`, { encoding: "utf-8" });
-      if (stats.trim()) {
-        results.push({
-          name: "File Permissions",
-          status: "⚠️ WARN",
-          message: "Files with world-readable permissions found",
-          details: `${stats.trim().split('\n').length} files affected`,
-          score: 75,
-          recommendations: ["Restrict file permissions on sensitive configuration files"]
-        });
-      } else {
-        results.push({
-          name: "File Permissions",
-          status: "✅ PASS",
-          message: "File permissions are secure",
-          score: 100,
-          recommendations: []
-        });
-      }
+  // 1. User privileges check (real UID/Administrator verification)
+  let isRootOrAdmin = false;
+  let uidMsg = "Non-root execution detected";
+  if (typeof process.getuid === "function") {
+    const uid = process.getuid();
+    if (uid === 0) {
+      isRootOrAdmin = true;
+      uidMsg = "Process is running as root (UID 0)";
     }
-  } catch {
+  } else if (process.platform === "win32") {
+    try {
+      execSync("net session", { stdio: "ignore" });
+      isRootOrAdmin = true;
+      uidMsg = "Process is running with elevated Administrator privileges";
+    } catch {
+      isRootOrAdmin = false;
+      uidMsg = "Standard user privileges detected";
+    }
+  }
+
+  if (isRootOrAdmin) {
     results.push({
-      name: "File Permissions",
+      name: "User Permissions",
+      status: "⚠️ WARN",
+      message: "Running with elevated privileges",
+      details: uidMsg,
+      score: 60,
+      recommendations: ["Avoid running process manager as root/administrator. Use non-root user."]
+    });
+  } else {
+    results.push({
+      name: "User Permissions",
       status: "✅ PASS",
-      message: "File permissions are secure",
+      message: "Running with appropriate non-root privileges",
+      details: uidMsg,
       score: 100,
       recommendations: []
     });
   }
 
-  // Network security check
-  results.push({
-    name: "Network Security",
-    status: "✅ PASS",
-    message: "No vulnerable ports detected",
-    details: "Network scan completed",
-    score: 95,
-    recommendations: ["Consider implementing firewall rules for production"]
-  });
+  // 2. File permissions check (real filesystem verification, never fake PASS on error)
+  try {
+    const configDir = platformInfo.configDir;
+    if (process.platform === "win32") {
+      if (existsSync(configDir)) {
+        results.push({
+          name: "File Permissions (Windows)",
+          status: "✅ PASS",
+          message: "Config directory exists and is secured by Windows user ACLs",
+          score: 100,
+          recommendations: []
+        });
+      } else {
+        results.push({
+          name: "File Permissions (Windows)",
+          status: "⚠️ WARN",
+          message: `Config directory '${configDir}' not initialized`,
+          score: 80,
+          recommendations: ["Run 'bs9 startup' to initialize standard configuration directory."]
+        });
+      }
+    } else {
+      if (existsSync(configDir)) {
+        const stats = execSync(`find "${configDir}" -type f -perm /o+r 2>/dev/null`, { encoding: "utf-8" });
+        const worldReadableFiles = stats.trim().split('\n').filter(Boolean);
+        if (worldReadableFiles.length > 0) {
+          results.push({
+            name: "File Permissions",
+            status: "⚠️ WARN",
+            message: "Files with world-readable permissions found",
+            details: `${worldReadableFiles.length} files affected`,
+            score: 75,
+            recommendations: ["Restrict file permissions on sensitive configuration files (chmod 600)"]
+          });
+        } else {
+          results.push({
+            name: "File Permissions",
+            status: "✅ PASS",
+            message: "File permissions are secure",
+            score: 100,
+            recommendations: []
+          });
+        }
+      } else {
+        results.push({
+          name: "File Permissions",
+          status: "⚠️ WARN",
+          message: `Configuration directory not found: ${configDir}`,
+          score: 70,
+          recommendations: ["Initialize configuration directory with proper access controls."]
+        });
+      }
+    }
+  } catch (err: any) {
+    results.push({
+      name: "File Permissions",
+      status: "⚠️ WARN",
+      message: `Could not verify file permissions: ${err?.message || err}`,
+      score: 60,
+      recommendations: ["Manually inspect configuration permissions."]
+    });
+  }
+
+  // 3. Network security check: inspect dashboard / metrics listening addresses
+  const dashHost = process.env.WEB_DASHBOARD_HOST || "127.0.0.1";
+  const isLoopback = dashHost === "127.0.0.1" || dashHost === "localhost" || dashHost === "::1";
+  if (!isLoopback) {
+    results.push({
+      name: "Network Binding",
+      status: "⚠️ WARN",
+      message: `Dashboard listener bound to public/external address: ${dashHost}`,
+      details: "Exposing process management ports to public interfaces increases attack surface",
+      score: 70,
+      recommendations: ["Bind web dashboard to loopback address (127.0.0.1) or place behind an authenticating reverse proxy"]
+    });
+  } else {
+    results.push({
+      name: "Network Binding",
+      status: "✅ PASS",
+      message: `Listeners bound safely to loopback (${dashHost})`,
+      details: "Management interfaces not exposed to public network",
+      score: 100,
+      recommendations: []
+    });
+  }
 
   return results;
 }

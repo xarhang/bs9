@@ -9,10 +9,16 @@
  * https://github.com/xarhang/bs9
  */
 
-import { execSync } from "node:child_process";
+import { execSync, spawnSync } from "node:child_process";
 import { existsSync, writeFileSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
+
+export function isValidServiceName(name: string): boolean {
+  const clean = name.replace(/^bs9\./, '');
+  const validPattern = /^[a-zA-Z0-9._-]+$/;
+  return validPattern.test(clean) && clean.length <= 64 && !clean.includes('..') && !clean.includes('/');
+}
 
 interface LaunchdServiceConfig {
   label: string;
@@ -116,6 +122,10 @@ ${Object.entries(plistContent).map(([key, value]) => {
   }
   
   async createService(config: LaunchdServiceConfig): Promise<void> {
+    if (!isValidServiceName(config.label)) {
+      throw new Error(`Security: Invalid service label: ${config.label}`);
+    }
+
     const configs = this.loadConfigs();
     configs[config.label] = config;
     this.saveConfigs(configs);
@@ -126,7 +136,8 @@ ${Object.entries(plistContent).map(([key, value]) => {
     
     try {
       // Load the service
-      execSync(`launchctl load "${plistPath}"`, { stdio: 'inherit' });
+      const res = spawnSync("launchctl", ["load", plistPath], { stdio: 'inherit' });
+      if (res.status !== 0) throw new Error(`launchctl load exited with code ${res.status}`);
       console.log(`✅ Launchd service '${config.label}' created and loaded successfully`);
     } catch (error) {
       console.error(`❌ Failed to create launchd service: ${error}`);
@@ -135,8 +146,12 @@ ${Object.entries(plistContent).map(([key, value]) => {
   }
   
   async startService(label: string): Promise<void> {
+    if (!isValidServiceName(label)) {
+      throw new Error(`Security: Invalid service label: ${label}`);
+    }
     try {
-      execSync(`launchctl start "${label}"`, { stdio: 'inherit' });
+      const res = spawnSync("launchctl", ["start", label], { stdio: 'inherit' });
+      if (res.status !== 0) throw new Error(`launchctl start exited with code ${res.status}`);
       console.log(`✅ Launchd service '${label}' started successfully`);
     } catch (error) {
       console.error(`❌ Failed to start launchd service: ${error}`);
@@ -145,8 +160,12 @@ ${Object.entries(plistContent).map(([key, value]) => {
   }
   
   async stopService(label: string): Promise<void> {
+    if (!isValidServiceName(label)) {
+      throw new Error(`Security: Invalid service label: ${label}`);
+    }
     try {
-      execSync(`launchctl stop "${label}"`, { stdio: 'inherit' });
+      const res = spawnSync("launchctl", ["stop", label], { stdio: 'inherit' });
+      if (res.status !== 0) throw new Error(`launchctl stop exited with code ${res.status}`);
       console.log(`✅ Launchd service '${label}' stopped successfully`);
     } catch (error) {
       console.error(`❌ Failed to stop launchd service: ${error}`);
@@ -155,6 +174,9 @@ ${Object.entries(plistContent).map(([key, value]) => {
   }
   
   async unloadService(label: string): Promise<void> {
+    if (!isValidServiceName(label)) {
+      throw new Error(`Security: Invalid service label: ${label}`);
+    }
     const plistPath = join(this.launchAgentsDir, `${label}.plist`);
     
     try {
@@ -166,10 +188,10 @@ ${Object.entries(plistContent).map(([key, value]) => {
       }
       
       // Unload service
-      execSync(`launchctl unload "${plistPath}"`, { stdio: 'inherit' });
+      spawnSync("launchctl", ["unload", plistPath], { stdio: 'inherit' });
       
       // Remove plist file
-      unlinkSync(plistPath);
+      if (existsSync(plistPath)) unlinkSync(plistPath);
       
       // Remove from config
       const configs = this.loadConfigs();
@@ -184,8 +206,12 @@ ${Object.entries(plistContent).map(([key, value]) => {
   }
   
   async getServiceStatus(label: string): Promise<LaunchdServiceStatus | null> {
+    if (!isValidServiceName(label)) {
+      return null;
+    }
     try {
-      const output = execSync(`launchctl list "${label}"`, { encoding: 'utf-8' });
+      const res = spawnSync("launchctl", ["list", label], { encoding: 'utf-8' });
+      const output = res.stdout || '';
       
       const lines = output.split('\n');
       const dataLine = lines.find(line => line.includes(label));
@@ -252,8 +278,8 @@ ${Object.entries(plistContent).map(([key, value]) => {
     
     // Reload service
     try {
-      execSync(`launchctl unload "${plistPath}"`, { stdio: 'inherit' });
-      execSync(`launchctl load "${plistPath}"`, { stdio: 'inherit' });
+      spawnSync("launchctl", ["unload", plistPath], { stdio: 'inherit' });
+      spawnSync("launchctl", ["load", plistPath], { stdio: 'inherit' });
       console.log(`✅ Launchd service '${label}' set to auto-start`);
     } catch (error) {
       console.error(`❌ Failed to configure auto-start: ${error}`);
@@ -262,6 +288,9 @@ ${Object.entries(plistContent).map(([key, value]) => {
   }
   
   async disableAutoStart(label: string): Promise<void> {
+    if (!isValidServiceName(label)) {
+      throw new Error(`Security: Invalid service label: ${label}`);
+    }
     const configs = this.loadConfigs();
     const config = configs[label];
     
@@ -279,8 +308,8 @@ ${Object.entries(plistContent).map(([key, value]) => {
     
     // Reload service
     try {
-      execSync(`launchctl unload "${plistPath}"`, { stdio: 'inherit' });
-      execSync(`launchctl load "${plistPath}"`, { stdio: 'inherit' });
+      spawnSync("launchctl", ["unload", plistPath], { stdio: 'inherit' });
+      spawnSync("launchctl", ["load", plistPath], { stdio: 'inherit' });
       console.log(`✅ Launchd service '${label}' set to manual start`);
     } catch (error) {
       console.error(`❌ Failed to configure auto-start: ${error}`);

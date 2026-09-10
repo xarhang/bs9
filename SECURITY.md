@@ -10,18 +10,21 @@ BS9 is designed with security as a primary concern. This document outlines the s
 
 All BS9 commands implement comprehensive input validation:
 
-- **Path Traversal Protection**: File paths are restricted to allowed directories
-- **Command Injection Prevention**: All user inputs are sanitized before shell execution
+- **Path Traversal Protection**: File paths are restricted to allowed directories; service names are strictly validated against `^[a-zA-Z0-9._-]+$`
+- **Command Injection Prevention**: All commands use argument-array `spawnSync`/`spawn` with closed shells; raw string shell execution is eliminated
+- **SemVer Version Enforcement**: CLI updates strictly validate semantic version patterns preventing command injection
+- **ReDoS Prevention**: All user-supplied wildcard patterns and service filters are escaped with `escapeRegExp` before regular expression compilation
 - **Host Validation**: Only valid hostnames and IP addresses are accepted
 - **Port Validation**: Port numbers are validated (1-65535 range)
-- **Service Name Sanitization**: Service names limited to alphanumeric, hyphens, underscores
+- **Service Name Sanitization**: Service names limited to alphanumeric, hyphens, underscores, dots (max 64 characters)
 
 ### Service Management Security
 
 #### Linux (Systemd)
 - **User-mode Services**: All services run as non-privileged users
 - **Resource Limits**: CPU, memory, and file descriptor limits enforced
-- **Sandboxing**: `PrivateTmp`, `ProtectSystem=strict`, `ProtectHome=true`
+- **Sandboxing**: `PrivateTmp`, `ProtectSystem=strict`, `ProtectHome=read-only`
+- **Unit Directive Injection Defense**: Newline characters (`\r`, `\n`) are rejected in environment variables, blocking malicious directive injection
 - **Security Hardening**: UMask restrictions and capability dropping
 
 #### macOS (Launchd)

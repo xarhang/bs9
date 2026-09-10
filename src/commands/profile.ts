@@ -49,6 +49,11 @@ interface PerformanceProfile {
   };
 }
 
+function isValidServiceName(name: string): boolean {
+  const validPattern = /^[a-zA-Z0-9._-]+$/;
+  return validPattern.test(name) && name.length <= 64 && !name.includes('..') && !name.includes('/');
+}
+
 export async function profileCommand(options: ProfileOptions): Promise<void> {
   const duration = Number(options.duration) || 60; // Default 60 seconds
   const interval = Number(options.interval) || 1000; // Default 1 second
@@ -56,6 +61,11 @@ export async function profileCommand(options: ProfileOptions): Promise<void> {
 
   if (!serviceName) {
     console.error('❌ Service name is required. Use --service <name>');
+    process.exit(1);
+  }
+
+  if (!isValidServiceName(serviceName)) {
+    console.error(`❌ Security: Invalid service name: ${serviceName}`);
     process.exit(1);
   }
 

@@ -174,7 +174,7 @@ async function reloadService(serviceName: string, file: string, options: DeployO
 
     // Restart service with new configuration
     const { restartCommand } = await import("./restart.js");
-    await restartCommand([serviceName]);
+    await restartCommand([serviceName], {});
 
     // Health check after reload
     if (options.health !== false) {

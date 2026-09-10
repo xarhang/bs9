@@ -28,8 +28,10 @@ export default class MonitoringPlugin extends Plugin {
       interval: 30000, // 30 seconds
       enabledMetrics: ['cpu', 'memory', 'disk', 'network'],
       prometheus: {
-        enabled: true,
-        port: 9090
+        enabled: false,
+        host: '127.0.0.1',
+        port: 9090,
+        token: process.env.MONITORING_METRICS_TOKEN || ''
       },
       alerts: {
         enabled: true,
@@ -242,11 +244,21 @@ export default class MonitoringPlugin extends Plugin {
 
   async startPrometheusServer() {
     const { serve } = await import('bun');
+    const host = this.config.prometheus.host || '127.0.0.1';
+    const token = this.config.prometheus.token || process.env.MONITORING_METRICS_TOKEN || '';
     
     serve({
+      hostname: host,
       port: this.config.prometheus.port,
       fetch: async (req) => {
         const url = new URL(req.url);
+
+        if (token) {
+          const auth = req.headers.get('Authorization');
+          if (auth !== `Bearer ${token}` && url.searchParams.get('token') !== token) {
+            return new Response('Unauthorized', { status: 401 });
+          }
+        }
         
         if (url.pathname === '/metrics') {
           const metrics = await this.metricsRegistry.metrics();
@@ -261,7 +273,7 @@ export default class MonitoringPlugin extends Plugin {
       }
     });
     
-    console.log(`📊 Prometheus metrics server started on port ${this.config.prometheus.port}`);
+    console.log(`📊 Prometheus metrics server started on http://${host}:${this.config.prometheus.port}`);
   }
 
   triggerAlert(type, message) {

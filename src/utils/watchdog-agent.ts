@@ -17,9 +17,14 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { recordCrash, resetCrash, sleep, startHealthyTimer } from "./crash-tracker.js";
 
+function isValidServiceName(name: string): boolean {
+  const validPattern = /^[a-zA-Z0-9._-]+$/;
+  return validPattern.test(name) && name.length <= 64 && !name.includes('..') && !name.includes('/');
+}
+
 const serviceName = process.argv[2];
-if (!serviceName) {
-  console.error("Missing service name for watchdog supervisor");
+if (!serviceName || !isValidServiceName(serviceName)) {
+  console.error("Missing or invalid service name for watchdog supervisor");
   process.exit(1);
 }
 

@@ -33,18 +33,45 @@ function isValidPath(path: string): boolean {
     /^[a-zA-Z0-9\-_\/]*$/.test(path) && path.length <= 256;
 }
 
-function sanitizeHeaders(headers: Record<string, string>): Record<string, string> {
+export function buildOutboundHeaders(inboundHeaders: Headers, backend: BackendServer, clientIp = "127.0.0.1"): Headers {
+  const outbound = new Headers();
+
+  const hopByHop = new Set([
+    'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
+    'te', 'trailer', 'trailers', 'transfer-encoding', 'upgrade'
+  ]);
+
+  const clientSuppliedForwarded = new Set([
+    'x-forwarded-for', 'x-forwarded-proto', 'x-forwarded-host',
+    'x-forwarded-port', 'x-real-ip'
+  ]);
+
+  inboundHeaders.forEach((value, key) => {
+    const lower = key.toLowerCase();
+    if (hopByHop.has(lower) || clientSuppliedForwarded.has(lower) || lower === 'host') {
+      return;
+    }
+    // Clean CRLF to prevent HTTP response splitting / header injection
+    outbound.set(key, value.replace(/[\r\n]/g, '').substring(0, 4096));
+  });
+
+  // Set trusted proxy headers
+  outbound.set('Host', `${backend.host}:${backend.port}`);
+  outbound.set('X-Forwarded-For', clientIp);
+  outbound.set('X-Forwarded-Proto', 'http');
+  outbound.set('X-Forwarded-Host', inboundHeaders.get('host') || `${backend.host}:${backend.port}`);
+  outbound.set('X-Real-IP', clientIp);
+
+  return outbound;
+}
+
+export function sanitizeHeaders(headers: Record<string, string>): Record<string, string> {
   const sanitized: Record<string, string> = {};
-  const allowedHeaders = [
-    'content-type', 'content-length', 'accept', 'accept-encoding',
-    'accept-language', 'user-agent', 'authorization', 'x-forwarded-for',
-    'x-real-ip', 'x-forwarded-proto', 'host', 'connection'
-  ];
+  const hopByHop = new Set(['connection', 'keep-alive', 'transfer-encoding', 'upgrade']);
 
   for (const [key, value] of Object.entries(headers)) {
     const lowerKey = key.toLowerCase();
-    if (allowedHeaders.includes(lowerKey)) {
-      // Remove potential injection attempts
+    if (!hopByHop.has(lowerKey)) {
       sanitized[key] = value.replace(/[\r\n]/g, '').substring(0, 1024);
     }
   }
@@ -253,28 +280,37 @@ class LoadBalancer {
       const url = new URL(request.url);
       const backendUrl = `http://${backend.host}:${backend.port}${url.pathname}${url.search}`;
 
+      const outboundHeaders = buildOutboundHeaders(request.headers, backend);
+
       const response = await fetch(backendUrl, {
         method: request.method,
-        headers: request.headers,
+        headers: outboundHeaders,
         body: request.body,
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(10000),
       });
 
       const responseTime = Date.now() - startTime;
       backend.responseTime = responseTime;
 
-      // Create response with backend data
-      const responseBody = await response.arrayBuffer();
-      const forwardedResponse = new Response(responseBody, {
-        status: response.status,
-        headers: response.headers,
+      // Create streaming forwarded response without buffering whole payload in memory
+      const forwardedHeaders = new Headers();
+      response.headers.forEach((val, key) => {
+        const lower = key.toLowerCase();
+        // Strip hop-by-hop response headers
+        if (lower === 'connection' || lower === 'transfer-encoding' || lower === 'keep-alive') {
+          return;
+        }
+        forwardedHeaders.set(key, val);
       });
 
-      // Add load balancer headers
-      forwardedResponse.headers.set('X-Load-Balancer-Backend', `${backend.host}:${backend.port}`);
-      forwardedResponse.headers.set('X-Load-Balancer-Response-Time', responseTime.toString());
+      // Add generic load balancer header (redact internal backend IP/port topology)
+      forwardedHeaders.set('X-Load-Balancer', 'BS9');
+      forwardedHeaders.set('X-Load-Balancer-Response-Time', responseTime.toString());
 
-      return forwardedResponse;
+      return new Response(response.body, {
+        status: response.status,
+        headers: forwardedHeaders,
+      });
 
     } catch (error) {
       backend.healthy = false;
@@ -361,16 +397,40 @@ async function startLoadBalancer(options?: any): Promise<void> {
   const server = serve({
     port: config.port,
     fetch: async (request) => {
-      // Handle load balancer API endpoints
       const url = new URL(request.url);
+      // Security: Protect management API endpoints
+      const isLocalhost = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '::1';
+      const authHeader = request.headers.get('Authorization');
+      const lbSecret = process.env.LB_ADMIN_SECRET || '';
+      const isAuthorized = isLocalhost || (Boolean(lbSecret) && authHeader === `Bearer ${lbSecret}`);
 
       if (url.pathname === '/lb-stats') {
+        if (!isAuthorized) {
+          return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+        }
         return new Response(JSON.stringify(loadBalancer.getStats()), {
           headers: { 'Content-Type': 'application/json' }
         });
       }
 
       if (url.pathname === '/lb-config') {
+        if (!isAuthorized) {
+          return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (request.method === 'POST') {
+          try {
+            const body = await request.json() as Partial<LoadBalancerConfig>;
+            loadBalancer.updateConfig(body);
+            return new Response(JSON.stringify({ message: 'Configuration updated successfully', config: loadBalancer.getConfig() }), {
+              headers: { 'Content-Type': 'application/json' }
+            });
+          } catch (err: any) {
+            return new Response(JSON.stringify({ error: `Failed to update config: ${err?.message || err}` }), {
+              status: 400,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+        }
         return new Response(JSON.stringify(loadBalancer.getConfig()), {
           headers: { 'Content-Type': 'application/json' }
         });
@@ -452,9 +512,19 @@ async function configureLoadBalancer(options?: any): Promise<void> {
       newConfig.algorithm = options.algorithm;
     }
 
-    // Apply configuration (this would need to be implemented in the load balancer)
-    console.log('📝 Load balancer configuration updated');
-    console.log('Note: Dynamic configuration updates require load balancer restart');
+    // Apply configuration dynamically via POST /lb-config
+    const updateResponse = await fetch(`http://localhost:${port}/lb-config`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newConfig)
+    });
+
+    if (!updateResponse.ok) {
+      const err = await updateResponse.text();
+      throw new Error(`HTTP ${updateResponse.status}: ${err}`);
+    }
+
+    console.log('✅ Load balancer configuration updated successfully');
 
   } catch (error) {
     console.error(`❌ Failed to configure load balancer: ${error}`);

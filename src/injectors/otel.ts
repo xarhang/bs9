@@ -22,7 +22,7 @@ import { SemanticResourceAttributes } from "@opentelemetry/semantic-conventions"
 
 const sdk = new NodeSDK({
   resource: new Resource({
-    [SemanticResourceAttributes.SERVICE_NAME]: "${serviceName}",
+    [SemanticResourceAttributes.SERVICE_NAME]: ${JSON.stringify(serviceName)},
     [SemanticResourceAttributes.SERVICE_VERSION]: "1.0.0",
   }),
   instrumentations: [getNodeAutoInstrumentations()],

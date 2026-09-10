@@ -2,10 +2,15 @@
 
 ## Quick Install
 
-### One-click Installer (Recommended)
+### Verified Installer (Recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/xarhang/bs9/main/setup.sh | bash
+# Download pinned release installer
+curl -fsSLO https://github.com/xarhang/bs9/releases/download/v1.6.2/setup.sh
+
+# Verify checksum and inspect before execution
+sha256sum setup.sh   # on macOS: shasum -a 256 setup.sh
+bash setup.sh
 ```
 
 This installer will:

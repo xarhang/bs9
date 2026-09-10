@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.3] - 2026-09-10
+
+### 🛡️ Enterprise-Grade Security Hardening & Zero-Vulnerability Protocol
+- **Arbitrary Command & Script Injection Elimination**:
+  - `bs9 update`: Enforced strict SemVer validation (`isValidVersion`), eliminating arbitrary command execution via `--version`. Replaced `execSync` with `spawnSync` and replaced shell commands (`cp`, `ls | grep`) with cross-platform native Node.js APIs (`fs.cpSync`, `fs.readdirSync`).
+  - `bs9 logs`: Enforced `isValidServiceName` check, validated `--lines` parameter, and switched to safe process execution without shell expansion.
+  - `bs9 startup`: Replaced shell subshell `$(whoami)` with safe Node OS username, and replaced nested-quoted Windows `schtasks` and macOS `launchctl` commands with array-based `spawnSync`.
+  - `bs9 start`: Replaced `bun build` and `systemctl` shell execution with safe `spawnSync`.
+- **Systemd Unit Directive Injection Prevention**:
+  - Implemented newline character rejection (`\r`, `\n`) on all environment variables in `generateSystemdUnit` to prevent arbitrary directive injections (e.g. `ExecStartPre=`).
+- **Windows & macOS Process Manager Hardening**:
+  - Windows: Added `isValidServiceName` validation to all service operations. Fixed broken `.ps1` template syntax, escaped PowerShell string literals and environment variables (`escapePsString`), and switched service queries/deletions to `spawnSync`.
+  - macOS: Added `isValidServiceName` validation on service labels and migrated all `launchctl` calls to `spawnSync`.
+- **Path Traversal & Log Flush Safety**:
+  - Enforced `isValidServiceName` across `describe`, `env`, `profile`, and `watchdog-agent`.
+  - Changed log flushing from substring matching (`file.includes`) to strict target matching, preventing unintended truncation of unrelated service logs.
+- **OpenTelemetry Code Injection**:
+  - Safely escaped `serviceName` via `JSON.stringify` during auto-injection.
+- **ReDoS & Network Security**:
+  - Implemented `escapeRegExp` in `array-parser`, `scale`, and `issues` to prevent syntax crashes and ReDoS attacks from special characters.
+  - Bound Advanced Monitoring dashboard to `127.0.0.1` by default and added session token authentication.
+  - Enforced `http:` and `https:` protocol validation for Alert webhook URLs to prevent SSRF.
+- **Test Suite**:
+  - Expanded to **137 unit tests** across 22 test files with 100% pass rate.
+
 ## [1.6.2] - 2026-09-10
 
 ### 🛡️ Critical Bug Fixes & Ruthless Stability Hardening

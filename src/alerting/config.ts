@@ -13,6 +13,15 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
+export function isValidWebhookUrl(rawUrl: string): boolean {
+  try {
+    const parsed = new URL(rawUrl);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 interface AlertConfig {
   enabled: boolean;
   webhookUrl?: string;
@@ -88,6 +97,9 @@ class AlertManager {
   }
   
   updateConfig(updates: Partial<AlertConfig>): void {
+    if (updates.webhookUrl !== undefined && updates.webhookUrl !== '' && !isValidWebhookUrl(updates.webhookUrl)) {
+      throw new Error(`Security: Invalid webhook URL: '${updates.webhookUrl}'. Only http and https protocols are allowed.`);
+    }
     this.config = { ...this.config, ...updates };
     this.saveConfig(this.config);
   }
@@ -158,7 +170,7 @@ class AlertManager {
     
     console.error(message);
     
-    if (this.config.webhookUrl) {
+    if (this.config.webhookUrl && isValidWebhookUrl(this.config.webhookUrl)) {
       try {
         const response = await fetch(this.config.webhookUrl, {
           method: 'POST',
@@ -187,7 +199,7 @@ class AlertManager {
   }
   
   testWebhook(): Promise<boolean> {
-    if (!this.config.webhookUrl) {
+    if (!this.config.webhookUrl || !isValidWebhookUrl(this.config.webhookUrl)) {
       return Promise.resolve(false);
     }
     

@@ -9,13 +9,18 @@
  * https://github.com/xarhang/bs9
  */
 
-import { execSync } from "node:child_process";
+import { execSync, spawnSync } from "node:child_process";
 import { existsSync, writeFileSync, mkdirSync, readFileSync, unlinkSync, openSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { spawn } from "node:child_process";
 import { getPlatformInfo } from "../platform/detect.js";
 import { recordCrash, resetCrash, sleep, startHealthyTimer, formatCrashState } from "../utils/crash-tracker.js";
+
+export function isValidServiceName(name: string): boolean {
+  const validPattern = /^[a-zA-Z0-9._-]+$/;
+  return validPattern.test(name) && name.length <= 64 && !name.includes('..') && !name.includes('/');
+}
 
 interface WindowsServiceConfig {
   name: string;
@@ -91,6 +96,10 @@ export class WindowsServiceManager {
   }
 
   async createService(config: WindowsServiceConfig): Promise<void> {
+    if (!isValidServiceName(config.name)) {
+      throw new Error(`Security: Invalid service name: ${config.name}`);
+    }
+
     const isAdmin = this.checkAdminPrivileges();
 
     // Save to config either way
@@ -103,7 +112,8 @@ export class WindowsServiceManager {
       const scriptPath = join(homedir(), '.bs9', `${config.name}-setup.ps1`);
       writeFileSync(scriptPath, this.generateServiceScript(config));
       try {
-        execSync(`powershell -Bypass -File "${scriptPath}"`, { stdio: 'inherit' });
+        const res = spawnSync("powershell", ["-Bypass", "-File", scriptPath], { stdio: 'inherit' });
+        if (res.status !== 0) throw new Error(`powershell setup script failed with code ${res.status}`);
         console.log(`✅ Windows service '${config.name}' created successfully`);
       } catch (error) {
         throw error;
@@ -131,17 +141,21 @@ export class WindowsServiceManager {
   }
 
   async startService(serviceName: string): Promise<void> {
+    if (!isValidServiceName(serviceName)) {
+      throw new Error(`Security: Invalid service name: ${serviceName}`);
+    }
+
     const isAdmin = this.checkAdminPrivileges();
 
     if (isAdmin) {
-      try {
-        execSync(`net start "${serviceName}"`, { stdio: 'inherit' });
+      const res = spawnSync("net", ["start", serviceName], { stdio: 'inherit' });
+      if (res.status === 0) {
         console.log(`🚀 Windows service '${serviceName}' started successfully`);
-      } catch (error) {
+      } else {
         // If net start fails, maybe it's a legacy background process or service doesn't exist
         const metadata = this.getProcessMetadata(serviceName);
         if (metadata) await this.startBackgroundProcess(metadata);
-        else throw error;
+        else throw new Error(`Failed to start service '${serviceName}'`);
       }
     } else {
       const metadata = this.getProcessMetadata(serviceName);
@@ -151,12 +165,15 @@ export class WindowsServiceManager {
   }
 
   async stopService(serviceName: string): Promise<void> {
+    if (!isValidServiceName(serviceName)) {
+      throw new Error(`Security: Invalid service name: ${serviceName}`);
+    }
+
     const isAdmin = this.checkAdminPrivileges();
 
     if (isAdmin) {
-      try {
-        execSync(`net stop "${serviceName}"`, { stdio: 'inherit' });
-      } catch {
+      const res = spawnSync("net", ["stop", serviceName], { stdio: 'inherit' });
+      if (res.status !== 0) {
         const metadata = this.getProcessMetadata(serviceName);
         if (metadata) await this.stopBackgroundProcess(metadata);
       }
@@ -168,11 +185,15 @@ export class WindowsServiceManager {
   }
 
   async deleteService(serviceName: string): Promise<void> {
+    if (!isValidServiceName(serviceName)) {
+      throw new Error(`Security: Invalid service name: ${serviceName}`);
+    }
+
     const isAdmin = this.checkAdminPrivileges();
     await this.stopService(serviceName);
 
     if (isAdmin) {
-      try { execSync(`sc.exe delete "${serviceName}"`, { stdio: 'ignore' }); } catch { }
+      try { spawnSync("sc.exe", ["delete", serviceName], { stdio: 'ignore' }); } catch { }
     }
 
     // Remove metadata and config
@@ -187,11 +208,16 @@ export class WindowsServiceManager {
   }
 
   async getServiceStatus(serviceName: string): Promise<WindowsServiceStatus | null> {
+    if (!isValidServiceName(serviceName)) {
+      return null;
+    }
+
     const isAdmin = this.checkAdminPrivileges();
 
     if (isAdmin) {
       try {
-        const output = execSync(`sc.exe query "${serviceName}"`, { encoding: 'utf-8' });
+        const res = spawnSync("sc.exe", ["query", serviceName], { encoding: 'utf-8' });
+        const output = res.stdout || '';
         const status: WindowsServiceStatus = { name: serviceName, state: 'stopped', startType: 'demand' };
         if (output.includes('RUNNING')) status.state = 'running';
         // (Simplified parsing for brevity)
@@ -203,8 +229,10 @@ export class WindowsServiceManager {
     const metadata = this.getProcessMetadata(serviceName);
     if (metadata && metadata.pid) {
       try {
-        execSync(`tasklist /FI "PID eq ${metadata.pid}" /NH`, { stdio: 'ignore' });
-        return { name: serviceName, state: 'running', startType: 'demand', processId: metadata.pid };
+        const res = spawnSync("tasklist", ["/FI", `PID eq ${metadata.pid}`, "/NH"], { stdio: 'ignore' });
+        if (res.status === 0) {
+          return { name: serviceName, state: 'running', startType: 'demand', processId: metadata.pid };
+        }
       } catch { }
     }
 
@@ -309,17 +337,23 @@ export class WindowsServiceManager {
   }
 
   public getProcessMetadata(name: string): any {
+    if (!isValidServiceName(name)) return null;
     const path = join(this.servicesDir, `${name}.json`);
     return existsSync(path) ? JSON.parse(readFileSync(path, 'utf-8')) : null;
   }
 
   private generateServiceScript(config: WindowsServiceConfig): string {
-    const envVars = Object.entries(config.environment)
-      .map(([key, value]) => `$env:${key}="${value}"`)
+    const escapePsString = (str: string) => str.replace(/`/g, '``').replace(/"/g, '`"').replace(/\$/g, '`$');
+    const envVars = Object.entries(config.environment || {})
+      .map(([key, value]) => {
+        const safeKey = key.replace(/[^a-zA-Z0-9_]/g, '');
+        return safeKey ? `$env:${safeKey}="${escapePsString(String(value))}"` : '';
+      })
+      .filter(Boolean)
       .join('\n');
-    const args = config.arguments.map(arg => `"${arg}"`).join(' ');
-    // ... rest of generation logic (keep as is or similar)
-    return `${envVars}\nNew-Service -Name "${config.name}" -BinaryPathName "${config.executable} ${args}" ...`; // abbreviated
+    const args = (config.arguments || []).map(arg => `\\"${escapePsString(arg)}\\"`).join(' ');
+    const binPath = `${config.executable} ${args}`.trim();
+    return `${envVars}\nNew-Service -Name "${escapePsString(config.name)}" -DisplayName "${escapePsString(config.displayName || config.name)}" -BinaryPathName "${binPath}" -StartupType Automatic\n`;
   }
 }
 

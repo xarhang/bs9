@@ -9,8 +9,8 @@
  * https://github.com/xarhang/bs9
  */
 
-import { execSync } from "node:child_process";
-import { existsSync, writeFileSync, mkdirSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, writeFileSync, mkdirSync, cpSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { getPlatformInfo } from "../platform/detect.js";
@@ -21,6 +21,10 @@ interface UpdateOptions {
   force?: boolean;
   rollback?: boolean;
   version?: string;
+}
+
+export function isValidVersion(version: string): boolean {
+  return /^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$/.test(version) || version === 'latest';
 }
 
 interface UpdateInfo {
@@ -153,7 +157,7 @@ class BS9Updater {
 
       try {
         if (existsSync(sourcePath)) {
-          execSync(`cp -r "${sourcePath}" "${targetPath}"`, { stdio: 'ignore' });
+          cpSync(sourcePath, targetPath, { recursive: true, force: true });
           backedUpFiles.push(file);
         }
       } catch (error) {
@@ -171,8 +175,18 @@ class BS9Updater {
   public async performUpdate(targetVersion?: string): Promise<void> {
     console.log('🔄 Starting BS9 update...');
 
+    if (targetVersion && !isValidVersion(targetVersion)) {
+      console.error(`❌ Security: Invalid version format: '${targetVersion}'. Must follow SemVer (e.g. 1.0.0).`);
+      return;
+    }
+
     // Get latest version if not specified
     const latestVersion = targetVersion || await this.getLatestVersion();
+    if (!isValidVersion(latestVersion)) {
+      console.error(`❌ Security: Invalid latest version format received: '${latestVersion}'.`);
+      return;
+    }
+
     const currentVersion = this.getCurrentVersion();
 
     if (currentVersion === latestVersion && !targetVersion) {
@@ -186,7 +200,10 @@ class BS9Updater {
     // Use npm to update globally
     console.log('📦 Installing latest version...');
     try {
-      execSync(`bun install -g bs9@${latestVersion}`, { stdio: 'inherit' });
+      const res = spawnSync("bun", ["install", "-g", `bs9@${latestVersion}`], { stdio: 'inherit' });
+      if (res.status !== 0) {
+        throw new Error(`Process exited with code ${res.status}`);
+      }
       console.log('✅ BS9 updated successfully!');
       console.log(`   Version: ${latestVersion}`);
 
@@ -216,7 +233,7 @@ class BS9Updater {
         console.error('❌ No backup found for rollback');
         return;
       }
-      backupInfo = JSON.parse(require('fs').readFileSync(backupInfoPath, 'utf-8'));
+      backupInfo = JSON.parse(fs.readFileSync(backupInfoPath, 'utf-8'));
     }
 
     const backupPath = join(this.backupDir, `backup-${backupInfo.version}-${backupInfo.timestamp}`);
@@ -232,7 +249,7 @@ class BS9Updater {
       const targetPath = join(process.cwd(), file);
 
       try {
-        execSync(`cp -r "${sourcePath}" "${targetPath}"`, { stdio: 'ignore' });
+        cpSync(sourcePath, targetPath, { recursive: true, force: true });
         console.log(`✅ Restored ${file}`);
       } catch (error) {
         console.warn(`⚠️  Failed to restore ${file}: ${error}`);
@@ -242,7 +259,10 @@ class BS9Updater {
     // Reinstall dependencies
     console.log('📦 Reinstalling dependencies...');
     try {
-      execSync('bun install', { stdio: 'inherit', cwd: process.cwd() });
+      const res = spawnSync("bun", ["install"], { stdio: 'inherit', cwd: process.cwd() });
+      if (res.status !== 0) {
+        throw new Error(`Process exited with code ${res.status}`);
+      }
       console.log('✅ Dependencies reinstalled');
     } catch (error) {
       console.error('❌ Failed to reinstall dependencies:', error);
@@ -256,19 +276,19 @@ class BS9Updater {
     console.log('='.repeat(50));
 
     try {
-      const backups = execSync(`ls -la "${this.backupDir}" | grep backup-`, { encoding: 'utf-8' });
-      const lines = backups.trim().split('\n');
-
-      if (lines.length === 0) {
+      if (!existsSync(this.backupDir)) {
         console.log('No backups found.');
         return;
       }
 
-      for (const line of lines) {
-        const parts = line.trim().split(/\s+/);
-        const backupName = parts[parts.length - 1];
-        const match = backupName.match(/backup-(.+)-(\d+)/);
+      const backupDirs = readdirSync(this.backupDir).filter(f => f.startsWith('backup-'));
+      if (backupDirs.length === 0) {
+        console.log('No backups found.');
+        return;
+      }
 
+      for (const backupName of backupDirs) {
+        const match = backupName.match(/backup-(.+)-(\d+)/);
         if (match) {
           const [, version, timestamp] = match;
           const date = new Date(parseInt(timestamp));

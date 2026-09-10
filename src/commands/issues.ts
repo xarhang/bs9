@@ -15,6 +15,13 @@ import { join } from "node:path";
 import { getPlatformInfo } from "../platform/detect.js";
 import { listServices } from "../utils/service-discovery.js";
 import { getCrashState, forceResetCircuit } from "../utils/crash-tracker.js";
+import { escapeRegExp } from "../utils/array-parser.js";
+
+function isValidServiceName(name: string): boolean {
+  const clean = name.replace(/^(BS9_|bs9\.)/, "");
+  const validPattern = /^[a-zA-Z0-9._-]+$/;
+  return validPattern.test(clean) && clean.length <= 64 && !clean.includes('..') && !clean.includes('/');
+}
 
 export interface ParsedIssue {
   service: string;
@@ -191,12 +198,18 @@ export async function issuesCommand(name?: string, options: IssuesOptions = {}):
     return;
   }
 
+  if (name && !isValidServiceName(name)) {
+    console.error(`❌ Security: Invalid service name: ${name}`);
+    process.exit(1);
+  }
+
   const allServices = await listServices();
   const targetServices = name
     ? allServices.filter(s => {
         const clean = s.name.replace(/^(BS9_|bs9\.)/, "");
         const tClean = name.replace(/^(BS9_|bs9\.)/, "");
-        const isWorker = new RegExp(`^${tClean}-\\d+$`).test(clean);
+        const safeTClean = escapeRegExp(tClean);
+        const isWorker = new RegExp(`^${safeTClean}-\\d+$`).test(clean);
         return s.name === name || clean === tClean || isWorker;
       })
     : allServices;

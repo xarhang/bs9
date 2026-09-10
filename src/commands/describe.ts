@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bun
+#!/usr/bin/env bun
 
 /**
  * BS9 - Describe / Show Service Command
@@ -15,16 +15,26 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
+function isValidServiceName(name: string): boolean {
+  const validPattern = /^[a-zA-Z0-9._-]+$/;
+  return validPattern.test(name) && name.length <= 64 && !name.includes('..') && !name.includes('/');
+}
+
 export async function describeCommand(name: string): Promise<void> {
   if (!name) {
     console.error("❌ Service name required. Usage: bs9 show <name> or bs9 describe <name>");
     process.exit(1);
   }
 
+  const cleanName = name.replace(/^(BS9_|bs9\.)/, "");
+  if (!isValidServiceName(cleanName)) {
+    console.error(`❌ Security: Invalid service name: ${name}`);
+    process.exit(1);
+  }
+
   const platformInfo = getPlatformInfo();
   const services = await listServices();
 
-  const cleanName = name.replace(/^(BS9_|bs9\.)/, "");
   const matched = services.find(
     (s) => s.name === name || s.name === cleanName || s.name === `BS9_${cleanName}` || s.name === `bs9.${cleanName}`
   );

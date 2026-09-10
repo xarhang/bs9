@@ -11,7 +11,7 @@
 
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, basename, resolve, dirname } from "node:path";
-import { execSync } from "node:child_process";
+import { execSync, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { homedir, cpus } from "node:os";
@@ -319,15 +319,14 @@ async function handleSingleServiceStart(file: string, options: StartOptions): Pr
       mkdirSync(buildDir, { recursive: true });
 
       const outputFile = join(buildDir, basename(fullPath, '.ts') + '.js');
-      try {
-        execSync(`bun build "${fullPath}" --outdir "${buildDir}" --target bun --minify --splitting`, { stdio: "inherit" });
-        execPath = outputFile;
-        isBuilt = true;
-        console.log(`✅ Built to: ${execPath}`);
-      } catch (err) {
-        console.error(`❌ Build failed: ${err}`);
+      const res = spawnSync("bun", ["build", fullPath, "--outdir", buildDir, "--target", "bun", "--minify", "--splitting"], { stdio: "inherit" });
+      if (res.status !== 0) {
+        console.error(`❌ Build failed`);
         process.exit(1);
       }
+      execPath = outputFile;
+      isBuilt = true;
+      console.log(`✅ Built to: ${execPath}`);
     } else {
       // JIT: Run TypeScript directly (default)
       console.log("⚡ Running TypeScript in JIT mode");
@@ -391,7 +390,7 @@ async function checkServiceExists(serviceName: string, platformInfo: any): Promi
 async function startExistingService(serviceName: string, platformInfo: any): Promise<void> {
   try {
     if (platformInfo.isLinux) {
-      execSync(`systemctl --user start ${serviceName}`, { stdio: "inherit" });
+      spawnSync("systemctl", ["--user", "start", serviceName], { stdio: "inherit" });
     } else if (platformInfo.isMacOS) {
       const { launchdCommand } = await import("../macos/launchd.js");
       await launchdCommand('start', { name: `bs9.${serviceName}` });
@@ -457,15 +456,15 @@ async function createLinuxService(serviceName: string, execPath: string, host: s
       // First time: Create service file
       writeFileSync(unitPath, unitContent);
       console.log(`✅ Systemd user unit written to: ${unitPath}`);
-      execSync("systemctl --user daemon-reload");
-      execSync(`systemctl --user enable ${serviceName}`);
+      spawnSync("systemctl", ["--user", "daemon-reload"]);
+      spawnSync("systemctl", ["--user", "enable", serviceName]);
       console.log(`🔧 Service '${serviceName}' created and enabled`);
     } else {
       console.log(`📋 Service '${serviceName}' already exists, starting...`);
     }
 
     // Always start the service
-    execSync(`systemctl --user start ${serviceName}`);
+    spawnSync("systemctl", ["--user", "start", serviceName], { stdio: "inherit" });
 
     console.log(`🚀 Service '${serviceName}' started successfully`);
     console.log(`   Health: ${protocol}://${host}:${port}/healthz`);
@@ -637,6 +636,13 @@ interface SystemdUnitOptions {
 }
 
 function generateSystemdUnit(opts: SystemdUnitOptions): string {
+  // Security: Check for newline characters in env to prevent Systemd Unit directive injection
+  for (const envEntry of opts.env) {
+    if (/[\r\n]/.test(envEntry)) {
+      throw new Error(`Security: Environment variable contains illegal newline character: ${JSON.stringify(envEntry)}`);
+    }
+  }
+
   const envVars = [
     `PORT=${opts.port}`,
     `HOST=${opts.host}`,

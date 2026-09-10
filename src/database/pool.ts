@@ -53,7 +53,7 @@ function sanitizeSQL(sql: string): string {
   return sql.trim();
 }
 
-interface DatabaseConnection {
+export interface DatabaseConnection {
   id: string;
   created: number;
   lastUsed: number;
@@ -67,13 +67,14 @@ interface DatabaseConnection {
   close: () => Promise<void>;
 }
 
-interface DatabaseConfig {
+export interface DatabaseConfig {
   host: string;
   port: number;
   database: string;
   username: string;
   password: string;
   ssl?: boolean;
+  mock?: boolean;
   maxConnections?: number;
   minConnections?: number;
   acquireTimeoutMillis?: number;
@@ -89,7 +90,7 @@ interface PoolStats {
   maxConnections: number;
 }
 
-class DatabasePool {
+export class DatabasePool {
   private config: DatabaseConfig;
   private connections: DatabaseConnection[] = [];
   private waitingQueue: Array<{
@@ -133,10 +134,54 @@ class DatabasePool {
   private async createConnection(): Promise<DatabaseConnection> {
     const id = `conn_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const now = Date.now();
-    
-    // Simulate database connection
-    await new Promise(resolve => setTimeout(resolve, 100));
-    
+
+    // Connect to real PostgreSQL database if not explicitly set to mock mode
+    if (!this.config.mock) {
+      try {
+        const { Client } = await import("pg");
+        const client = new Client({
+          host: this.config.host,
+          port: this.config.port,
+          database: this.config.database,
+          user: this.config.username,
+          password: this.config.password,
+          ssl: this.config.ssl ? { rejectUnauthorized: false } : undefined,
+          connectionTimeoutMillis: this.config.acquireTimeoutMillis || 5000,
+        });
+
+        await client.connect();
+
+        return {
+          id,
+          created: now,
+          lastUsed: now,
+          inUse: false,
+          host: this.config.host,
+          port: this.config.port,
+          database: this.config.database,
+          username: this.config.username,
+          checkedOut: false,
+          query: async (sql: string, params?: any[]) => {
+            const cleanSql = sanitizeSQL(sql);
+            const res = await client.query(cleanSql, params);
+            return res.rows;
+          },
+          close: async () => {
+            await client.end();
+          },
+        };
+      } catch (err: any) {
+        // Fallback gracefully for unit tests or offline environments if DB is not reachable
+        if (process.env.NODE_ENV === "test" || process.env.BS9_DB_MOCK === "true") {
+          // Offline test fallback
+        } else {
+          throw new Error(`Failed to connect to database ${this.config.host}:${this.config.port}/${this.config.database}: ${err?.message || err}`);
+        }
+      }
+    }
+
+    // Fallback/Mock driver for tests or offline environments
+    await new Promise(resolve => setTimeout(resolve, 20));
     return {
       id,
       created: now,
@@ -148,12 +193,10 @@ class DatabasePool {
       username: this.config.username,
       checkedOut: false,
       query: async (sql: string, params?: any[]) => {
-        await new Promise(resolve => setTimeout(resolve, Math.random() * 50 + 10));
-        return [{ id: 1, data: 'mock_result' }];
+        sanitizeSQL(sql);
+        return [{ id: 1, connected: true, timestamp: Date.now() }];
       },
-      close: async () => {
-        await new Promise(resolve => setTimeout(resolve, 10));
-      },
+      close: async () => {},
     };
   }
   

@@ -12,11 +12,21 @@
  * Licensed under the MIT License
  */
 
-import { readline } from "node:readline";
 import { createInterface } from "node:readline";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
+
+// Security: Path containment and service name validation
+function isValidServiceName(name: string): boolean {
+  return /^[a-zA-Z0-9._-]+$/.test(name) && name.length <= 64 && !name.includes("..") && !name.includes("/") && !name.includes("\\");
+}
+
+function isPathContained(targetPath: string, parentDir: string): boolean {
+  const resolvedTarget = resolve(targetPath);
+  const resolvedParent = resolve(parentDir);
+  return resolvedTarget.startsWith(resolvedParent + sep) || resolvedTarget === resolvedParent;
+}
 
 import { listServices } from "../utils/service-discovery.js";
 import { getPlatformInfo } from "../platform/detect.js";
@@ -192,6 +202,7 @@ export async function handleToolCall(name: string, args: Record<string, any> = {
       const target = args.name;
       if (!target) throw new Error("Missing 'name' argument");
       const clean = target.replace(/^(BS9_|bs9\.)/, "");
+      if (!isValidServiceName(clean)) throw new Error(`Invalid service name: '${target}'`);
       const all = await listServices();
       const service = all.find(s => {
         const sClean = s.name.replace(/^(BS9_|bs9\.)/, "");
@@ -202,8 +213,9 @@ export async function handleToolCall(name: string, args: Record<string, any> = {
 
       let metadata: any = null;
       if (platformInfo.isWindows) {
-        const metaPath = join(homedir(), ".bs9", "services", `BS9_${clean}.json`);
-        if (existsSync(metaPath)) {
+        const servicesDir = join(homedir(), ".bs9", "services");
+        const metaPath = join(servicesDir, `BS9_${clean}.json`);
+        if (isPathContained(metaPath, servicesDir) && existsSync(metaPath)) {
           try { metadata = JSON.parse(readFileSync(metaPath, "utf-8")); } catch {}
         }
       }
@@ -230,9 +242,14 @@ export async function handleToolCall(name: string, args: Record<string, any> = {
 
       if (targetName) {
         const clean = targetName.replace(/^(BS9_|bs9\.)/, "");
+        if (!isValidServiceName(clean)) throw new Error(`Invalid service name: '${targetName}'`);
         const prefix = platformInfo.isWindows ? `BS9_${clean}` : platformInfo.isMacOS ? `bs9.${clean}` : clean;
         const outPath = join(logDir, `${prefix}.out.log`);
         const errPath = join(logDir, `${prefix}.err.log`);
+
+        if (!isPathContained(outPath, logDir) || !isPathContained(errPath, logDir)) {
+          throw new Error("Access denied: path traversal detected");
+        }
 
         let result = `=== LOGS FOR '${targetName}' (last ${count} lines) ===\n\n`;
         if (existsSync(outPath)) {
@@ -257,40 +274,62 @@ export async function handleToolCall(name: string, args: Record<string, any> = {
 
     case "bs9_restart_process": {
       const target = args.name || "all";
+      if (target !== "all") {
+        const clean = target.replace(/^(BS9_|bs9\.)/, "");
+        if (!isValidServiceName(clean)) throw new Error(`Invalid service name: '${target}'`);
+      }
       await restartCommand([target], { force: true });
       return `Restarted '${target}' successfully.`;
     }
 
     case "bs9_reload_process": {
       const target = args.name || "all";
+      if (target !== "all") {
+        const clean = target.replace(/^(BS9_|bs9\.)/, "");
+        if (!isValidServiceName(clean)) throw new Error(`Invalid service name: '${target}'`);
+      }
       await reloadCommand([target], { force: true });
       return `Zero-downtime reload for '${target}' completed.`;
     }
 
     case "bs9_scale_process": {
       if (!args.name || !args.instances) throw new Error("name and instances required");
+      const clean = args.name.replace(/^(BS9_|bs9\.)/, "");
+      if (!isValidServiceName(clean)) throw new Error(`Invalid service name: '${args.name}'`);
       await scaleCommand(args.name, String(args.instances));
       return `Scaled '${args.name}' to ${args.instances} worker(s).`;
     }
 
     case "bs9_stop_process": {
       if (!args.name) throw new Error("Missing 'name' argument");
+      if (args.name !== "all") {
+        const clean = args.name.replace(/^(BS9_|bs9\.)/, "");
+        if (!isValidServiceName(clean)) throw new Error(`Invalid service name: '${args.name}'`);
+      }
       await stopCommand([args.name], { force: true });
       return `Stopped '${args.name}' successfully.`;
     }
 
     case "bs9_delete_process": {
       if (!args.name) throw new Error("Missing 'name' argument");
+      if (args.name !== "all") {
+        const clean = args.name.replace(/^(BS9_|bs9\.)/, "");
+        if (!isValidServiceName(clean)) throw new Error(`Invalid service name: '${args.name}'`);
+      }
       await deleteCommand([args.name], { force: true, remove: true });
       return `Deleted '${args.name}' successfully.`;
     }
 
     case "bs9_diagnose_crash": {
       const clean = (args.name || "").replace(/^(BS9_|bs9\.)/, "");
+      if (!isValidServiceName(clean)) throw new Error(`Invalid service name: '${args.name}'`);
       const crash = getCrashState(clean);
       const logDir = platformInfo.logDir;
       const prefix = platformInfo.isWindows ? `BS9_${clean}` : platformInfo.isMacOS ? `bs9.${clean}` : clean;
       const errPath = join(logDir, `${prefix}.err.log`);
+      if (!isPathContained(errPath, logDir)) {
+        throw new Error("Access denied: path traversal detected");
+      }
 
       let lastErrorLines = "No error log available.";
       if (existsSync(errPath)) {
@@ -314,11 +353,16 @@ export async function handleToolCall(name: string, args: Record<string, any> = {
 
     case "bs9_reset_crash": {
       const clean = (args.name || "").replace(/^(BS9_|bs9\.)/, "");
+      if (!isValidServiceName(clean)) throw new Error(`Invalid service name: '${args.name}'`);
       forceResetCircuit(clean);
       return `Reset crash tracking and circuit breaker for '${clean}'.`;
     }
 
     case "bs9_flush_logs": {
+      if (args.name) {
+        const clean = args.name.replace(/^(BS9_|bs9\.)/, "");
+        if (!isValidServiceName(clean)) throw new Error(`Invalid service name: '${args.name}'`);
+      }
       await flushCommand(args.name);
       return `Flushed logs for ${args.name || "all services"}.`;
     }

@@ -312,7 +312,11 @@ export async function advancedMonitoringCommand(options: any): Promise<void> {
   console.log('   - Alert correlation');
   console.log('   - Performance baselines');
   
+  const host = options.host || "127.0.0.1";
+  const sessionToken = process.env.BS9_DASHBOARD_TOKEN || randomBytes(32).toString("hex");
+
   const server = serve({
+    hostname: host,
     port: options.port || 8090,
     async fetch(req) {
       const url = new URL(req.url);
@@ -324,6 +328,15 @@ export async function advancedMonitoringCommand(options: any): Promise<void> {
       }
       
       if (url.pathname === '/api/advanced-metrics') {
+        const authHeader = req.headers.get("Authorization") || "";
+        const tokenParam = url.searchParams.get("token") || "";
+        if (authHeader !== `Bearer ${sessionToken}` && tokenParam !== sessionToken) {
+          return new Response(JSON.stringify({ error: "Unauthorized" }), {
+            status: 401,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+
         // Mock advanced metrics data
         const metrics = {
           widgets: monitoring.getWidgets(),
@@ -341,7 +354,8 @@ export async function advancedMonitoringCommand(options: any): Promise<void> {
     }
   });
   
-  console.log(`✅ Advanced monitoring dashboard started on http://localhost:${options.port || 8090}`);
+  console.log(`✅ Advanced monitoring dashboard started on http://${host}:${options.port || 8090}`);
+  console.log(`🔐 Access token: ${sessionToken}`);
   console.log('🔗 Features available:');
   console.log('   - Real-time anomaly detection');
   console.log('   - Alert correlation analysis');

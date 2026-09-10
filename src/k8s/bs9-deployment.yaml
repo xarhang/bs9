@@ -51,6 +51,8 @@ spec:
       - name: bs9-manager
         image: bs9:latest
         imagePullPolicy: IfNotPresent
+        command: ["bun", "run", "bin/bs9"]
+        args: ["web", "--port", "8080"]
         ports:
         - containerPort: 8080
           name: web-dashboard

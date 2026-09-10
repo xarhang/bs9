@@ -1,7 +1,7 @@
 # BS9 (Bun Sentinel 9) 🚀
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-1.6.2-blue.svg)](https://github.com/xarhang/bs9)
+[![Version](https://img.shields.io/badge/version-1.6.3-blue.svg)](https://github.com/xarhang/bs9)
 [![Security](https://img.shields.io/badge/security-Enterprise-green.svg)](SECURITY.md)
 [![Production Ready](https://img.shields.io/badge/production-Ready-brightgreen.svg)](PRODUCTION.md)
 [![Cross-Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](https://github.com/xarhang/bs9)
@@ -13,8 +13,9 @@
 ## 🚀 Quick Start
 
 ```bash
-# One-click installer (installs Bun + BS9)
-curl -fsSL https://raw.githubusercontent.com/xarhang/bs9/main/setup.sh | bash
+# Verified installer (installs Bun + BS9)
+curl -fsSLO https://github.com/xarhang/bs9/releases/download/v1.6.3/setup.sh
+sha256sum setup.sh && bash setup.sh
 
 # Or manual install
 git clone https://github.com/xarhang/bs9.git

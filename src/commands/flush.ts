@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bun
+#!/usr/bin/env bun
 
 /**
  * BS9 - Flush Logs Command
@@ -12,7 +12,17 @@ import { existsSync, writeFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { getPlatformInfo } from "../platform/detect.js";
 
+function isValidServiceName(name: string): boolean {
+  const validPattern = /^[a-zA-Z0-9._-]+$/;
+  return validPattern.test(name) && name.length <= 64 && !name.includes('..') && !name.includes('/');
+}
+
 export async function flushCommand(name?: string): Promise<void> {
+  if (name && !isValidServiceName(name)) {
+    console.error(`❌ Security: Invalid service name: ${name}`);
+    process.exit(1);
+  }
+
   const platformInfo = getPlatformInfo();
   const logDir = platformInfo.logDir;
 
@@ -28,8 +38,13 @@ export async function flushCommand(name?: string): Promise<void> {
     if (!file.endsWith(".log")) continue;
 
     if (name) {
-      const matchPrefix = name.startsWith("BS9_") || name.startsWith("bs9.") ? name : name;
-      if (!file.includes(matchPrefix)) continue;
+      const cleanName = name.replace(/^(BS9_|bs9\.)/, "");
+      const isTarget =
+        file === `${cleanName}.out.log` || file === `${cleanName}.err.log` ||
+        file === `BS9_${cleanName}.out.log` || file === `BS9_${cleanName}.err.log` ||
+        file === `bs9.${cleanName}.out.log` || file === `bs9.${cleanName}.err.log` ||
+        (file.startsWith(`${cleanName}-`) && (file.endsWith(".out.log") || file.endsWith(".err.log")));
+      if (!isTarget) continue;
     }
 
     const fullPath = join(logDir, file);

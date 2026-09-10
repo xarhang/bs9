@@ -7,50 +7,36 @@ services:
       dockerfile: src/docker/Dockerfile
     container_name: bs9-manager
     hostname: bs9
-    user: root
-    privileged: true
+    user: "1000:1000"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - /sys/fs/cgroup:/sys/fs/cgroup:ro
       - bs9_data:/app/.config/bs9
-      - bs9_systemd:/app/.config/systemd/user
       - ./examples:/app/examples:ro
     ports:
-      - "8080:8080"  # Web dashboard
+      - "127.0.0.1:8080:8080"  # Web dashboard bound to loopback
       - "3000-3010:3000-3010"  # Application ports
     environment:
       - NODE_ENV=production
       - WEB_DASHBOARD_PORT=8080
-    command: >
-      bash -c "
-        # Initialize systemd
-        /sbin/init &
-        sleep 2
-        
-        # Enable user linger
-        loginctl enable-linger user || true
-        
-        # Start web dashboard in background
-        cd /app
-        su user -c 'bs9 web --detach --port 8080'
-        
-        # Keep container running
-        tail -f /dev/null
-      "
+      - WEB_DASHBOARD_HOST=127.0.0.1
+    command: ["bun", "run", "bin/bs9", "web", "--port", "8080"]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
+      start_period: 20s
 
   # Optional: Prometheus for metrics collection
   prometheus:
     image: prom/prometheus:latest
     container_name: bs9-prometheus
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"  # Bound to loopback
     volumes:
       - ./configs/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
@@ -68,18 +54,17 @@ services:
     image: grafana/grafana:latest
     container_name: bs9-grafana
     ports:
-      - "3001:3000"
+      - "127.0.0.1:3001:3000"  # Bound to loopback, not public network
     volumes:
       - grafana_data:/var/lib/grafana
       - ./configs/grafana/provisioning:/etc/grafana/provisioning:ro
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD in your environment}
       - GF_USERS_ALLOW_SIGN_UP=false
     restart: unless-stopped
 
 volumes:
   bs9_data:
-  bs9_systemd:
   prometheus_data:
   grafana_data:
 

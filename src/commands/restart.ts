@@ -23,7 +23,7 @@ function isValidServiceName(name: string): boolean {
   return validPattern.test(name) && name.length <= 64 && !name.includes('..') && !name.includes('/');
 }
 
-export async function restartCommand(names: string[], options: RestartOptions): Promise<void> {
+export async function restartCommand(names: string[], options: RestartOptions = {}): Promise<void> {
   // Handle multi-service if: multiple args, single arg with array syntax, or 'all' keyword
   if (names.length > 1 || (names.length === 1 && (names[0].includes('[') || names[0] === 'all'))) {
     await handleMultiServiceRestart(names, options);

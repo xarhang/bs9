@@ -16,6 +16,12 @@ import { getPlatformInfo } from "../platform/detect.js";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { escapeRegExp } from "../utils/array-parser.js";
+
+function isValidServiceName(name: string): boolean {
+  const validPattern = /^[a-zA-Z0-9._-]+$/;
+  return validPattern.test(name) && name.length <= 64 && !name.includes('..') && !name.includes('/');
+}
 
 export async function scaleCommand(name: string, countStr: string): Promise<void> {
   if (!name || !countStr) {
@@ -24,13 +30,19 @@ export async function scaleCommand(name: string, countStr: string): Promise<void
   }
 
   const cleanName = name.replace(/^(BS9_|bs9\.)/, "");
+  if (!isValidServiceName(cleanName)) {
+    console.error(`❌ Security: Invalid service name: ${name}`);
+    process.exit(1);
+  }
+
   const allServices = await listServices();
 
   // Find all current workers
+  const safeClean = escapeRegExp(cleanName);
   const workers = allServices
     .filter(s => {
       const clean = s.name.replace(/^(BS9_|bs9\.)/, "");
-      const isWorker = new RegExp(`^${cleanName}-\\d+$`).test(clean);
+      const isWorker = new RegExp(`^${safeClean}-\\d+$`).test(clean);
       return clean === cleanName || isWorker;
     })
     .sort((a, b) => {

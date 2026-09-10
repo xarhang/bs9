@@ -100,11 +100,16 @@ export async function getAllServices(): Promise<string[]> {
   }
 }
 
+export function escapeRegExp(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 export async function getServicesByPattern(pattern: string): Promise<string[]> {
   try {
     const allServices = await getAllServices();
-    const regexPattern = pattern.replace(/\*/g, '.*');
-    const regex = new RegExp(`^${regexPattern}$`);
+    // Escape all regex special chars except '*', then convert '*' to '.*'
+    const escaped = pattern.split('*').map(part => escapeRegExp(part)).join('.*');
+    const regex = new RegExp(`^${escaped}$`);
     return allServices.filter(service => regex.test(service));
   } catch {
     return [];
