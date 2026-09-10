@@ -33,6 +33,9 @@ import { advancedMonitoringCommand } from "../src/monitoring/advanced.js";
 import { consulCommand } from "../src/discovery/consul.js";
 import { doctorCommand } from "../src/commands/doctor.js";
 import { inspectCommand } from "../src/commands/inspect.js";
+import { reloadCommand } from "../src/commands/reload.js";
+import { flushCommand } from "../src/commands/flush.js";
+import { describeCommand } from "../src/commands/describe.js";
 import { initializePlatformDirectories } from "../src/platform/detect.js";
 
 // Initialize platform directories at startup
@@ -75,17 +78,40 @@ program
   .action(restartCommand);
 
 program
+  .command("reload")
+  .description("🔄 Zero-downtime rolling reload for clustered services (PM2 parity)")
+  .argument("[name...]", "Service or cluster name to reload (default: all)")
+  .option("-f, --force", "Force reload without confirmation")
+  .action(reloadCommand);
+
+program
   .command("status")
-  .description("Show status and SRE metrics for services")
+  .alias("list")
+  .alias("ls")
+  .alias("ps")
+  .description("Show status and SRE metrics for services (aliases: list, ls, ps)")
   .argument("[name...]", "Service name, array [app1,app2], pattern [app-*], or [all]")
   .option("-w, --watch", "Watch mode (refresh every 2s)")
   .action(statusCommand);
 
 program
-  .command("logs")
-  .description("Show logs for a service (auto-detects systemd/file-based)")
+  .command("show")
+  .alias("describe")
+  .description("Display comprehensive metadata, paths, PIDs, and runtime metrics for a service")
   .argument("<name>", "Service name")
-  .option("-f, --follow", "Follow logs")
+  .action(describeCommand);
+
+program
+  .command("flush")
+  .description("🧹 Empty and truncate all or specific service log files (PM2 parity)")
+  .argument("[name]", "Specific service name to flush (optional)")
+  .action(flushCommand);
+
+program
+  .command("logs")
+  .description("Show logs for a service or combined logs for all services")
+  .argument("[name]", "Service name (optional - if omitted, shows combined logs)")
+  .option("-f, --follow", "Follow logs in real-time")
   .option("-n, --lines <number>", "Number of lines", "50")
   .action(logsCommand);
 

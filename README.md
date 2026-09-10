@@ -127,25 +127,40 @@ bs9 stop myapp
 # Restart service
 bs9 restart myapp
 
-# Enhanced status display with visual indicators
-bs9 status                                         # Show all services
-bs9 status myapp                                  # Show specific service
+# 🔄 Zero-Downtime Reload (PM2 reload parity)
+bs9 reload myapp                                   # Rolling reload across cluster workers
 
-# View logs
-bs9 logs myapp                                    # Show logs
-bs9 logs myapp --follow                           # Follow logs
-bs9 logs myapp --tail 50                          # Show last 50 lines
+# 🔍 Describe / Show details (PM2 describe/show parity)
+bs9 show myapp                                     # Inspect PIDs, paths, logs, self-healing status
+bs9 describe myapp                                 # Alias for show
+
+# 🧹 Flush / Empty logs (PM2 flush parity)
+bs9 flush                                          # Flush all service logs
+bs9 flush myapp                                    # Flush logs for specific service
+
+# Enhanced status display with visual indicators (PM2 list/ls/ps parity)
+bs9 status                                         # Show all services
+bs9 list                                           # PM2 alias for status
+bs9 ls                                             # Short alias for status
+bs9 ps                                             # UNIX alias for status
+bs9 status myapp                                   # Show specific service
+
+# View logs (combined or per-service)
+bs9 logs                                           # Combined logs for ALL services (PM2 parity)
+bs9 logs myapp                                     # Show logs for specific service
+bs9 logs myapp --follow                            # Follow logs in real-time
+bs9 logs myapp --lines 50                          # Show last 50 lines
 
 # Delete services
-bs9 delete myapp                                  # Delete specific service
-bs9 delete myapp --remove                         # Delete and remove config files
-bs9 delete --all                                  # Delete all services
-bs9 delete --all --force                          # Force delete all services
+bs9 delete myapp                                   # Delete specific service
+bs9 delete myapp --remove                          # Delete and remove config files
+bs9 delete --all                                   # Delete all services
+bs9 delete --all --force                           # Force delete all services
 
 # Deploy applications (KILLER FEATURE)
-bs9 deploy app.ts                                 # Zero-config deployment
+bs9 deploy app.ts                                  # Zero-config deployment
 bs9 deploy app.ts --name my-api --port 8080 --env NODE_ENV=production
-bs9 deploy app.ts --reload --env NEW_CONFIG=value  # Hot reload with new config
+bs9 deploy app.ts --reload --env NEW_CONFIG=value   # Hot reload with new config
 ```
 
 ### Backup & Recovery

@@ -422,34 +422,37 @@ bs9 resurrect --all
 
 ## 📚 Complete Command List
 
-1. `bs9 start` - Start applications
+1. `bs9 start` - Start applications (supports `-i max` and `ecosystem.config.js`)
 2. `bs9 deploy` - **KILLER FEATURE** - Zero-config deployment
-3. `bs9 status` - Enhanced status display with visual indicators
+3. `bs9 status` - Enhanced status display with visual indicators (aliases: `list`, `ls`, `ps`)
 4. `bs9 stop` - Stop services
 5. `bs9 restart` - Restart services
-6. `bs9 delete` - Delete services
-7. `bs9 logs` - View application logs
-8. `bs9 monit` - Terminal dashboard
-9. `bs9 web` - Web dashboard
-10. `bs9 alert` - Alert management
-11. `bs9 export` - Data export
-12. `bs9 deps` - Dependency management
-13. `bs9 profile` - Performance profiling
-14. `bs9 update` - Update BS9
-15. `bs9 doctor` - Health check
-16. `bs9 windows` - Windows services
-17. `bs9 macos` - macOS services
-18. `bs9 advanced` - Advanced monitoring
-19. `bs9 consul` - Service discovery
-20. `bs9 save` - Service backup
-21. `bs9 resurrect` - Service restoration
-22. `bs9 version` - Version information
+6. `bs9 reload` - 🔄 Zero-downtime rolling reload for clustered services
+7. `bs9 show` - 🔍 Detailed metadata, paths, PIDs, and runtime status (alias: `describe`)
+8. `bs9 flush` - 🧹 Empty and truncate service log files
+9. `bs9 delete` - Delete services
+10. `bs9 logs` - View application logs (single service or combined)
+11. `bs9 monit` - Terminal dashboard
+12. `bs9 web` - Web dashboard with real-time WebSocket live push
+13. `bs9 alert` - Alert management
+14. `bs9 export` - Data export
+15. `bs9 deps` - Dependency management
+16. `bs9 profile` - Performance profiling
+17. `bs9 update` - Update BS9
+18. `bs9 doctor` - Health check
+19. `bs9 windows` - Windows services
+20. `bs9 macos` - macOS services
+21. `bs9 advanced` - Advanced monitoring
+22. `bs9 consul` - Service discovery
+23. `bs9 save` - Service backup
+24. `bs9 resurrect` - Service restoration
+25. `bs9 inspect` - System security and performance inspection
 
 ---
 
-*Last Updated: January 25, 2026*
-*Version: 1.4.2*
-*Commands: 22 total*.
+*Last Updated: 2026*
+*Version: 1.5.23*
+*Commands: 25 total*
 
 ```bash
 # Show all dependencies
