@@ -18,6 +18,7 @@ import { homedir, cpus } from "node:os";
 import { getPlatformInfo } from "../platform/detect.js";
 import { parseServiceArray, getMultipleServiceInfo, confirmAction, displayBatchResults } from "../utils/array-parser.js";
 import { isEcosystemConfig, parseEcosystemConfig } from "../utils/ecosystem-config.js";
+import { resolveRuntime } from "../utils/runtime-resolver.js";
 
 // Security: Host validation function
 export function isValidHost(host: string): boolean {
@@ -67,6 +68,7 @@ export interface StartOptions {
   autorestart?: boolean;
   cron?: string;
   time?: boolean;
+  interpreter?: string;
 }
 
 /** Resolve "max" or numeric string to an integer instance count */
@@ -132,6 +134,7 @@ async function handleEcosystemStart(configFile: string, options: StartOptions): 
           https: app.https ?? options.https,
           build: app.build ?? options.build,
           instances: String(instanceCount),
+          interpreter: app.interpreter ?? options.interpreter,
         };
 
         if (instanceCount > 1) {
@@ -151,7 +154,7 @@ async function handleEcosystemStart(configFile: string, options: StartOptions): 
 
 /** Handle cluster mode: spawn N workers sharing the same port via reusePort preload */
 async function handleClusterStart(file: string, options: StartOptions, instanceCount: number): Promise<void> {
-  const baseName = options.name || basename(file).replace(/\.(ts|js|mjs|cjs)$/, '');
+  const baseName = options.name || basename(file).replace(/\.[a-zA-Z0-9]+$/, '');
   const port = options.port || '3000';
 
   console.log(`🔀 Starting ${instanceCount} cluster workers for '${baseName}' on port ${port}...`);
@@ -426,6 +429,7 @@ async function createLinuxService(serviceName: string, execPath: string, host: s
     env: options.env || [],
     otel: options.otel ?? true,
     prometheus: options.prometheus ?? true,
+    interpreter: options.interpreter
   });
 
   const platformInfo = getPlatformInfo();
@@ -489,11 +493,13 @@ async function createMacOSService(serviceName: string, execPath: string, host: s
   const preloadPath = resolve(join(dirname(import.meta.path), '..', 'utils', 'cluster-preload.ts'));
   const preloadArgs = isClusterWorker && existsSync(preloadPath) ? ['--preload', preloadPath] : [];
 
+  const runtime = resolveRuntime(execPath, options.interpreter, preloadArgs);
+
   try {
     await launchdCommand('create', {
       name: `bs9.${serviceName}`,
-      file: execPath,
-      args: preloadArgs,
+      file: runtime.executable,
+      args: runtime.args,
       workingDir: dirname(execPath),
       env: JSON.stringify(envVars),
       autoStart: true,
@@ -502,7 +508,7 @@ async function createMacOSService(serviceName: string, execPath: string, host: s
       logErr: `${getPlatformInfo().logDir}/${serviceName}.err.log`
     });
 
-    console.log(`🚀 Service '${serviceName}' started successfully`);
+    console.log(`🚀 Service '${serviceName}' [${runtime.runtimeName}] started successfully`);
     console.log(`   Health: ${protocol}://${host}:${port}/healthz`);
     console.log(`   Metrics: ${protocol}://${host}:${port}/metrics`);
   } catch (error) {
@@ -517,6 +523,8 @@ async function createWindowsService(serviceName: string, execPath: string, host:
   const isClusterWorker = (options.env || []).some(e => e.includes("BS9_REUSE_PORT=true"));
   const preloadPath = resolve(join(dirname(import.meta.path), '..', 'utils', 'cluster-preload.ts'));
   const preloadArgs = isClusterWorker && existsSync(preloadPath) ? ['--preload', preloadPath] : [];
+
+  const runtime = resolveRuntime(execPath, options.interpreter, preloadArgs);
 
   const envVars: Record<string, string> = {
     PORT: port,
@@ -540,11 +548,11 @@ async function createWindowsService(serviceName: string, execPath: string, host:
     // windowsCommand internally handles admin vs non-admin (background process)
     await windowsCommand('create', {
       name: `BS9_${serviceName}`,
-      file: execPath,
+      file: runtime.executable,
       displayName: `BS9 Service: ${serviceName}`,
-      description: `BS9 managed service: ${serviceName} (port ${port})`,
+      description: `BS9 managed service: ${serviceName} (${runtime.runtimeName}, port ${port})`,
       workingDir: resolve(dirname(execPath)),
-      args: ['run', ...preloadArgs, execPath],
+      args: runtime.args,
       env: JSON.stringify(envVars),
       watch: options.watch,
       maxMemoryRestart: options.maxMemoryRestart,
@@ -553,7 +561,7 @@ async function createWindowsService(serviceName: string, execPath: string, host:
       time: options.time
     });
 
-    console.log(`🚀 Service '${serviceName}' initialization complete`);
+    console.log(`🚀 Service '${serviceName}' [${runtime.runtimeName}] initialization complete`);
     console.log(`   Health: ${protocol}://${host}:${port}/healthz`);
   } catch (error) {
     console.error(`❌ Failed to start Windows service: ${error}`);
@@ -616,6 +624,7 @@ interface SystemdUnitOptions {
   env: string[];
   otel: boolean;
   prometheus: boolean;
+  interpreter?: string;
 }
 
 function generateSystemdUnit(opts: SystemdUnitOptions): string {
@@ -638,9 +647,13 @@ function generateSystemdUnit(opts: SystemdUnitOptions): string {
 
   const isClusterWorker = opts.env.some(e => e.includes("BS9_REUSE_PORT=true"));
   const preloadPath = resolve(join(dirname(import.meta.path), '..', 'utils', 'cluster-preload.ts'));
-  const preloadFlag = isClusterWorker && existsSync(preloadPath) ? `--preload "${preloadPath}" ` : "";
+  const preloadFlag = isClusterWorker && existsSync(preloadPath) ? `--preload "${preloadPath}"` : "";
 
-  const bunPath = execSync("which bun", { encoding: "utf-8" }).trim();
+  const runtime = resolveRuntime(opts.fullPath, opts.interpreter, preloadFlag ? [preloadFlag] : []);
+  const execStart = runtime.isBinary
+    ? opts.fullPath
+    : `${runtime.executable} ${runtime.args.join(' ')}`;
+
   return `[Unit]
 Description=BS9 Service: ${opts.serviceName}
 After=network.target
@@ -653,7 +666,7 @@ RestartSec=2s
 TimeoutStartSec=30s
 TimeoutStopSec=30s
 WorkingDirectory=${workingDir}
-ExecStart=${bunPath} run ${preloadFlag}${opts.fullPath}
+ExecStart=${execStart}
 ${envSection}
 
 # Security hardening (user systemd compatible)

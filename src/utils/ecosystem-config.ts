@@ -42,6 +42,7 @@ export interface PM2AppConfig {
   env_production?: Record<string, string>;
   watch?: boolean | string[];
   max_memory_restart?: string;
+  interpreter?: string;
   [key: string]: unknown;
 }
 
@@ -62,6 +63,7 @@ export interface BS9AppEntry {
   prometheus?: boolean;
   https?: boolean;
   build?: boolean;
+  interpreter?: string;
 }
 
 // -------------------------------------------------------------------
@@ -199,7 +201,7 @@ function mapAppToBS9(app: PM2AppConfig, idx: number, configPath: string): BS9App
 
   const name =
     app.name ||
-    basename(scriptField).replace(/\.(ts|js|mjs|cjs)$/, "");
+    basename(scriptField).replace(/\.[a-zA-Z0-9]+$/, "");
 
   const cwd = app.cwd ? resolve(configDir, app.cwd) : configDir;
   let args: string[] | undefined;
@@ -218,5 +220,6 @@ function mapAppToBS9(app: PM2AppConfig, idx: number, configPath: string): BS9App
     port,
     host,
     env: env.length > 0 ? env : undefined,
+    interpreter: typeof app.interpreter === "string" ? app.interpreter : undefined,
   };
 }

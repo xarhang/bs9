@@ -30,6 +30,7 @@ describe("Model Context Protocol (MCP) Server", () => {
     expect(toolNames).toContain("bs9_flush_logs");
     expect(toolNames).toContain("bs9_send_signal");
     expect(toolNames).toContain("bs9_doctor");
+    expect(toolNames).toContain("bs9_get_issues");
   });
 
   it("each MCP tool should have valid name, description, and inputSchema", () => {
@@ -57,6 +58,13 @@ describe("Model Context Protocol (MCP) Server", () => {
     expect(doctor.status).toBe("healthy");
     expect(doctor.platform).toBeDefined();
     expect(doctor.serviceManager).toBeDefined();
+  });
+
+  it("should handle bs9_get_issues tool call", async () => {
+    const result = await handleToolCall("bs9_get_issues", {});
+    expect(typeof result).toBe("string");
+    const issues = JSON.parse(result);
+    expect(Array.isArray(issues)).toBe(true);
   });
 
   it("should throw error for unknown MCP tool", async () => {

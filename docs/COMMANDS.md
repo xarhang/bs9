@@ -2,7 +2,7 @@
 
 ## Overview
 
-BS9 provides 33 powerful CLI commands for managing Bun applications. All commands are designed to be intuitive, secure, and production-ready with automatic platform detection and zero-configuration setup.
+BS9 provides 34 powerful CLI commands for managing Bun applications. All commands are designed to be intuitive, secure, and production-ready with automatic platform detection and zero-configuration setup.
 
 ## 🚀 Core Commands
 
@@ -17,6 +17,12 @@ bs9 start app.js
 # Cluster mode: Spawn multiple workers sharing port via Bun reusePort
 bs9 start app.js -i 4 --port 3000
 bs9 start app.js -i max --name my-api
+
+# Polyglot Multi-Runtime: Python, Go, Binaries, Shell scripts
+bs9 start script.py --name py-worker
+bs9 start main.go --name go-server
+bs9 start app.exe --name native-service
+bs9 start app.rb --interpreter ruby
 
 # PM2 ecosystem.config.js drop-in compatibility
 bs9 start ecosystem.config.js
@@ -48,6 +54,7 @@ bs9 start app.js --name my-app --otel --prometheus
 - `--no-autorestart`: Do not automatically restart this application
 - `--time`: Prefix stdout and stderr logs with timestamps
 - `--cron <pattern>`: Cron pattern to force restart application
+- `--interpreter <name|path>`: Custom interpreter or binary (e.g. `python3`, `go`, `node`, `none`)
 - `--otel`: Enable OpenTelemetry instrumentation
 - `--prometheus`: Enable Prometheus metrics
 - `--build`: Build TypeScript to JavaScript before starting
@@ -897,6 +904,36 @@ bs9 mcp --install
 - `bs9_flush_logs`: Clear logs.
 - `bs9_send_signal`: Send OS signals to process.
 - `bs9_doctor`: Platform and environment diagnostics.
+- `bs9_get_issues`: Query parsed exceptions, stack traces, and suggested fixes across services.
+
+### 34. `bs9 issues` - Issue & Exception Tracker Dashboard
+
+Inspects, parses, and aggregates runtime errors, unhandled exceptions, and crashes across all services. (Equivalent to PM2 Plus $39/month feature — built-in and 100% free in BS9).
+
+```bash
+# View issues dashboard across all services
+bs9 issues
+
+# View issues for a specific service
+bs9 issues my-app
+
+# Inspect last 200 lines of error logs
+bs9 issues my-app --lines 200
+
+# Output machine-readable JSON for monitoring pipelines
+bs9 issues --json
+
+# Clear error logs and reset crash records
+bs9 issues --clear
+bs9 issues my-app --clear
+```
+
+**Features:**
+- Automatic error categorization (TypeError, SyntaxError, generic errors, Python tracebacks, Go panics).
+- Pinpoints offending file location (`file.ts:line:col`).
+- Displays relevant stack traces.
+- Automated AI diagnostic hints for common failure modes (`ECONNREFUSED`, `EADDRINUSE`, missing dependencies, memory limits).
+- Seamlessly accessible via CLI, JSON API, and native MCP server (`bs9_get_issues`).
 
 ## 📝 Exit Codes
 
@@ -922,4 +959,4 @@ bs9 mcp --install
 ---
 
 *Last Updated: 2026*
-*BS9 Version: 1.6.0*
+*BS9 Version: 1.6.1*

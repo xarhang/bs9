@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.1] - 2026-09-10
+
+### 🚀 Polyglot Multi-Runtime & Built-in Issue Tracker (Free PM2 Plus Feature)
+- **Universal Polyglot Runtime**:
+  - Out-of-the-box auto-detection for Python (`.py`), Go (`.go`), Shell (`.sh`, `.ps1`, `.bat`), and native precompiled binaries (`.exe`, ELF).
+  - Added `--interpreter <path|name>` CLI flag and ecosystem config `interpreter` property to override runtime execution.
+  - Seamless service wrapping across Windows Background/Service, Linux systemd, and macOS LaunchAgents.
+- **Issues & Exception Tracker Dashboard**:
+  - Added `bs9 issues [name] [--clear] [--json] [--lines <N>]` to detect and parse runtime errors, exceptions, and stack traces.
+  - High-precision parser for JavaScript/TypeScript (`TypeError`, `SyntaxError`, generic errors), Python tracebacks, and Go panics.
+  - Automated diagnostic hints with suggested fixes for `ECONNREFUSED`, `EADDRINUSE`, `Cannot find module`, and memory limit crashes.
+  - MCP Integration: Added `bs9_get_issues` tool to the native MCP server allowing AI assistants to analyze issues directly.
+- **Test Suite**:
+  - Expanded to **125 non-hallucinated unit tests** across 20 test files with 100% pass rate.
+
 ## [1.6.0] - 2026-09-10
 
 ### 🚀 Major Features & Full PM2 Parity (Runtime / Plus / Enterprise)

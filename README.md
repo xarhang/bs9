@@ -1,7 +1,7 @@
 # BS9 (Bun Sentinel 9) 🚀
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-1.6.0-blue.svg)](https://github.com/xarhang/bs9)
+[![Version](https://img.shields.io/badge/version-1.6.1-blue.svg)](https://github.com/xarhang/bs9)
 [![Security](https://img.shields.io/badge/security-Enterprise-green.svg)](SECURITY.md)
 [![Production Ready](https://img.shields.io/badge/production-Ready-brightgreen.svg)](PRODUCTION.md)
 [![Cross-Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](https://github.com/xarhang/bs9)
@@ -40,7 +40,7 @@ echo 'export PATH="$HOME/.bun/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
 #### 🐧 Linux
 - **Service Manager**: Systemd (user-mode)
 - **Features**: Advanced security hardening, resource limits, sandboxing
-- **Commands**: All 22 commands available
+- **Commands**: All 34 commands available
 
 #### 🍎 macOS  
 - **Service Manager**: Launchd
@@ -99,6 +99,13 @@ bs9 start app.ts --build --name myapp --port 8080 --env NODE_ENV=production --ho
 # 🚀 Bun-Native Zero-Downtime Clustering (NEW!)
 bs9 start app.ts -i 4 --port 3000                  # Spawn 4 workers on same port (reusePort)
 bs9 start app.ts -i max --name my-api              # Spawn workers matching CPU count
+
+# 🐍 Polyglot Multi-Runtime (Python, Go, Binaries, Shell)
+bs9 start worker.py                                 # Auto-detected Python runtime
+bs9 start main.go                                   # Auto-detected Go runtime
+bs9 start api.exe                                   # Native Windows/Linux binary
+bs9 start script.sh                                 # Bash / Shell script
+bs9 start app.rb --interpreter ruby                 # Custom runtime interpreter
 
 # 🔄 Drop-in PM2 Compatibility (NEW!)
 bs9 start ecosystem.config.js                      # Directly run PM2 ecosystem configuration
@@ -161,6 +168,13 @@ bs9 env myapp                                      # Dump configured environment
 # 🤖 Native Model Context Protocol (MCP) for AI Assistants (Claude, Cursor)
 bs9 mcp                                            # Launch stdio MCP server
 bs9 mcp --install                                  # Output JSON snippet for Claude Desktop / Cursor
+
+# 🐛 Issue & Exception Tracker Dashboard (PM2 Plus $39/mo Parity — 100% Free!)
+bs9 issues                                         # Aggregated exceptions & crash traces across all services
+bs9 issues myapp                                   # Inspect issues for specific service
+bs9 issues myapp --lines 200                       # Inspect deeper error logs
+bs9 issues --json                                  # Machine-readable output for monitoring pipelines
+bs9 issues --clear                                 # Clear error logs and reset crash state
 
 # 🔍 Describe / Show details (PM2 describe/show parity)
 bs9 show myapp                                     # Inspect PIDs, paths, logs, self-healing status

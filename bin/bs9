@@ -44,6 +44,7 @@ import { ecosystemInitCommand } from "../src/commands/ecosystem-init.js";
 import { startupCommand, unstartupCommand } from "../src/commands/startup.js";
 import { envCommand } from "../src/commands/env.js";
 import { mcpCommand } from "../src/commands/mcp.js";
+import { issuesCommand } from "../src/commands/issues.js";
 import { initializePlatformDirectories } from "../src/platform/detect.js";
 
 // Initialize platform directories at startup
@@ -75,6 +76,7 @@ program
   .option("--no-autorestart", "Do not automatically restart this application")
   .option("--time", "Prefix stdout and stderr logs with timestamps")
   .option("--cron <pattern>", "Cron pattern to force restart application")
+  .option("--interpreter <bin>", "Custom interpreter (e.g. python3, go, node, none for binary)")
   .action(startCommand);
 
 program
@@ -185,6 +187,15 @@ program
   .description("🤖 Start native Model Context Protocol (MCP) server for AI assistants (Claude, Cursor)")
   .option("--install", "Output configuration snippet for Claude Desktop / Cursor")
   .action(mcpCommand);
+
+program
+  .command("issues")
+  .description("🐛 Inspect runtime bugs, crash stack traces, and unhandled exceptions (PM2 Plus parity)")
+  .argument("[name]", "Specific service name (optional - if omitted, shows all)")
+  .option("-c, --clear", "Clear error logs and reset issue records")
+  .option("--json", "Output issues as structured JSON")
+  .option("-n, --lines <number>", "Number of log lines to scan", "100")
+  .action(issuesCommand);
 
 program
   .command("monit")

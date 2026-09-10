@@ -165,6 +165,17 @@ export const MCP_TOOLS = [
       type: "object",
       properties: {}
     }
+  },
+  {
+    name: "bs9_get_issues",
+    description: "Inspect runtime bugs, unhandled exceptions, and stack traces across services or for a specific service (PM2 Plus parity).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Service name (optional - if omitted, returns issues for all services)" },
+        lines: { type: "number", description: "Number of log lines to analyze (default 100)", default: 100 }
+      }
+    }
   }
 ];
 
@@ -333,6 +344,49 @@ export async function handleToolCall(name: string, args: Record<string, any> = {
         uptime: process.uptime(),
         memoryUsageMb: Math.round(process.memoryUsage().rss / 1024 / 1024)
       }, null, 2);
+    }
+
+    case "bs9_get_issues": {
+      const { parseErrorLogs } = await import("../commands/issues.js");
+      const logDir = platformInfo.logDir;
+      if (!existsSync(logDir)) return "[]";
+
+      const allServices = await listServices();
+      const targetName = args.name;
+      const targetServices = targetName
+        ? allServices.filter(s => {
+            const clean = s.name.replace(/^(BS9_|bs9\.)/, "");
+            const tClean = targetName.replace(/^(BS9_|bs9\.)/, "");
+            return s.name === targetName || clean === tClean || clean.startsWith(`${tClean}-`);
+          })
+        : allServices;
+
+      const maxLines = Number(args.lines) || 100;
+      const issues: any[] = [];
+      const seen = new Set<string>();
+
+      for (const svc of targetServices) {
+        const clean = svc.name.replace(/^(BS9_|bs9\.)/, "");
+        if (seen.has(clean)) continue;
+        seen.add(clean);
+
+        const prefix = platformInfo.isWindows ? `BS9_${clean}` : platformInfo.isMacOS ? `bs9.${clean}` : clean;
+        const errPath = join(logDir, `${prefix}.err.log`);
+        const crash = getCrashState(clean);
+
+        if (existsSync(errPath)) {
+          const content = readFileSync(errPath, "utf-8");
+          const recentLines = content.split("\n").slice(-maxLines).join("\n");
+          const parsed = parseErrorLogs(recentLines, clean);
+          for (const p of parsed) {
+            p.crashCount = crash.consecutiveCrashes;
+            p.circuitState = crash.state;
+            issues.push(p);
+          }
+        }
+      }
+
+      return JSON.stringify(issues, null, 2);
     }
 
     default:

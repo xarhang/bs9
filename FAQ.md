@@ -216,7 +216,7 @@ bs9 logs app.js --follow
 
 #### 📚 **Documentation**
 - **[README.md](README.md)**: Complete getting started guide
-- **[COMMANDS.md](docs/COMMANDS.md)**: All 22 commands documented
+- **[COMMANDS.md](docs/COMMANDS.md)**: All 34 commands documented
 - **[SECURITY.md](SECURITY.md)**: Security policies and reporting
 - **[PRODUCTION.md](PRODUCTION.md)**: Production deployment guide
 

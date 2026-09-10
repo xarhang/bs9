@@ -153,11 +153,22 @@ describe("Ecosystem Config Parser", () => {
       expect(app1.env).toContain("DEBUG=true");
       expect(app1.env).toContain("API_KEY=secret123");
 
-      // Second app verification (instances: max, args string splitting)
+      // Second app verification (instances: max, args string splitting, interpreter)
       const app2 = entries[1];
       expect(app2.name).toBe("worker");
       expect(app2.instances).toBe(cpus().length);
       expect(app2.args).toEqual(["--queue", "jobs", "--retries", "3"]);
+    });
+
+    it("should parse interpreter field from ecosystem config", async () => {
+      const configFile = join(tempDir, "ecosystem.config.json");
+      writeFileSync(configFile, JSON.stringify({
+        apps: [{ script: "./pipeline.py", interpreter: "python3" }]
+      }));
+
+      const entries = await parseEcosystemConfig(configFile);
+      expect(entries[0].name).toBe("pipeline");
+      expect(entries[0].interpreter).toBe("python3");
     });
 
     it("should infer app name from script filename when name is omitted", async () => {
