@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-09-10
+
+### 🚀 Major Features & Full PM2 Parity (Runtime / Plus / Enterprise)
+- **Dynamic Cluster Scaling**: Added `bs9 scale <app> <instances|+N|-N>` to scale workers up or down without restart.
+- **Circuit Breaker & Reset**: Added `bs9 reset <app>` to clear crash loop records and reset exponential backoff.
+- **Process Signal Dispatch**: Added `bs9 sendSignal <signal> <app>` to dispatch POSIX signals to running services.
+- **Daemon Healthcheck**: Added `bs9 ping` returning daemon status and active service count.
+- **Ecosystem Template Generator**: Added `bs9 init` and `bs9 ecosystem` (`--ts`, `--json`) to generate drop-in configurations.
+- **System Boot Resurrect**: Added `bs9 startup` and `bs9 unstartup` for OS-level auto-restart on boot (systemd, Windows schtasks, macOS LaunchAgent).
+- **Environment Inspection**: Added `bs9 env <app>` to inspect live configured environment variables.
+- **New Start Options**:
+  - `-w, --watch`: Automatically watch directory and restart on file change.
+  - `--max-memory-restart <size>`: Auto-restart when memory exceeds limit (e.g. `200M`, `1G`).
+  - `--restart-delay <ms>`: Configurable fixed restart delay.
+  - `--no-autorestart`: Disable automatic crash restarts.
+  - `--time`: Prefix stdout and stderr log lines with timestamps.
+  - `--cron <pattern>`: Scheduled forced restart.
+- **JSON Output**: Added `bs9 status --json` and `--raw` (matching `pm2 jlist`/`pm2 prettylist`).
+- **Comprehensive Test Suite**: Expanded from 51 generic tests to **97 non-hallucinated unit tests** across 17 test files covering all real engine components with 100% pass rate.
+
 ## [1.5.20] - 2026-09-10
 
 ### 🐛 Bug Fixes & Code Audit

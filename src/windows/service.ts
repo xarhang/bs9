@@ -25,6 +25,11 @@ interface WindowsServiceConfig {
   arguments: string[];
   workingDirectory: string;
   environment: Record<string, string>;
+  watch?: boolean;
+  maxMemoryRestart?: string;
+  restartDelay?: number;
+  noAutorestart?: boolean;
+  time?: boolean;
 }
 
 interface WindowsServiceStatus {
@@ -112,7 +117,12 @@ export class WindowsServiceManager {
         arguments: config.arguments,
         workingDir: config.workingDirectory,
         environment: config.environment,
-        status: 'stopped'
+        status: 'stopped',
+        watch: config.watch,
+        maxMemoryRestart: config.maxMemoryRestart,
+        restartDelay: config.restartDelay,
+        noAutorestart: config.noAutorestart,
+        time: config.time
       });
       console.log(`✅ Service '${config.name}' registered for background execution`);
     }
@@ -327,7 +337,12 @@ export async function windowsCommand(action: string, options: any): Promise<void
           executable: options.file, // Note: caller passes 'file'
           arguments: options.args || [],
           workingDirectory: options.workingDir || process.cwd(),
-          environment: options.env ? JSON.parse(options.env) : {}
+          environment: options.env ? JSON.parse(options.env) : {},
+          watch: options.watch,
+          maxMemoryRestart: options.maxMemoryRestart,
+          restartDelay: options.restartDelay,
+          noAutorestart: options.noAutorestart,
+          time: options.time
         });
         await manager.startService(options.name);
         break;

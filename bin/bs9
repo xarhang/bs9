@@ -36,6 +36,13 @@ import { inspectCommand } from "../src/commands/inspect.js";
 import { reloadCommand } from "../src/commands/reload.js";
 import { flushCommand } from "../src/commands/flush.js";
 import { describeCommand } from "../src/commands/describe.js";
+import { scaleCommand } from "../src/commands/scale.js";
+import { resetCommand } from "../src/commands/reset.js";
+import { sendSignalCommand } from "../src/commands/send-signal.js";
+import { pingCommand } from "../src/commands/ping.js";
+import { ecosystemInitCommand } from "../src/commands/ecosystem-init.js";
+import { startupCommand, unstartupCommand } from "../src/commands/startup.js";
+import { envCommand } from "../src/commands/env.js";
 import { initializePlatformDirectories } from "../src/platform/detect.js";
 
 // Initialize platform directories at startup
@@ -61,6 +68,12 @@ program
   .option("--prometheus", "Enable Prometheus metrics", true)
   .option("--build", "Build TypeScript to JavaScript before starting")
   .option("-i, --instances <n>", "Number of cluster workers (use 'max' for CPU count)", "1")
+  .option("-w, --watch", "Watch and restart service on file change")
+  .option("--max-memory-restart <size>", "Auto-restart if memory exceeds limit (e.g. 200M, 1G)")
+  .option("--restart-delay <ms>", "Delay in ms before auto-restarting")
+  .option("--no-autorestart", "Do not automatically restart this application")
+  .option("--time", "Prefix stdout and stderr logs with timestamps")
+  .option("--cron <pattern>", "Cron pattern to force restart application")
   .action(startCommand);
 
 program
@@ -92,6 +105,8 @@ program
   .description("Show status and SRE metrics for services (aliases: list, ls, ps)")
   .argument("[name...]", "Service name, array [app1,app2], pattern [app-*], or [all]")
   .option("-w, --watch", "Watch mode (refresh every 2s)")
+  .option("--json", "Output status as formatted JSON (pm2 jlist parity)")
+  .option("--raw", "Output raw minified JSON status")
   .action(statusCommand);
 
 program
@@ -114,6 +129,55 @@ program
   .option("-f, --follow", "Follow logs in real-time")
   .option("-n, --lines <number>", "Number of lines", "50")
   .action(logsCommand);
+
+program
+  .command("scale")
+  .description("📈 Dynamically scale cluster instances up or down (PM2 parity)")
+  .argument("<app>", "Service name to scale")
+  .argument("<instances>", "Instance target number or relative offset (+N / -N)")
+  .action(scaleCommand);
+
+program
+  .command("reset")
+  .description("🔄 Reset restart counters and crash loop history (PM2 parity)")
+  .argument("[name...]", "Service name or cluster name (default: all)")
+  .action(resetCommand);
+
+program
+  .command("sendSignal")
+  .description("📡 Send OS signal to application processes (PM2 parity)")
+  .argument("<signal>", "Signal to send (e.g. SIGUSR2, SIGINT, SIGTERM)")
+  .argument("<app>", "Target service name")
+  .action(sendSignalCommand);
+
+program
+  .command("ping")
+  .description("🏓 Check if BS9 daemon is alive and operational (PM2 parity)")
+  .action(pingCommand);
+
+program
+  .command("init")
+  .alias("ecosystem")
+  .description("📋 Generate template ecosystem.config.js (PM2 parity)")
+  .option("--json", "Generate bs9.config.json template")
+  .option("--ts", "Generate ecosystem.config.ts template")
+  .action(ecosystemInitCommand);
+
+program
+  .command("startup")
+  .description("🚀 Configure system boot startup to resurrect services on boot (PM2 parity)")
+  .action(startupCommand);
+
+program
+  .command("unstartup")
+  .description("🗑️ Remove system boot startup resurrection (PM2 parity)")
+  .action(unstartupCommand);
+
+program
+  .command("env")
+  .description("🌐 Display configured environment variables for a service (PM2 parity)")
+  .argument("<name>", "Service name")
+  .action(envCommand);
 
 program
   .command("monit")

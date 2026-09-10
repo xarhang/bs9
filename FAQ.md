@@ -35,17 +35,26 @@ bs9 save --all             # JSON-based backup
 
 ### Q: "How does BS9 compare to PM2?"
 
-| Feature | PM2 (v7.0+) | BS9 (v1.5.22+) |
+| Feature | PM2 (Runtime / Plus / Enterprise) | BS9 (v1.6.0) |
 |--------|-----|-----|
-| **Runtime Efficiency** | Node.js Tax (~60-120MB+ idle) | ⚡ Bun Native (~15-30MB idle) |
+| **Runtime Efficiency** | Node.js (~60-120MB+ idle) | ⚡ Bun Native (~15-30MB idle, 3-5x faster) |
 | **Clustering** | Node IPC cluster master | 🚀 Bun `SO_REUSEPORT` kernel load balancing |
-| **Cluster Start** | `pm2 start -i max` | `bs9 start app.ts -i max` |
+| **Cluster Scaling** | `pm2 scale app +2` | `bs9 scale app +2` (Dynamic scaling) |
+| **Rolling Reload** | `pm2 reload app` | `bs9 reload app` (Zero-downtime rolling reload) |
 | **Ecosystem Config** | `ecosystem.config.js` | 🔄 Drop-in `bs9 start ecosystem.config.js` |
-| **Crash Protection** | Infinite restart loops common | 🛡️ Circuit breaker + Exponential backoff |
-| **Setup & Systemd** | Manual `pm2 startup` + `pm2 save` | ✅ Auto-configured zero-config |
-| **Web Dashboard** | PM2 Plus ($99+/mo) | 🌐 Free Real-time WebSocket Glassmorphism UI |
+| **Crash Loop Protection** | Infinite restart loops common | 🛡️ Circuit breaker (5-crash/60s) + Exponential backoff |
+| **System Boot Startup** | `pm2 startup` / `pm2 unstartup` | ✅ `bs9 startup` / `bs9 unstartup` |
+| **Web Dashboard** | PM2 Plus ($39-79/mo) | 🌐 **FREE** Real-time WebSocket Glassmorphism UI |
+| **Realtime Logs** | PM2 Plus paid feature | 📜 **FREE** `bs9 logs` (combined & follow) |
+| **Distributed Tracing** | PM2 Enterprise ($$$$) | 🔍 **FREE** OpenTelemetry built-in (`--otel`) |
+| **CPU & Memory Profiling** | PM2 Enterprise ($$$$) | 📊 **FREE** `bs9 profile --flamegraph` |
+| **Alerts & Webhooks** | PM2 Plus ($39/mo+) | 🚨 **FREE** `bs9 alert --webhook` |
+| **Signal Dispatch** | `pm2 sendSignal` | 📡 `bs9 sendSignal <sig> <app>` |
 | **Health Checks** | Manual setup / plugin | ✅ Built-in `/healthz`, `/metrics` |
-| **Database Required** | ❌ No | ✅ **No** |
+| **JSON Status Export** | `pm2 jlist` | ✅ `bs9 status --json` |
+| **Log Management** | `pm2 flush` | ✅ `bs9 flush` |
+| **Service Inspection** | `pm2 describe` / `pm2 show` | ✅ `bs9 show` / `bs9 describe` |
+| **Daemon Ping** | `pm2 ping` | 🏓 `bs9 ping` |
 | **Status Display** | Basic table | ✅ Visual indicators (✅🔄❌⚠️⏸️) |
 | **Backup/Restore** | Manual | ✅ Built-in `save` & `resurrect` |
 

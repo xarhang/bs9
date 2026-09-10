@@ -16,8 +16,10 @@ import { readFileSync, existsSync } from "node:fs";
 import { parseServiceArray, getMultipleServiceInfo } from "../utils/array-parser.js";
 import { listServices, ServiceMetrics } from "../utils/service-discovery.js";
 
-interface StatusOptions {
+export interface StatusOptions {
   watch?: boolean;
+  json?: boolean;
+  raw?: boolean;
 }
 
 export async function statusCommand(names: string[], options: StatusOptions): Promise<void> {
@@ -36,14 +38,27 @@ async function handleMultiServiceStatus(name: string | string[], options: Status
   const services = await parseServiceArray(name);
 
   if (services.length === 0) {
+    if (options.json) {
+      console.log("[]");
+      return;
+    }
     console.log("❌ No services found matching the pattern");
+    return;
+  }
+
+  const serviceInfo = await getMultipleServiceInfo(services);
+
+  if (options.json) {
+    console.log(JSON.stringify(serviceInfo, null, 2));
+    return;
+  }
+  if (options.raw) {
+    console.log(JSON.stringify(serviceInfo));
     return;
   }
 
   console.log(`📊 Multi-Service Status: ${Array.isArray(name) ? name.join(', ') : name}`);
   console.log("=".repeat(80));
-
-  const serviceInfo = await getMultipleServiceInfo(services);
 
   if (serviceInfo.length === 0) {
     console.log("❌ No running services found");
@@ -73,7 +88,20 @@ async function handleStatus(options: StatusOptions, name?: string): Promise<void
 
     // Filter by specific service if provided
     if (name) {
-      services = services.filter(service => service.name === name);
+      const clean = name.replace(/^(BS9_|bs9\.)/, "");
+      services = services.filter(service => {
+        const sClean = service.name.replace(/^(BS9_|bs9\.)/, "");
+        return service.name === name || sClean === clean || sClean.startsWith(`${clean}-`);
+      });
+    }
+
+    if (options.json) {
+      console.log(JSON.stringify(services, null, 2));
+      return;
+    }
+    if (options.raw) {
+      console.log(JSON.stringify(services));
+      return;
     }
 
     displayServices(services);

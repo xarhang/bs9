@@ -20,7 +20,7 @@ import { parseServiceArray, getMultipleServiceInfo, confirmAction, displayBatchR
 import { isEcosystemConfig, parseEcosystemConfig } from "../utils/ecosystem-config.js";
 
 // Security: Host validation function
-function isValidHost(host: string): boolean {
+export function isValidHost(host: string): boolean {
   // Allow localhost, 0.0.0.0, and valid IP addresses
   const localhostRegex = /^(localhost|127\.0\.0\.1|::1)$/;
   const anyIPRegex = /^(0\.0\.0\.0|::)$/;
@@ -51,7 +51,7 @@ function isValidHost(host: string): boolean {
   return false;
 }
 
-interface StartOptions {
+export interface StartOptions {
   name?: string;
   port?: string;
   host?: string;
@@ -61,10 +61,16 @@ interface StartOptions {
   build?: boolean;
   https?: boolean;
   instances?: string;  // "1", "4", "max"
+  watch?: boolean;
+  maxMemoryRestart?: string;
+  restartDelay?: string;
+  autorestart?: boolean;
+  cron?: string;
+  time?: boolean;
 }
 
 /** Resolve "max" or numeric string to an integer instance count */
-function resolveInstances(raw: string | undefined): number {
+export function resolveInstances(raw: string | undefined): number {
   if (!raw || raw === "1") return 1;
   if (raw === "max") return cpus().length;
   const n = parseInt(raw, 10);
@@ -539,7 +545,12 @@ async function createWindowsService(serviceName: string, execPath: string, host:
       description: `BS9 managed service: ${serviceName} (port ${port})`,
       workingDir: resolve(dirname(execPath)),
       args: ['run', ...preloadArgs, execPath],
-      env: JSON.stringify(envVars)
+      env: JSON.stringify(envVars),
+      watch: options.watch,
+      maxMemoryRestart: options.maxMemoryRestart,
+      restartDelay: options.restartDelay ? parseInt(options.restartDelay, 10) : undefined,
+      noAutorestart: options.autorestart === false,
+      time: options.time
     });
 
     console.log(`🚀 Service '${serviceName}' initialization complete`);

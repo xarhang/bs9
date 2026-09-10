@@ -2,7 +2,7 @@
 
 ## Overview
 
-BS9 provides 21 powerful CLI commands for managing Bun applications. All commands are designed to be intuitive, secure, and production-ready with automatic platform detection and zero-configuration setup.
+BS9 provides 32 powerful CLI commands for managing Bun applications. All commands are designed to be intuitive, secure, and production-ready with automatic platform detection and zero-configuration setup.
 
 ## 🚀 Core Commands
 
@@ -42,6 +42,12 @@ bs9 start app.js --name my-app --otel --prometheus
 - `--https`: Use HTTPS protocol
 - `--env, -e`: Environment variables (multiple)
 - `-i, --instances <n>`: Number of cluster workers (or 'max' for CPU count)
+- `-w, --watch`: Watch and restart service on file change
+- `--max-memory-restart <size>`: Auto-restart if memory exceeds limit (e.g. 200M, 1G)
+- `--restart-delay <ms>`: Delay in ms before auto-restarting
+- `--no-autorestart`: Do not automatically restart this application
+- `--time`: Prefix stdout and stderr logs with timestamps
+- `--cron <pattern>`: Cron pattern to force restart application
 - `--otel`: Enable OpenTelemetry instrumentation
 - `--prometheus`: Enable Prometheus metrics
 - `--build`: Build TypeScript to JavaScript before starting
@@ -777,6 +783,94 @@ bs9 <command> --force
 bs9 <command> -f
 ```
 
+### 26. `bs9 scale` - Dynamic Cluster Scaling
+
+Scale cluster instances up or down without full application restart.
+
+```bash
+# Scale to exactly 6 workers
+bs9 scale my-app 6
+
+# Scale up by 2 workers
+bs9 scale my-app +2
+
+# Scale down by 1 worker
+bs9 scale my-app -1
+```
+
+### 27. `bs9 reset` - Reset Counters & Crash History
+
+Reset restart counters, backoff state, and circuit breaker status.
+
+```bash
+# Reset specific service
+bs9 reset my-app
+
+# Reset all services
+bs9 reset all
+```
+
+### 28. `bs9 sendSignal` - Send Process Signal
+
+Send POSIX OS signals directly to running service processes.
+
+```bash
+# Send SIGUSR2 for user reload
+bs9 sendSignal SIGUSR2 my-app
+
+# Send SIGINT for graceful stop
+bs9 sendSignal SIGINT my-app
+
+# Send SIGKILL
+bs9 sendSignal SIGKILL my-app
+```
+
+### 29. `bs9 ping` - Daemon Healthcheck
+
+Verify that the BS9 runtime and background managers are healthy and operational.
+
+```bash
+bs9 ping
+# Outputs: pong
+# BS9 is alive and operational on win32 (windows-service)
+# Managed services: 4 registered (4 active)
+```
+
+### 30. `bs9 init` / `bs9 ecosystem` - Generate Configuration
+
+Create sample `ecosystem.config.js` template in current directory.
+
+```bash
+# Generate JavaScript template
+bs9 init
+
+# Generate TypeScript template
+bs9 init --ts
+
+# Generate JSON template
+bs9 init --json
+```
+
+### 31. `bs9 startup` & `bs9 unstartup` - Boot Auto-Resurrect
+
+Configure operating system boot hooks to auto-resurrect services after reboot.
+
+```bash
+# Configure system boot startup
+bs9 startup
+
+# Remove boot startup
+bs9 unstartup
+```
+
+### 32. `bs9 env` - Dump Environment Variables
+
+Inspect the live configured environment variables for a service.
+
+```bash
+bs9 env my-app
+```
+
 ## 📝 Exit Codes
 
 - `0`: Success
@@ -800,5 +894,5 @@ bs9 <command> -f
 
 ---
 
-*Last Updated: January 25, 2026*
-*BS9 Version: 1.3.5*
+*Last Updated: 2026*
+*BS9 Version: 1.6.0*

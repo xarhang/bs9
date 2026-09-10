@@ -1,7 +1,7 @@
 # BS9 (Bun Sentinel 9) 🚀
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-1.5.22-blue.svg)](https://github.com/xarhang/bs9)
+[![Version](https://img.shields.io/badge/version-1.6.0-blue.svg)](https://github.com/xarhang/bs9)
 [![Security](https://img.shields.io/badge/security-Enterprise-green.svg)](SECURITY.md)
 [![Production Ready](https://img.shields.io/badge/production-Ready-brightgreen.svg)](PRODUCTION.md)
 [![Cross-Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](https://github.com/xarhang/bs9)
@@ -130,6 +130,34 @@ bs9 restart myapp
 # 🔄 Zero-Downtime Reload (PM2 reload parity)
 bs9 reload myapp                                   # Rolling reload across cluster workers
 
+# 📈 Dynamic Cluster Scaling (PM2 scale parity)
+bs9 scale myapp 6                                  # Scale to exactly 6 workers
+bs9 scale myapp +2                                 # Scale up by 2 workers
+bs9 scale myapp -1                                 # Scale down by 1 worker
+
+# 🔄 Reset Crash History & Counters (PM2 reset parity)
+bs9 reset myapp                                    # Reset circuit breaker & crash history
+bs9 reset all                                      # Reset all services
+
+# 📡 Send OS Signal (PM2 sendSignal parity)
+bs9 sendSignal SIGUSR2 myapp                       # Send SIGUSR2 to app process
+bs9 sendSignal SIGINT myapp                        # Graceful interrupt
+
+# 🏓 Ping Daemon (PM2 ping parity)
+bs9 ping                                           # Verify BS9 daemon responsiveness
+
+# 📋 Generate Ecosystem Config (PM2 ecosystem parity)
+bs9 init                                           # Generate ecosystem.config.js
+bs9 ecosystem --ts                                 # Generate ecosystem.config.ts
+bs9 ecosystem --json                               # Generate bs9.config.json
+
+# 🚀 System Boot Startup (PM2 startup / unstartup parity)
+bs9 startup                                        # Configure auto-resurrect on OS reboot
+bs9 unstartup                                      # Remove auto-resurrect on reboot
+
+# 🌐 Inspect Environment Variables (PM2 env parity)
+bs9 env myapp                                      # Dump configured environment variables
+
 # 🔍 Describe / Show details (PM2 describe/show parity)
 bs9 show myapp                                     # Inspect PIDs, paths, logs, self-healing status
 bs9 describe myapp                                 # Alias for show
@@ -140,6 +168,7 @@ bs9 flush myapp                                    # Flush logs for specific ser
 
 # Enhanced status display with visual indicators (PM2 list/ls/ps parity)
 bs9 status                                         # Show all services
+bs9 status --json                                  # Output JSON array (PM2 jlist parity)
 bs9 list                                           # PM2 alias for status
 bs9 ls                                             # Short alias for status
 bs9 ps                                             # UNIX alias for status
