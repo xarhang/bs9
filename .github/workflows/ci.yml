@@ -37,7 +37,7 @@ jobs:
         os: [windows-latest, macos-latest]
     env:
       BS9_NATIVE_E2E: "1"
-      BS9_HOME: ${{ runner.temp }}/bs9-native-e2e
+      BS9_HOME: ${{ github.workspace }}/.tmp-bs9-native-e2e
       BS9_WINDOWS_BACKGROUND: "1"
 
     steps:
