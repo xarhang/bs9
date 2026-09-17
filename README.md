@@ -780,9 +780,6 @@ BS9/
 ├── examples/               # Runnable example applications
 ├── configs/                # Service configuration templates
 ├── scripts/                # Build, release, and verification tooling
-├── marketplace/            # Plugin marketplace examples
-├── training/               # Training material
-├── videos/                 # Video tutorial scripts
 ├── setup.sh                # One-click installer
 ├── docker-compose.yml      # Docker stack
 ├── package.json            # Package metadata and scripts

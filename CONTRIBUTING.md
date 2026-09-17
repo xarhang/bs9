@@ -117,7 +117,6 @@ BS9/
 ├── examples/               # Runnable example applications
 ├── configs/                # Service configuration templates
 ├── scripts/                # Build, release, and verification tools
-├── marketplace/            # Plugin examples
 ├── setup.sh                # One-click installer
 ├── docker-compose.yml      # Docker Compose stack
 ├── package.json            # Package metadata and scripts

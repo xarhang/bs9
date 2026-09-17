@@ -30,8 +30,7 @@ Before tagging a release, verify all of the following:
 - `INSTALL.md` release URL;
 - `CHANGELOG.md` release heading and date;
 - documentation version footers;
-- canonical `LICENSE` text and source SPDX identifiers; and
-- bundled marketplace package manifests.
+- canonical `LICENSE` text and source SPDX identifiers.
 
 Search for stale release references with:
 
