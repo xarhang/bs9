@@ -27,7 +27,9 @@ export function cloneSystemdWorkerUnit(
 ): string {
   const safeBaseName = escapeRegExp(baseName);
   return baseContent
-    .replace(/^Description=.*$/m, `Description=BS9 Cluster Worker ${workerName}`)
+    // Service discovery intentionally scopes Linux units by the stable
+    // "BS9 Service:" marker, so scaled workers must preserve that contract.
+    .replace(/^Description=.*$/m, `Description=BS9 Service: ${workerName}`)
     .replace(new RegExp(`SERVICE_NAME=${safeBaseName}(?=["\\s]|$)`, "g"), `SERVICE_NAME=${workerName}`)
     .replace(new RegExp(`SyslogIdentifier=${safeBaseName}(?=\\s|$)`, "g"), `SyslogIdentifier=${workerName}`)
     .replace(/BS9_CLUSTER_ID=\d+/g, `BS9_CLUSTER_ID=${slot}`)

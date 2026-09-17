@@ -51,7 +51,7 @@ describe("Scale Command", () => {
     const base = `[Unit]\nDescription=BS9 Cluster Worker api-0-g2\n[Service]\nEnvironment="SERVICE_NAME=api-0-g2"\nEnvironment="BS9_CLUSTER_ID=0"\nEnvironment="NODE_APP_INSTANCE=0"\nEnvironment="BS9_CLUSTER_TOTAL=2"\nSyslogIdentifier=api-0-g2\n`;
     const cloned = cloneSystemdWorkerUnit(base, "api-0-g2", "api-2-g2", 2, 3);
 
-    expect(cloned).toContain("Description=BS9 Cluster Worker api-2-g2");
+    expect(cloned).toContain("Description=BS9 Service: api-2-g2");
     expect(cloned).toContain('Environment="SERVICE_NAME=api-2-g2"');
     expect(cloned).toContain('Environment="BS9_CLUSTER_ID=2"');
     expect(cloned).toContain('Environment="NODE_APP_INSTANCE=2"');
