@@ -2,7 +2,9 @@
 
 ## Overview
 
-BS9 provides a comprehensive REST API for managing services, monitoring metrics, and automating operations. The API is designed to be RESTful, secure, and easy to integrate with existing systems.
+BS9 provides two distinct API interfaces:
+1. **REST Management API**: HTTP endpoints for remote service administration, dashboard metrics, and automation pipelines.
+2. **Typed Runtime SDK (`bs9/runtime`)**: In-process TypeScript/JavaScript client for shared state (`State`), distributed leases (`Lease`), and durable message queues (`Queue`) backed by the high-performance local IPC State Hub. See [Typed Runtime API](#typed-runtime-api-bs9runtime) and the [High-Availability Runtime Guide](HA_RUNTIME.md).
 
 ## 🔗 Base URL
 

@@ -41,7 +41,7 @@ echo 'export PATH="$HOME/.bun/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
 #### 🐧 Linux
 - **Service Manager**: Systemd (user-mode)
 - **Features**: Advanced security hardening, resource limits, sandboxing
-- **Commands**: All 34 commands available
+- **Commands**: All 40 commands available
 
 #### 🍎 macOS  
 - **Service Manager**: Launchd
@@ -293,6 +293,12 @@ bs9 inspect-ha app.ts --json                        # Machine-readable report fo
 bs9 verify-ha app.ts                                # Ephemeral traffic test with rolling reload & crash injection
 bs9 verify-ha app.ts --json                         # Verification metrics and latency percentiles
 
+# ⚙️ Persistent Controller & Hub Daemon
+bs9 daemon status                                  # Check daemon status and controller PID
+bs9 daemon start                                   # Ensure daemon is running in background
+bs9 daemon stop                                    # Stop persistent daemon
+bs9 daemon start --foreground                      # Run daemon in foreground (for systemd/launchd)
+
 # Deploy applications (KILLER FEATURE)
 bs9 deploy app.ts                                  # Zero-config deployment
 bs9 deploy app.ts --name my-api --port 8080 --env NODE_ENV=production
@@ -339,25 +345,6 @@ bs9 alert --test                   # Test webhook
 bs9 export --format json --hours 24 # Export metrics
 bs9 export --service myapp --format csv --hours 24
 bs9 export --service myapp --format csv
-
-# Service management
-bs9 delete myapp                    # Delete specific service
-bs9 delete myapp --remove           # Delete and remove config files
-bs9 delete --all                    # Delete all services
-bs9 delete --all --force           # Force delete all services
-bs9 delete myapp --timeout 60      # Custom graceful shutdown timeout
-
-# Deploy applications (KILLER FEATURE)
-bs9 deploy app.ts                                 # Zero-config deployment
-bs9 deploy app.ts --name my-api --port 8080 --env NODE_ENV=production
-bs9 deploy app.ts --reload --env NEW_CONFIG=value  # Hot reload with new config
-
-# Backup and restore
-bs9 save myapp                     # Save service configuration
-bs9 save --all                     # Save all services
-bs9 save myapp --backup            # Save with timestamped backup
-bs9 resurrect myapp                # Restore from backup
-bs9 resurrect --all               # Restore all services
 ```
 
 ---
