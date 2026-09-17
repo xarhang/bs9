@@ -1,0 +1,11 @@
+title: BS9 Documentation
+description: Bun Sentinel 9 — a fast, non-root process manager for Bun and polyglot applications.
+url: https://xarhang.github.io
+baseurl: /bs9
+repository: xarhang/bs9
+markdown: kramdown
+kramdown:
+  input: GFM
+  syntax_highlighter: rouge
+permalink: pretty
+
