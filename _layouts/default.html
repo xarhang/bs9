@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#080d18">
+    <meta name="description" content="{{ page.description | default: site.description | escape }}">
+    <title>{{ page.title | default: site.title }} · BS9</title>
+    <link rel="stylesheet" href="{{ '/assets/style.css' | relative_url }}">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="{{ '/' | relative_url }}" aria-label="BS9 documentation home">
+        <span class="brand-mark">B9</span>
+        <span>BS9 <small>Docs</small></span>
+      </a>
+      <nav aria-label="Primary navigation">
+        <a href="{{ '/commands/' | relative_url }}">Commands</a>
+        <a href="{{ '/api/' | relative_url }}">API</a>
+        <a href="{{ '/high-availability/' | relative_url }}">High Availability</a>
+        <a class="github-link" href="https://github.com/xarhang/bs9">GitHub ↗</a>
+      </nav>
+    </header>
+
+    <main class="page-shell{% if page.home %} home-shell{% endif %}">
+      {{ content }}
+    </main>
+
+    <footer>
+      <span>BS9 · Bun Sentinel 9</span>
+      <span>AGPL-3.0-or-later</span>
+    </footer>
+  </body>
+</html>
+
