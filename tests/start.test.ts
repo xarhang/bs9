@@ -42,8 +42,14 @@ const mockStartCommand = async (options: any) => {
     }
   }
   
-  // Validate file path - only block dangerous paths
-  if (options.file.includes("..") || options.file.includes("~") || options.file.startsWith("/etc") || options.file.startsWith("/root")) {
+  // Validate path segments without rejecting legitimate Windows 8.3 paths such
+  // as C:\\Users\\RUNNER~1, which GitHub-hosted runners can use for TEMP.
+  const normalizedFile = String(options.file).replace(/\\/g, "/");
+  const pathSegments = normalizedFile.split("/");
+  const hasTraversal = pathSegments.includes("..");
+  const startsAtHomeAlias = normalizedFile === "~" || normalizedFile.startsWith("~/");
+  const targetsProtectedUnixPath = /^\/(?:etc|root)(?:\/|$)/.test(normalizedFile);
+  if (hasTraversal || startsAtHomeAlias || targetsProtectedUnixPath) {
     throw new Error("Invalid file path");
   }
   
@@ -240,6 +246,18 @@ setInterval(() => {
   });
 
   describe("Platform Detection", () => {
+    it("accepts a legitimate Windows 8.3-style path containing a tilde", async () => {
+      const shortNameDir = join(tempDir, "RUNNER~1");
+      const shortNameApp = join(shortNameDir, "app.js");
+      mkdirSync(shortNameDir, { recursive: true });
+      writeFileSync(shortNameApp, "console.log('ok')");
+
+      await expect(mockStartCommand({ file: shortNameApp, name: "test-app" })).resolves.toEqual({
+        success: true,
+        service: "test-app",
+      });
+    });
+
     it("should work on Linux", async () => {
       const options = {
         file: testAppPath,
