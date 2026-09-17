@@ -256,9 +256,10 @@ describe("Milestone 6: Zero-Code Compatibility Adapter for express-session", () 
     test("should handle automatic TTL serialization matching cookie maxAge", async () => {
       const store = new Bs9SessionStore({ state });
 
-      // Session with 50ms TTL
+      // Keep enough headroom for slower shared CI runners while still
+      // exercising automatic expiration from cookie.maxAge.
       await store.set("quick_expire", {
-        cookie: { maxAge: 50 },
+        cookie: { maxAge: 500 },
         status: "ephemeral",
       });
 
@@ -267,7 +268,7 @@ describe("Milestone 6: Zero-Code Compatibility Adapter for express-session", () 
       expect(alive.status).toBe("ephemeral");
 
       // Wait for expiration
-      await new Promise((r) => setTimeout(r, 70));
+      await new Promise((r) => setTimeout(r, 600));
 
       const expired = await store.get("quick_expire");
       expect(expired).toBeNull();
