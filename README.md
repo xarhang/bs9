@@ -66,8 +66,7 @@ bs9 deploy app.js            # Works on all platforms
 
 ### 🚀 Killer Feature: Zero-Config Deployment
 
-**Why choose BS9 over PM2 or systemd?**  
-**One command does everything:**
+**One command configures and starts a managed service:**
 
 ```bash
 # Deploy with production-ready setup
@@ -192,8 +191,8 @@ bs9 start api.exe                                   # Native Windows/Linux binar
 bs9 start script.sh                                 # Bash / Shell script
 bs9 start app.rb --interpreter ruby                 # Custom runtime interpreter
 
-# 🔄 Drop-in PM2 Compatibility (NEW!)
-bs9 start ecosystem.config.js                      # Directly run PM2 ecosystem configuration
+# 🔄 Import common ecosystem configuration fields
+bs9 start ecosystem.config.js                      # Load supported ecosystem fields
 bs9 start bs9.config.json                          # Load multi-app config
 
 # 🆕 Multi-Service Management (NEW!)
@@ -219,66 +218,66 @@ bs9 stop myapp
 # Restart service
 bs9 restart myapp
 
-# 🔄 Zero-Downtime Reload (PM2 reload parity)
+# 🔄 Zero-Downtime Reload
 bs9 reload myapp                                   # Rolling reload across cluster workers
 
-# 📈 Dynamic Cluster Scaling (PM2 scale parity)
+# 📈 Dynamic Cluster Scaling
 bs9 scale myapp 6                                  # Scale to exactly 6 workers
 bs9 scale myapp +2                                 # Scale up by 2 workers
 bs9 scale myapp -1                                 # Scale down by 1 worker
 
-# 🔄 Reset Crash History & Counters (PM2 reset parity)
+# 🔄 Reset Crash History & Counters
 bs9 reset myapp                                    # Reset circuit breaker & crash history
 bs9 reset all                                      # Reset all services
 
-# 📡 Send OS Signal (PM2 sendSignal parity)
+# 📡 Send OS Signal
 bs9 sendSignal SIGUSR2 myapp                       # Send SIGUSR2 to app process
 bs9 sendSignal SIGINT myapp                        # Graceful interrupt
 
-# 🏓 Ping Daemon (PM2 ping parity)
+# 🏓 Ping Daemon
 bs9 ping                                           # Verify BS9 daemon responsiveness
 
-# 📋 Generate Ecosystem Config (PM2 ecosystem parity)
+# 📋 Generate Ecosystem Config
 bs9 init                                           # Generate ecosystem.config.js
 bs9 ecosystem --ts                                 # Generate ecosystem.config.ts
 bs9 ecosystem --json                               # Generate bs9.config.json
 
-# 🚀 System Boot Startup (PM2 startup / unstartup parity)
+# 🚀 System Boot Startup
 bs9 startup                                        # Configure auto-resurrect on OS reboot
 bs9 unstartup                                      # Remove auto-resurrect on reboot
 
-# 🌐 Inspect Environment Variables (PM2 env parity)
+# 🌐 Inspect Environment Variables
 bs9 env myapp                                      # Dump configured environment variables
 
 # 🤖 Native Model Context Protocol (MCP) for AI Assistants (Claude, Cursor)
 bs9 mcp                                            # Launch stdio MCP server
 bs9 mcp --install                                  # Output JSON snippet for Claude Desktop / Cursor
 
-# 🐛 Issue & Exception Tracker Dashboard (PM2 Plus $39/mo Parity — 100% Free!)
+# 🐛 Issue & Exception Tracker Dashboard
 bs9 issues                                         # Aggregated exceptions & crash traces across all services
 bs9 issues myapp                                   # Inspect issues for specific service
 bs9 issues myapp --lines 200                       # Inspect deeper error logs
 bs9 issues --json                                  # Machine-readable output for monitoring pipelines
 bs9 issues --clear                                 # Clear error logs and reset crash state
 
-# 🔍 Describe / Show details (PM2 describe/show parity)
+# 🔍 Describe / Show details
 bs9 show myapp                                     # Inspect PIDs, paths, logs, self-healing status
 bs9 describe myapp                                 # Alias for show
 
-# 🧹 Flush / Empty logs (PM2 flush parity)
+# 🧹 Flush / Empty logs
 bs9 flush                                          # Flush all service logs
 bs9 flush myapp                                    # Flush logs for specific service
 
-# Enhanced status display with visual indicators (PM2 list/ls/ps parity)
+# Enhanced status display with visual indicators
 bs9 status                                         # Show all services
-bs9 status --json                                  # Output JSON array (PM2 jlist parity)
-bs9 list                                           # PM2 alias for status
+bs9 status --json                                  # Output JSON array
+bs9 list                                           # Alias for status
 bs9 ls                                             # Short alias for status
 bs9 ps                                             # UNIX alias for status
 bs9 status myapp                                   # Show specific service
 
 # View logs (combined or per-service)
-bs9 logs                                           # Combined logs for ALL services (PM2 parity)
+bs9 logs                                           # Combined logs for ALL services
 bs9 logs myapp                                     # Show logs for specific service
 bs9 logs myapp --follow                            # Follow logs in real-time
 bs9 logs myapp --lines 50                          # Show last 50 lines
@@ -360,21 +359,21 @@ bs9 export --service myapp --format csv
 - **Port Detection**: Automatic service discovery and access URLs
 - **Environment Management**: Easy environment variable updates
 
-### 🚀 **Bun-Native Zero-Downtime Clustering**: Outperform PM2 with `SO_REUSEPORT`
+### 🚀 **Bun-Native Zero-Downtime Clustering** with `SO_REUSEPORT`
 - **Kernel Load Balancing**: Multiple Bun processes bind the exact same port transparently
 - **Preload Hook**: Automatic injection of `reusePort: true` into `Bun.serve(...)`
 - **High Concurrency**: Exploit all CPU cores with `bs9 start app.ts -i max`
 
-### 🔄 **Drop-in PM2 Compatibility**:
-- **Zero Migration Friction**: Run `bs9 start ecosystem.config.js` directly
-- **Field Support**: Auto-maps `script`, `instances`, `env`, `port`, `cwd`, and `args`
+### 🔄 **Ecosystem Configuration Import**:
+- **Familiar Format**: Run `bs9 start ecosystem.config.js` directly
+- **Supported Fields**: Maps `script`, `instances`, `env`, `port`, `cwd`, and `args`; unsupported PM2-specific behavior is not implied
 
 ### 🛡️ **Smart Self-Healing & Exponential Backoff**:
 - **Crash Loop Circuit Breaker**: Halts infinite restart storms (5 crashes / 60s trigger)
 - **Exponential Backoff**: Delays restarts smoothly (1s → 2s → 4s → 8s → 16s → 60s)
 - **Dedicated Watchdog**: Non-admin background supervisor on Windows persists after CLI exits
 
-### 🌐 **Modern Web Dashboard**: Real-time Glassmorphism UI (Free PM2 Plus alternative)
+### 🌐 **Modern Web Dashboard**: Real-time Glassmorphism UI
 - **WebSocket Streaming**: Live metric push every 2 seconds without HTTP polling overhead
 - **Control Actions**: Start, stop, and restart directly from the browser with Bearer token authentication
 - **Dark Glassmorphism Design**: High-contrast, responsive metrics layout
@@ -596,20 +595,18 @@ kubectl get pods -n bs9-system
 
 ## 🔄 Migration from PM2
 
-| PM2 Command | BS9 Equivalent | Enhanced Features |
-|-------------|----------------|------------------|
-| `pm2 start app.js` | `bs9 start app.js` | Security audit, systemd hardening |
-| `pm2 stop app` | `bs9 stop app` | User-mode operation |
-| `pm2 restart app` | `bs9 restart app` | Health monitoring |
-| `pm2 list` | `bs9 status` | SRE metrics dashboard |
-| `pm2 logs app` | `bs9 logs app` | Journalctl integration |
-| `pm2 monit` | `bs9 monit` | Enhanced terminal dashboard |
-| - | `bs9 web` | Web-based dashboard |
-| - | `bs9 alert` | Alert system with webhooks |
-| - | `bs9 export` | Historical metrics |
-| - | `bs9 delete` | Service deletion and cleanup |
-| - | `bs9 save` | Service configuration backup |
-| - | `bs9 resurrect` | Service restoration from backup |
+BS9 offers familiar lifecycle commands for PM2 users, but it is not a drop-in replacement. Verify service-manager behavior, ecosystem fields, clustering, and observability in your target environment before migrating.
+
+| PM2 command | Closest BS9 command | Notes |
+|-------------|---------------------|-------|
+| `pm2 start app.js` | `bs9 start app.js` | Runs through the native service manager for the current OS |
+| `pm2 stop app` | `bs9 stop app` | Stops the managed service |
+| `pm2 restart app` | `bs9 restart app` | Restarts the managed service |
+| `pm2 list` | `bs9 status` | Supports table, watch, and JSON output |
+| `pm2 logs app` | `bs9 logs app` | Reads service-specific output and error logs |
+| `pm2 monit` | `bs9 monit` | Opens the terminal dashboard |
+
+Common ecosystem fields currently mapped by BS9 include `script`, `instances`, `env`, `port`, `cwd`, and `args`. Review the generated service configuration when migrating.
 
 ---
 

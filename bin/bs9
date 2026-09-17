@@ -98,7 +98,7 @@ program
 
 program
   .command("reload")
-  .description("🔄 Zero-downtime rolling reload for clustered services (PM2 parity)")
+  .description("🔄 Zero-downtime rolling reload for clustered services")
   .argument("[name...]", "Service or cluster name to reload (default: all)")
   .option("-f, --force", "Force reload without confirmation")
   .action(reloadCommand);
@@ -111,7 +111,7 @@ program
   .description("Show status and SRE metrics for services (aliases: list, ls, ps)")
   .argument("[name...]", "Service name, array [app1,app2], pattern [app-*], or [all]")
   .option("-w, --watch", "Watch mode (refresh every 2s)")
-  .option("--json", "Output status as formatted JSON (pm2 jlist parity)")
+  .option("--json", "Output status as formatted JSON")
   .option("--raw", "Output raw minified JSON status")
   .action(statusCommand);
 
@@ -124,7 +124,7 @@ program
 
 program
   .command("flush")
-  .description("🧹 Empty and truncate all or specific service log files (PM2 parity)")
+  .description("🧹 Empty and truncate all or specific service log files")
   .argument("[name]", "Specific service name to flush (optional)")
   .action(flushCommand);
 
@@ -138,50 +138,50 @@ program
 
 program
   .command("scale")
-  .description("📈 Dynamically scale cluster instances up or down (PM2 parity)")
+  .description("📈 Dynamically scale cluster instances up or down")
   .argument("<app>", "Service name to scale")
   .argument("<instances>", "Instance target number or relative offset (+N / -N)")
   .action(scaleCommand);
 
 program
   .command("reset")
-  .description("🔄 Reset restart counters and crash loop history (PM2 parity)")
+  .description("🔄 Reset restart counters and crash loop history")
   .argument("[name...]", "Service name or cluster name (default: all)")
   .action(resetCommand);
 
 program
   .command("sendSignal")
-  .description("📡 Send OS signal to application processes (PM2 parity)")
+  .description("📡 Send OS signal to application processes")
   .argument("<signal>", "Signal to send (e.g. SIGUSR2, SIGINT, SIGTERM)")
   .argument("<app>", "Target service name")
   .action(sendSignalCommand);
 
 program
   .command("ping")
-  .description("🏓 Check if BS9 daemon is alive and operational (PM2 parity)")
+  .description("🏓 Check if BS9 daemon is alive and operational")
   .action(pingCommand);
 
 program
   .command("init")
   .alias("ecosystem")
-  .description("📋 Generate template ecosystem.config.js (PM2 parity)")
+  .description("📋 Generate a BS9 ecosystem configuration template")
   .option("--json", "Generate bs9.config.json template")
   .option("--ts", "Generate ecosystem.config.ts template")
   .action(ecosystemInitCommand);
 
 program
   .command("startup")
-  .description("🚀 Configure system boot startup to resurrect services on boot (PM2 parity)")
+  .description("🚀 Configure system boot startup to resurrect services on boot")
   .action(startupCommand);
 
 program
   .command("unstartup")
-  .description("🗑️ Remove system boot startup resurrection (PM2 parity)")
+  .description("🗑️ Remove system boot startup resurrection")
   .action(unstartupCommand);
 
 program
   .command("env")
-  .description("🌐 Display configured environment variables for a service (PM2 parity)")
+  .description("🌐 Display configured environment variables for a service")
   .argument("<name>", "Service name")
   .action(envCommand);
 
@@ -193,7 +193,7 @@ program
 
 program
   .command("issues")
-  .description("🐛 Inspect runtime bugs, crash stack traces, and unhandled exceptions (PM2 Plus parity)")
+  .description("🐛 Inspect runtime bugs, crash stack traces, and unhandled exceptions")
   .argument("[name]", "Specific service name (optional - if omitted, shows all)")
   .option("-c, --clear", "Clear error logs and reset issue records")
   .option("--json", "Output issues as structured JSON")

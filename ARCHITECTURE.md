@@ -2,7 +2,7 @@
 
 ## Overview
 
-BS9 (Bun Sentinel 9) is a mission-critical process manager CLI designed to replace PM2 with enhanced security, observability, and real-time monitoring capabilities. Built on Bun runtime with systemd user mode integration.
+BS9 (Bun Sentinel 9) is a self-healing process manager for Bun with zero-downtime clustering, real-time dashboards, TypeScript build support, and durable same-host state. It integrates with systemd user services, launchd, and the Windows watchdog.
 
 ## System Architecture
 

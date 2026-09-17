@@ -82,7 +82,7 @@ bs9 start service.exe                               # Native executable binary
 bs9 start task.sh                                   # Shell script
 bs9 start app.rb --interpreter ruby                 # Explicit custom runtime
 
-# PM2 ecosystem configuration parity
+# Import supported ecosystem configuration fields
 bs9 start ecosystem.config.js
 bs9 start bs9.config.json
 
@@ -165,7 +165,7 @@ bs9 restart my-app --force
 
 ### 4. `bs9 reload` - Zero-Downtime Rolling Reload
 
-Performs a replace-first, zero-downtime rolling reload across all worker slots in a cluster (PM2 reload parity).
+Performs a replace-first, zero-downtime rolling reload across all worker slots in a cluster.
 
 ```bash
 # Reload a clustered service with zero downtime
@@ -295,7 +295,7 @@ bs9 status my-app
 # Continuous live refresh mode (refreshes every 2s)
 bs9 status --watch
 
-# Machine-readable JSON output (PM2 jlist parity)
+# Machine-readable JSON output
 bs9 status --json
 bs9 status --raw
 ```
@@ -356,7 +356,7 @@ bs9 flush
 
 ### 14. `bs9 issues` - Runtime Error & Exception Tracker
 
-Aggregates runtime exceptions, unhandled rejections, stack traces, and crash histories across services. (PM2 Plus parity — 100% free in BS9).
+Aggregates runtime exceptions, unhandled rejections, stack traces, and crash histories across services.
 
 ```bash
 # View aggregated issues across all services
@@ -561,7 +561,7 @@ bs9 deploy app.ts --reload --env NEW_KEY=new_val
 
 ### 26. `bs9 init` / `ecosystem` - Generate Configuration Templates
 
-Generates template configuration files compatible with BS9 and PM2.
+Generates BS9 configuration templates. The ecosystem format also supports importing a documented subset of common PM2 fields.
 
 ```bash
 # Generate JavaScript template (ecosystem.config.js)

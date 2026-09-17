@@ -73,7 +73,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.6.1] - 2026-09-10
 
-### 🚀 Polyglot Multi-Runtime & Built-in Issue Tracker (Free PM2 Plus Feature)
+### 🚀 Polyglot Multi-Runtime & Built-in Issue Tracker
 - **Universal Polyglot Runtime**:
   - Out-of-the-box auto-detection for Python (`.py`), Go (`.go`), Shell (`.sh`, `.ps1`, `.bat`), and native precompiled binaries (`.exe`, ELF).
   - Added `--interpreter <path|name>` CLI flag and ecosystem config `interpreter` property to override runtime execution.
@@ -88,7 +88,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.6.0] - 2026-09-10
 
-### 🚀 Major Features & Full PM2 Parity (Runtime / Plus / Enterprise)
+### 🚀 Expanded Process-Management Features
 - **Dynamic Cluster Scaling**: Added `bs9 scale <app> <instances|+N|-N>` to scale workers up or down without restart.
 - **Circuit Breaker & Reset**: Added `bs9 reset <app>` to clear crash loop records and reset exponential backoff.
 - **Process Signal Dispatch**: Added `bs9 sendSignal <signal> <app>` to dispatch POSIX signals to running services.
@@ -677,7 +677,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Port Forwarding Guidance**: Production recommendations
 
 #### Persistence
-- **PM2-like behavior**: `loginctl enable-linger` integration
+- **Persistent user services**: `loginctl enable-linger` integration
 - **Auto-restart**: Automatic recovery from crashes
 - **User Services**: Run without root privileges
 
