@@ -378,5 +378,5 @@ Each video includes:
 ---
 
 *Last Updated: September 17, 2026*
-*BS9 Version: 1.6.5*
+*BS9 Version: 1.6.6*
 *Video Series: In Progress*

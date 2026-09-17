@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.6] - 2026-09-17
+
+### Fixes
+
+- Fixed scaled worker discovery by registering scaled instances in physical and platform service discovery registries.
+- Fixed scaled worker unit generation under Linux systemd to properly spawn from sandbox units.
+- Normalized launchd service names under macOS to ensure consistent lifecycle commands and deletion.
+- Hardened cross-platform service lifecycle coordination across Linux, macOS, and Windows.
+
+### Testing & CI
+
+- Added cross-platform High-Availability (HA) load and chaos verification gates.
+- Verified native Windows and macOS service lifecycles and cleanup routines in CI.
+- Standardized CI test runner paths and socket locations to prevent runtime permission and length constraints.
+
 ## [1.6.5] - 2026-09-17
 
 ### Fixes
