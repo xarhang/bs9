@@ -8,7 +8,7 @@ Welcome to the comprehensive BS9 training program! This program is designed to t
 
 ### 📚 Learning Goals
 - **Master BS9** from basics to advanced concepts
-- **Build production-ready** applications with BS9
+- **Deploy robust** applications with BS9
 - **Implement best practices** for process management
 - **Develop custom plugins** and extensions
 - **Optimize performance** and troubleshoot issues
@@ -137,7 +137,7 @@ Welcome to the comprehensive BS9 training program! This program is designed to t
 
 #### 🎯 Learning Outcomes
 - Develop custom BS9 plugins
-- Deploy enterprise-grade solutions
+- Deploy resilient solutions
 - Integrate with external systems
 - Create custom solutions
 

@@ -199,7 +199,7 @@ BS9 security updates are released on a regular schedule:
 
 ### Update Channels
 
-- **Stable**: Production-ready with security patches
+- **Stable**: Tagged releases with security patches
 - **Beta**: Early access to security features
 - **Development**: Latest security improvements
 

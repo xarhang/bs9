@@ -2,8 +2,8 @@
 
 [![License: AGPL v3+](https://img.shields.io/badge/License-AGPL_v3%2B-blue.svg)](https://www.gnu.org/licenses/agpl-3.0.html)
 [![Version](https://img.shields.io/badge/version-1.6.6-blue.svg)](https://github.com/xarhang/bs9)
-[![Security](https://img.shields.io/badge/security-Enterprise-green.svg)](SECURITY.md)
-[![Production Ready](https://img.shields.io/badge/production-Ready-brightgreen.svg)](PRODUCTION.md)
+[![Security](https://img.shields.io/badge/security-hardened-green.svg)](SECURITY.md)
+[![Tests](https://img.shields.io/badge/tests-291%20passing-brightgreen.svg)](https://github.com/xarhang/bs9/actions)
 [![Cross-Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](https://github.com/xarhang/bs9)
 
 **Self-healing process manager for Bun with zero-downtime clustering, real-time dashboards, TypeScript build support, and durable same-host state.**
@@ -64,12 +64,12 @@ bs9 start app.js             # Works on Linux, macOS, Windows
 bs9 deploy app.js            # Works on all platforms
 ```
 
-### 🚀 Killer Feature: Zero-Config Deployment
+### 🚀 Zero-Config Service Deployment
 
 **One command configures and starts a managed service:**
 
 ```bash
-# Deploy with production-ready setup
+# Deploy managed service
 bs9 deploy app.ts --name my-api --port 8080 --env NODE_ENV=production
 ```
 
@@ -352,9 +352,9 @@ bs9 export --service myapp --format csv
 
 ## 🎯 Key Features
 
-### ✅ **Zero-Config Deployment**: One-command production setup with `bs9 deploy`
+### ✅ **Zero-Config Deployment**: One-command setup with `bs9 deploy`
 - **One-Command Setup**: `bs9 deploy app.ts` does everything automatically
-- **Production Ready**: Security hardening, health checks, metrics enabled
+- **Hardened Defaults**: Security sandboxing, health checks, metrics enabled
 - **Hot Reload**: Update configurations without downtime
 - **Port Detection**: Automatic service discovery and access URLs
 - **Environment Management**: Easy environment variable updates
@@ -434,7 +434,7 @@ bs9 export --service myapp --format csv
 - **Resource Limits**: Memory and CPU constraints
 - **Security Policies**: PodSecurityPolicy, RBAC
 
-### 🛡️ Enterprise Security
+### 🛡️ Security & Sandboxing
 - **Pre-start Audit**: Scan for eval(), child_process.exec(), etc.
 - **User-mode Systemd**: Zero root operation required
 - **Systemd Hardening**: PrivateTmp, ProtectSystem, NoNewPrivileges

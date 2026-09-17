@@ -2,7 +2,7 @@
 
 ## Overview
 
-BS9 is designed for production-ready, mission-critical deployments across all major platforms - Windows, macOS, and Linux - with enterprise-grade security, monitoring, and reliability features.
+BS9 is designed for managing long-running services across Linux, macOS, and Windows with non-root process supervision, health monitoring, and clustering support.
 
 ## System Requirements
 
