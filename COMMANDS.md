@@ -2,7 +2,7 @@
 
 ## Overview
 
-BS9 provides 21 powerful CLI commands for managing Bun applications. All commands are designed to be intuitive, secure, and production-ready with automatic platform detection and zero-configuration setup.
+BS9 provides 34 powerful CLI commands for managing Bun applications. All commands are designed to be intuitive, secure, and production-ready with automatic platform detection and zero-configuration setup.
 
 ## 🚀 Core Commands
 
@@ -17,6 +17,12 @@ bs9 start app.js
 # Cluster mode: Spawn multiple workers sharing port via Bun reusePort
 bs9 start app.js -i 4 --port 3000
 bs9 start app.js -i max --name my-api
+
+# Polyglot Multi-Runtime: Python, Go, Binaries, Shell scripts
+bs9 start script.py --name py-worker
+bs9 start main.go --name go-server
+bs9 start app.exe --name native-service
+bs9 start app.rb --interpreter ruby
 
 # PM2 ecosystem.config.js drop-in compatibility
 bs9 start ecosystem.config.js
@@ -42,6 +48,13 @@ bs9 start app.js --name my-app --otel --prometheus
 - `--https`: Use HTTPS protocol
 - `--env, -e`: Environment variables (multiple)
 - `-i, --instances <n>`: Number of cluster workers (or 'max' for CPU count)
+- `-w, --watch`: Watch and restart service on file change
+- `--max-memory-restart <size>`: Auto-restart if memory exceeds limit (e.g. 200M, 1G)
+- `--restart-delay <ms>`: Delay in ms before auto-restarting
+- `--no-autorestart`: Do not automatically restart this application
+- `--time`: Prefix stdout and stderr logs with timestamps
+- `--cron <pattern>`: Cron pattern to force restart application
+- `--interpreter <name|path>`: Custom interpreter or binary (e.g. `python3`, `go`, `node`, `none`)
 - `--otel`: Enable OpenTelemetry instrumentation
 - `--prometheus`: Enable Prometheus metrics
 - `--build`: Build TypeScript to JavaScript before starting
@@ -777,6 +790,187 @@ bs9 <command> --force
 bs9 <command> -f
 ```
 
+### 26. `bs9 scale` - Dynamic Cluster Scaling
+
+Scale cluster instances up or down without full application restart.
+
+```bash
+# Scale to exactly 6 workers
+bs9 scale my-app 6
+
+# Scale up by 2 workers
+bs9 scale my-app +2
+
+# Scale down by 1 worker
+bs9 scale my-app -1
+```
+
+### 27. `bs9 reset` - Reset Counters & Crash History
+
+Reset restart counters, backoff state, and circuit breaker status.
+
+```bash
+# Reset specific service
+bs9 reset my-app
+
+# Reset all services
+bs9 reset all
+```
+
+### 28. `bs9 sendSignal` - Send Process Signal
+
+Send POSIX OS signals directly to running service processes.
+
+```bash
+# Send SIGUSR2 for user reload
+bs9 sendSignal SIGUSR2 my-app
+
+# Send SIGINT for graceful stop
+bs9 sendSignal SIGINT my-app
+
+# Send SIGKILL
+bs9 sendSignal SIGKILL my-app
+```
+
+### 29. `bs9 ping` - Daemon Healthcheck
+
+Verify that the BS9 runtime and background managers are healthy and operational.
+
+```bash
+bs9 ping
+# Outputs: pong
+# BS9 is alive and operational on win32 (windows-service)
+# Managed services: 4 registered (4 active)
+```
+
+### 30. `bs9 init` / `bs9 ecosystem` - Generate Configuration
+
+Create sample `ecosystem.config.js` template in current directory.
+
+```bash
+# Generate JavaScript template
+bs9 init
+
+# Generate TypeScript template
+bs9 init --ts
+
+# Generate JSON template
+bs9 init --json
+```
+
+### 31. `bs9 startup` & `bs9 unstartup` - Boot Auto-Resurrect
+
+Configure operating system boot hooks to auto-resurrect services after reboot.
+
+```bash
+# Configure system boot startup
+bs9 startup
+
+# Remove boot startup
+bs9 unstartup
+```
+
+### 32. `bs9 env` - Dump Environment Variables
+
+Inspect the live configured environment variables for a service.
+
+```bash
+bs9 env my-app
+```
+
+### 33. `bs9 mcp` - Model Context Protocol (MCP) Server
+
+Exposes native Model Context Protocol (MCP) interface allowing AI assistants (Claude Desktop, Cursor, Antigravity) to query, control, diagnose, and restart services directly from AI chat.
+
+```bash
+# Launch stdio MCP server
+bs9 mcp
+
+# Output configuration JSON block for Claude Desktop / Cursor
+bs9 mcp --install
+```
+
+**Exposed MCP Tools:**
+- `bs9_list_processes`: List all managed services with status, CPU, memory, uptime.
+- `bs9_describe_process`: Detailed process metadata, environment variables, crash logs.
+- `bs9_tail_logs`: Tail recent stdout and stderr lines.
+- `bs9_restart_process`: Restart process or all.
+- `bs9_reload_process`: Zero-downtime rolling reload.
+- `bs9_scale_process`: Dynamically scale cluster worker count.
+- `bs9_stop_process`: Stop service gracefully.
+- `bs9_delete_process`: Delete service.
+- `bs9_diagnose_crash`: AI crash analysis, circuit breaker status, stderr trace.
+- `bs9_reset_crash`: Reset circuit breaker and restart delays.
+- `bs9_flush_logs`: Clear logs.
+- `bs9_send_signal`: Send OS signals to process.
+- `bs9_doctor`: Platform and environment diagnostics.
+- `bs9_get_issues`: Query parsed exceptions, stack traces, and suggested fixes across services.
+
+### 34. `bs9 issues` - Issue & Exception Tracker Dashboard
+
+Inspects, parses, and aggregates runtime errors, unhandled exceptions, and crashes across all services. (Equivalent to PM2 Plus $39/month feature — built-in and 100% free in BS9).
+
+```bash
+# View issues dashboard across all services
+bs9 issues
+
+# View issues for a specific service
+bs9 issues my-app
+
+# Inspect last 200 lines of error logs
+bs9 issues my-app --lines 200
+
+# Output machine-readable JSON for monitoring pipelines
+bs9 issues --json
+
+# Clear error logs and reset crash records
+bs9 issues --clear
+bs9 issues my-app --clear
+```
+
+**Features:**
+- Automatic error categorization (TypeError, SyntaxError, generic errors, Python tracebacks, Go panics).
+- Pinpoints offending file location (`file.ts:line:col`).
+- Displays relevant stack traces.
+- Automated AI diagnostic hints for common failure modes (`ECONNREFUSED`, `EADDRINUSE`, missing dependencies, memory limits).
+- Seamlessly accessible via CLI, JSON API, and native MCP server (`bs9_get_issues`).
+
+### 35. `bs9 inspect-ha` - Static HA Readiness Inspection
+
+Inspect an entry point and its relative imports for framework support, managed state usage, and unsafe module-level mutable state.
+
+```bash
+bs9 inspect-ha src/app.ts
+bs9 inspect-ha src/app.ts --json
+```
+
+The report is advisory static analysis. Follow it with `bs9 verify-ha` for an execution-based check.
+
+### 36. `bs9 verify-ha` - Isolated Failure Verification
+
+Exercise rolling reload and violent worker termination while generating HTTP traffic. Isolated ephemeral mode is the default.
+
+```bash
+bs9 verify-ha src/app.ts
+bs9 verify-ha src/app.ts --instances 4 --concurrency 20 --json
+bs9 verify-ha my-service --live
+```
+
+Options include `--live`, `--port`, `--concurrency`, `--instances`, `--ready-timeout`, `--drain-timeout`, and `--json`. Live mode affects a running cluster and must be selected explicitly.
+
+### 37. `bs9 daemon` - Controller and State Hub
+
+```bash
+bs9 daemon start
+bs9 daemon status
+bs9 daemon stop
+bs9 daemon start --foreground
+```
+
+The daemon owns authenticated lifecycle coordination, topology reconciliation, cluster operation locks, and the same-host State Hub. `start`, `reload`, and `scale` fail closed when they cannot establish the required control-plane authority.
+
+For the complete availability model, see [High-Availability Runtime Guide](HA_RUNTIME.md).
+
 ## 📝 Exit Codes
 
 - `0`: Success
@@ -800,5 +994,5 @@ bs9 <command> -f
 
 ---
 
-*Last Updated: January 25, 2026*
-*BS9 Version: 1.3.5*
+*Last Updated: 2026*
+*BS9 Version: 1.6.3*
