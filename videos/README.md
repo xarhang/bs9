@@ -6,7 +6,7 @@ This directory contains video tutorials for BS9, demonstrating various features 
 
 ## 📹 Video Content
 
-### 🚀 Getting Started Series
+### Getting Started Series
 
 #### 1. Introduction to BS9
 **Duration:** 5 minutes  
@@ -73,7 +73,7 @@ This directory contains video tutorials for BS9, demonstrating various features 
 - Performance tuning
 - Multi-service management
 
-### 🚀 Advanced Features Series
+### Advanced Features Series
 
 #### 7. Security Best Practices
 **Duration:** 12 minutes  
@@ -267,7 +267,7 @@ Description:** Integrating BS9 with external APIs and services.
 - Configuration
 - Security features
 
-#### **🚀 Advanced Topics**
+#### **Advanced Topics**
 - Performance optimization
 - High availability
 - Service discovery

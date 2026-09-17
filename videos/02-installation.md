@@ -14,7 +14,7 @@ This comprehensive installation guide covers all methods for installing BS9 acro
 
 ## 🎯 Installation Methods Covered
 
-### 🚀 One-Click Installation (Recommended)
+### One-Click Installation (Recommended)
 - Using the setup.sh script
 - Automatic dependency installation
 - Cross-platform compatibility

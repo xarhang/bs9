@@ -205,6 +205,6 @@ This Code of Conduct is reviewed:
 
 ---
 
-**Remember: We're all here to build something amazing together. Let's make BS9 a welcoming place for everyone! 🚀**
+**Remember: We're all here to build something amazing together. Let's make BS9 a welcoming place for everyone!**
 
 **By participating in this project, you agree to abide by this Code of Conduct.**

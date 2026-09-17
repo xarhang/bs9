@@ -251,7 +251,7 @@ bs9 start examples/simple-app.js --name hello-world --port 3000
 
 ## 📊 Production Deployment
 
-### 🚀 Production Configuration
+### Production Configuration
 ```bash
 # Production deployment
 bs9 start examples/simple-app.js \

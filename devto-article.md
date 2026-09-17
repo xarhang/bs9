@@ -25,7 +25,7 @@ Enter **BS9 (Bun Sentinel 9)**.
 [BS9](https://github.com/xarhang/bs9) is an open-source process supervisor and high-availability clustering manager tailored specifically for **Bun**. 
 
 It is designed to be:
-- 🚀 **Lightweight** with near-zero overhead
+- **Lightweight** with near-zero overhead
 - 🔒 **Secure** (non-root by design)
 - 🛡️ **Resilient** against unexpected worker failures and memory spikes
 
@@ -63,7 +63,7 @@ It bombards your application with continuous HTTP traffic while simultaneously i
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Installation
 

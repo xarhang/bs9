@@ -130,7 +130,7 @@ curl http://localhost:3000/auth/login
 curl http://localhost:3000/notifications
 ```
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 - Bun runtime installed

@@ -1,4 +1,4 @@
-# BS9 (Bun Sentinel 9) 🚀
+# BS9 (Bun Sentinel 9)
 
 [![License: AGPL v3+](https://img.shields.io/badge/License-AGPL_v3%2B-blue.svg)](https://www.gnu.org/licenses/agpl-3.0.html)
 [![Version](https://img.shields.io/badge/version-1.6.6-blue.svg)](https://github.com/xarhang/bs9)
@@ -12,7 +12,7 @@ Works on Windows, macOS, and Linux.
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ```bash
 # Verified installer (installs Bun + BS9)
@@ -64,7 +64,7 @@ bs9 start app.js             # Works on Linux, macOS, Windows
 bs9 deploy app.js            # Works on all platforms
 ```
 
-### 🚀 Zero-Config Service Deployment
+### Zero-Config Service Deployment
 
 **One command configures and starts a managed service:**
 
@@ -180,7 +180,7 @@ bs9 start app.js --host 0.0.0.0 --port 8080        # Custom host and port
 bs9 start app.js --host 192.168.1.100 --https      # Custom host with HTTPS
 bs9 start app.ts --build --name myapp --port 8080 --env NODE_ENV=production --host 0.0.0.0 --https
 
-# 🚀 Bun-Native Zero-Downtime Clustering (NEW!)
+# Bun-Native Zero-Downtime Clustering (NEW!)
 bs9 start app.ts -i 4 --port 3000                  # Spawn 4 workers on same port (reusePort)
 bs9 start app.ts -i max --name my-api              # Spawn workers matching CPU count
 
@@ -242,7 +242,7 @@ bs9 init                                           # Generate ecosystem.config.j
 bs9 ecosystem --ts                                 # Generate ecosystem.config.ts
 bs9 ecosystem --json                               # Generate bs9.config.json
 
-# 🚀 System Boot Startup
+# System Boot Startup
 bs9 startup                                        # Configure auto-resurrect on OS reboot
 bs9 unstartup                                      # Remove auto-resurrect on reboot
 
@@ -359,7 +359,7 @@ bs9 export --service myapp --format csv
 - **Port Detection**: Automatic service discovery and access URLs
 - **Environment Management**: Easy environment variable updates
 
-### 🚀 **Bun-Native Zero-Downtime Clustering** with `SO_REUSEPORT`
+### **Bun-Native Zero-Downtime Clustering** with `SO_REUSEPORT`
 - **Kernel Load Balancing**: Multiple Bun processes bind the exact same port transparently
 - **Preload Hook**: Automatic injection of `reusePort: true` into `Bun.serve(...)`
 - **High Concurrency**: Exploit all CPU cores with `bs9 start app.ts -i max`
@@ -793,7 +793,7 @@ BS9/
 
 ---
 
-## 🚀 Production Deployment
+## Production Deployment
 
 ### System Requirements & Health Check
 ```bash

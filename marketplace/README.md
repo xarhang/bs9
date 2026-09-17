@@ -53,7 +53,7 @@ The BS9 Marketplace is a centralized platform for discovering, installing, and m
 - **Documentation**: Documentation generators
 - **Linting**: Code quality and linting tools
 
-### 🚀 Deployment
+### Deployment
 - **Cloud**: Cloud service integrations
 - **Containerization**: Docker and Kubernetes tools
 - **CI/CD**: Continuous integration/deployment
@@ -322,7 +322,7 @@ bs9 marketplace check-updates
 - **Documentation**: Auto-documentation tools
 - **Linting**: Code quality and formatting
 
-### 🚀 Deployment
+### Deployment
 - **Cloud**: AWS, Google Cloud, Azure, DigitalOcean
 - **Containerization**: Docker, Kubernetes, Podman
 - **CI/CD**: GitHub Actions, GitLab CI, Jenkins
@@ -431,7 +431,7 @@ await plugin.updateConfig(newConfig);
 
 ## 🎯 Roadmap
 
-### 🚀 Upcoming Features
+### Upcoming Features
 - **Plugin Marketplace Web Interface**: Visual plugin management
 - **Plugin Analytics Dashboard**: Detailed analytics and insights
 - **Plugin Templates**: Plugin development templates

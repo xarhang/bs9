@@ -2,7 +2,7 @@
 
 Thank you for your interest in contributing to BS9! This document provides guidelines and information for contributors.
 
-## 🚀 Our Mission
+## Our Mission
 
 BS9 is a 100% open-source, community-driven project. We believe in making enterprise-grade process management available to everyone. All project code is licensed under `AGPL-3.0-or-later`.
 

@@ -22,7 +22,7 @@ PostgreSQL is **optional** and only needed for:
 - **Enterprise Audit Trails**: Compliance and auditing
 - **Multi-Node Clustering**: Distributed service management
 
-#### 🚀 **For Solo Developers & Minimalists**
+#### **For Solo Developers & Minimalists**
 ```bash
 # BS9 works perfectly without any database
 npm install -g bs9          # No PostgreSQL required
@@ -170,7 +170,7 @@ WORKDIR /app
 CMD ["bs9", "deploy", "app.js"]
 ```
 
-#### 🚀 **Kubernetes Support**
+#### **Kubernetes Support**
 - **Helm Charts**: Ready-to-use Kubernetes templates
 - **Service Discovery**: Consul integration
 - **Load Balancing**: Built-in load balancer
@@ -180,7 +180,7 @@ CMD ["bs9", "deploy", "app.js"]
 
 ### Q: "How do I get started?"
 
-#### 🚀 **Quick Start**
+#### **Quick Start**
 ```bash
 # Install BS9
 npm install -g bs9
@@ -212,7 +212,7 @@ bs9 logs app.js --follow
 - **Enterprise**: Production-ready with advanced monitoring
 - **Minimalists**: No database required for core functionality
 
-### 🚀 **Key Advantages:**
+### **Key Advantages:**
 - **Zero Database Required** for core functionality
 - **One-Command Deployment**: `bs9 deploy app.js`
 - **Enhanced Status Display**: Visual indicators and metrics
@@ -225,4 +225,4 @@ bs9 logs app.js --follow
 - **Enterprise Audit**: Compliance and auditing
 - **Multi-Node Clustering**: Distributed management
 
-**BS9: The lightweight, zero-config process manager that scales from solo projects to enterprise deployments!** 🚀
+**BS9: The lightweight, zero-config process manager that scales from solo projects to enterprise deployments!**

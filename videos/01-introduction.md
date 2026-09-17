@@ -14,7 +14,7 @@ This video provides a comprehensive introduction to BS9 (Bun Sentinel 9), explai
 
 ## 🎯 Topics Covered
 
-### 🚀 What is BS9?
+### What is BS9?
 - Overview of BS9 as a process manager
 - Key features and benefits
 - Comparison with other process managers

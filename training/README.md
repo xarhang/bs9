@@ -23,7 +23,7 @@ Welcome to the comprehensive BS9 training program! This program is designed to t
 
 ## 📚 Training Paths
 
-### 🚀 Path 1: BS9 Fundamentals (Beginner)
+### Path 1: BS9 Fundamentals (Beginner)
 **Duration:** 2 weeks  
 **Level:** Beginner  
 **Prerequisites:** Basic JavaScript/Bun knowledge
@@ -105,7 +105,7 @@ Welcome to the comprehensive BS9 training program! This program is designed to t
 
 ---
 
-### 🚀 Path 3: BS9 Expert (Advanced)
+### Path 3: BS9 Expert (Advanced)
 **Duration:** 4 weeks  
 **Level:** Advanced  
 **Prerequisites:** Advanced BS9
@@ -349,7 +349,7 @@ Welcome to the comprehensive BS9 training program! This program is designed to t
 
 ## 🎯 Future Roadmap
 
-### 🚀 Upcoming Courses
+### Upcoming Courses
 - **BS9 for AI/ML**: AI/ML application management
 - **BS9 for Edge Computing**: Edge deployment strategies
 - **BS9 for Serverless**: Serverless integration
