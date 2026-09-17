@@ -17,7 +17,7 @@
     }
   },
   "bin": {
-    "bs9": "./bin/bs9"
+    "bs9": "bin/bs9"
   },
   "files": [
     "bin",
