@@ -6,7 +6,9 @@
 [![Production Ready](https://img.shields.io/badge/production-Ready-brightgreen.svg)](PRODUCTION.md)
 [![Cross-Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](https://github.com/xarhang/bs9)
 
-**Enterprise-grade, mission-critical process manager for Bun applications with built-in security, monitoring, and observability. Works on Windows, macOS, and Linux.**
+**Self-healing process manager for Bun with zero-downtime clustering, real-time dashboards, TypeScript build support, and durable same-host state.**
+
+Works on Windows, macOS, and Linux.
 
 ---
 
@@ -75,8 +77,8 @@ bs9 deploy app.ts --name my-api --port 8080 --env NODE_ENV=production
 **What `bs9 deploy` does automatically:**
 - ✅ Creates systemd service with security hardening
 - ✅ Enables user services persistence (linger)
-- ✅ Sets up health checks (`/healthz`, `/metrics`)
-- ✅ Enables OpenTelemetry and Prometheus metrics
+- ✅ Validates application-provided `/healthz` and `/metrics` endpoints
+- ✅ Configures OpenTelemetry service/exporter environment variables
 - ✅ Configures smart restart policies
 - ✅ Performs health validation
 - ✅ Shows management commands and access URLs
@@ -89,7 +91,7 @@ bs9 deploy app.ts --reload --env NEW_CONFIG=value
 
 ## 🛡️ High-Availability Self-Healing Runtime & State Hub
 
-BS9 transforms Bun process management beyond PM2 into a **production-grade, self-healing application runtime**. See the [High-Availability Runtime Guide](docs/HA_RUNTIME.md) for the exact guarantees, verification workflow, and single-host boundaries.
+BS9 provides a **self-healing, same-host application runtime** for Bun. See the [High-Availability Runtime Guide](docs/HA_RUNTIME.md) for the exact guarantees, verification workflow, and single-host boundaries.
 
 ### 1. Primary UX: Zero-Code Stateless HA
 ```bash
@@ -440,11 +442,10 @@ bs9 export --service myapp --format csv
 - **Resource Limits**: CPU, memory, file descriptor limits
 - **Port Warnings**: Alert for privileged ports (< 1024)
 
-### ⚡ TypeScript JIT/AOT Support
-- **JIT Mode**: Run `.ts` files directly (default)
-- **AOT Mode**: Compile to optimized JS for production (`--build`)
-- **Performance**: Faster startup vs runtime optimization
-- **Build Directory**: `.bs9-build/` for compiled artifacts
+### ⚡ TypeScript Runtime & Build Support
+- **Direct Mode**: Run `.ts` files with Bun (default)
+- **Build Mode**: Bundle and minify TypeScript to JavaScript before starting (`--build`)
+- **Build Directory**: `.bs9-build/` for generated artifacts
 
 ---
 
@@ -950,8 +951,7 @@ bs9 start app.js --host 127.0.0.1 --port 3000
 # Use HTTPS in production
 bs9 start app.js --https --host 0.0.0.0 --port 8443
 
-# Enable security auditing
-export BS9_AUDIT_LOGGING=true
+# The pre-start security pattern audit runs automatically
 bs9 start app.js
 
 # Secure web dashboard
@@ -964,7 +964,7 @@ bs9 web --port 8080  # Generates secure session token
 
 ### Security Checklist
 - [ ] Review service configurations
-- [ ] Enable security audit logging
+- [ ] Review and resolve pre-start security audit findings
 - [ ] Use proper file permissions
 - [ ] Configure network firewalls
 - [ ] Monitor security logs

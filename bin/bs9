@@ -57,7 +57,7 @@ const program = new Command();
 
 program
   .name("bs9")
-  .description("BS9 (Bun Sentinel 9) — Mission-critical process manager CLI")
+  .description("Self-healing process manager for Bun with zero-downtime clustering, real-time dashboards, TypeScript build support, and durable same-host state.")
   .version(version);
 
 program
@@ -69,8 +69,8 @@ program
   .option("-h, --host <host>", "Host address", "localhost")
   .option("--https", "Use HTTPS protocol")
   .option("-e, --env <env>", "Environment variables (can be used multiple times)", (value, previous) => [...(previous || []), value])
-  .option("--otel", "Enable OpenTelemetry instrumentation", true)
-  .option("--prometheus", "Enable Prometheus metrics", true)
+  .option("--otel", "Configure OpenTelemetry service/exporter environment", true)
+  .option("--prometheus", "Enable Prometheus integration metadata (the app must expose metrics)", true)
   .option("--build", "Build TypeScript to JavaScript before starting")
   .option("-i, --instances <n>", "Number of cluster workers (use 'max' for CPU count)", "1")
   .option("-w, --watch", "Watch and restart service on file change")

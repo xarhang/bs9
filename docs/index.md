@@ -1,7 +1,7 @@
 ---
 layout: default
 title: Documentation
-description: Run, observe, and recover Bun and polyglot services without root access.
+description: Self-healing process manager for Bun with zero-downtime clustering, real-time dashboards, TypeScript build support, and durable same-host state.
 home: true
 permalink: /
 ---
@@ -9,7 +9,7 @@ permalink: /
 <section class="hero">
   <p class="eyebrow">Bun Sentinel 9 · v1.6.3</p>
   <h1>Keep services running.<br><span>Stay in control.</span></h1>
-  <p class="lede">BS9 is a fast, non-root process manager for Bun and polyglot applications, with clustering, zero-downtime reloads, observability, and a high-availability runtime built in.</p>
+  <p class="lede">Self-healing process manager for Bun with zero-downtime clustering, real-time dashboards, TypeScript build support, and durable same-host state.</p>
   <div class="actions">
     <a class="button primary" href="{{ '/commands/' | relative_url }}">Explore commands →</a>
     <a class="button" href="https://github.com/xarhang/bs9">View on GitHub ↗</a>
