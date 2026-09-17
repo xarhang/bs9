@@ -81,6 +81,17 @@ BS9 performs automatic security audits before starting services:
 - **Resource Monitoring**: CPU, memory, and network usage tracking
 - **Audit Logging**: All security events logged
 
+### Cluster Control Plane and State Hub
+
+- **Local Transport**: Unix domain sockets use owner-only permissions; Windows uses a per-user named pipe.
+- **Token Files**: Worker and admin authentication secrets are read from `BS9_AUTH_TOKEN_FILE` instead of being placed directly in command-line arguments.
+- **Challenge-Response Authentication**: Lifecycle and State Hub clients authenticate with an HMAC-SHA256 challenge-response exchange.
+- **Bounded Frames**: The length-prefixed protocol rejects frames larger than 16 MiB before allocating the payload buffer.
+- **Fail-Closed Topology Changes**: `start`, `reload`, and `scale` require renewable cluster-lock ownership and stop changing workers when ownership is lost.
+- **State Limits**: The State Hub enforces configured per-value and per-namespace memory limits and validates recovered WAL records.
+
+The State Hub is a same-user, same-host trust boundary. It must not be exposed as a public network service. See the [High-Availability Runtime Guide](docs/HA_RUNTIME.md).
+
 ## 🔍 Threat Model
 
 ### Protected Against
@@ -166,6 +177,8 @@ BS9_AUDIT_LOGGING=true                # Enable security audit logging
 - [ ] Update to latest BS9 version
 - [ ] Test security monitoring
 - [ ] Backup configurations securely
+- [ ] Confirm State Hub and controller sockets are accessible only to the service account
+- [ ] Run `bs9 inspect-ha` and isolated `bs9 verify-ha` for clustered workloads
 
 ### Ongoing Security
 
@@ -250,5 +263,5 @@ BS9 tracks security metrics:
 - [Changelog](https://github.com/xarhang/bs9/blob/main/CHANGELOG.md)
 
 **Last Updated**: September 10, 2026
-**Security Version**: 1.5.20
+**Security Version**: 1.6.3
 **Next Review**: December 10, 2026

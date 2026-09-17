@@ -92,7 +92,7 @@ bs9-plugin-example/
   "version": "1.0.0",
   "description": "Example BS9 plugin",
   "author": "BS9 Community",
-  "license": "MIT",
+  "license": "AGPL-3.0-or-later",
   "category": "core-extensions",
   "keywords": ["bs9", "plugin", "example"],
   "repository": "https://github.com/user/bs9-plugin-example",
@@ -449,6 +449,6 @@ await plugin.updateConfig(newConfig);
 
 ---
 
-*Last Updated: January 25, 2026*
-*BS9 Version: 1.3.5*
+*Last Updated: September 17, 2026*
+*BS9 Version: 1.6.3*
 *Marketplace Version: 1.0.0*

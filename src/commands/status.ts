@@ -5,7 +5,7 @@
  * High-performance, non-root process manager for Bun
  * 
  * Copyright (c) 2026 BS9 (Bun Sentinel 9)
- * Licensed under the MIT License
+ * SPDX-License-Identifier: AGPL-3.0-or-later
  * https://github.com/xarhang/bs9
  */
 
@@ -91,8 +91,10 @@ async function handleStatus(options: StatusOptions, name?: string): Promise<void
       const clean = name.replace(/^(BS9_|bs9\.)/, "");
       services = services.filter(service => {
         const sClean = service.name.replace(/^(BS9_|bs9\.)/, "");
-        const isWorker = new RegExp(`^${clean}-\\d+$`).test(sClean);
-        return service.name === name || sClean === clean || isWorker;
+        if (service.name === name || sClean === clean) return true;
+        if (new RegExp(`^${clean}-g\\d+$`).test(sClean)) return true;
+        const isWorker = new RegExp(`^${clean}-\\d+(-g\\d+)?$`).test(sClean);
+        return isWorker;
       });
     }
 
@@ -121,8 +123,10 @@ async function handleStatus(options: StatusOptions, name?: string): Promise<void
           const clean = name.replace(/^(BS9_|bs9\.)/, "");
           updatedServices = updatedServices.filter(service => {
             const sClean = service.name.replace(/^(BS9_|bs9\.)/, "");
-            const isWorker = new RegExp(`^${clean}-\\d+$`).test(sClean);
-            return service.name === name || sClean === clean || isWorker;
+            if (service.name === name || sClean === clean) return true;
+            if (new RegExp(`^${clean}-g\\d+$`).test(sClean)) return true;
+            const isWorker = new RegExp(`^${clean}-\\d+(-g\\d+)?$`).test(sClean);
+            return isWorker;
           });
         }
 
@@ -143,8 +147,8 @@ function displayServices(services: ServiceMetrics[]): void {
   }
 
   // Header with better formatting
-  console.log(`${"SERVICE".padEnd(18)} ${"STATUS".padEnd(15)} ${"CPU".padEnd(10)} ${"MEMORY".padEnd(12)} ${"UPTIME".padEnd(12)} ${"TASKS".padEnd(8)} DESCRIPTION`);
-  console.log("─".repeat(100));
+  console.log(`${"SERVICE".padEnd(22)} ${"STATUS".padEnd(15)} ${"CPU".padEnd(10)} ${"MEMORY".padEnd(12)} ${"UPTIME".padEnd(12)} ${"TASKS".padEnd(8)} DESCRIPTION`);
+  console.log("─".repeat(105));
 
   // Sort services by status (running first, then by name)
   const sortedServices = services.sort((a, b) => {
@@ -176,9 +180,13 @@ function displayServices(services: ServiceMetrics[]): void {
     }
 
     const displayStatus = `${statusIndicator} ${status}`;
+    const cleanName = svc.name.replace(/^(BS9_|bs9\.)/, "");
+    const displayName = svc.logicalSlot && svc.logicalSlot !== cleanName
+      ? `${svc.logicalSlot} -> ${cleanName}`
+      : svc.name;
 
     console.log(
-      `${svc.name.padEnd(18)} ${displayStatus.padEnd(15)} ${svc.cpu.padEnd(10)} ${svc.memory.padEnd(12)} ${svc.uptime.padEnd(12)} ${(svc.tasks || "-").padEnd(8)} ${svc.description}`
+      `${displayName.padEnd(22)} ${displayStatus.padEnd(15)} ${svc.cpu.padEnd(10)} ${svc.memory.padEnd(12)} ${svc.uptime.padEnd(12)} ${(svc.tasks || "-").padEnd(8)} ${svc.description}`
     );
   }
 

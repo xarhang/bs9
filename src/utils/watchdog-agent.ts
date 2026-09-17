@@ -8,13 +8,13 @@
  * Supports: --watch, --max-memory-restart, --restart-delay, --no-autorestart, --time
  * 
  * Copyright (c) 2026 BS9 (Bun Sentinel 9)
- * Licensed under the MIT License
+ * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
 import { spawn, execSync } from "node:child_process";
 import { openSync, closeSync, existsSync, readFileSync, writeFileSync, mkdirSync, watch as fsWatch, appendFileSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
+import { getPlatformInfo } from "../platform/detect.js";
 import { recordCrash, resetCrash, sleep, startHealthyTimer } from "./crash-tracker.js";
 
 function isValidServiceName(name: string): boolean {
@@ -28,8 +28,9 @@ if (!serviceName || !isValidServiceName(serviceName)) {
   process.exit(1);
 }
 
-const servicesDir = join(homedir(), ".bs9", "services");
-const logsDir = join(homedir(), ".bs9", "logs");
+const platformInfo = getPlatformInfo();
+const servicesDir = platformInfo.serviceDir;
+const logsDir = platformInfo.logDir;
 if (!existsSync(logsDir)) mkdirSync(logsDir, { recursive: true });
 
 function getMetadata(): any {

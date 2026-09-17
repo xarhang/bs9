@@ -1,11 +1,11 @@
-﻿#!/usr/bin/env bun
+#!/usr/bin/env bun
 
 /**
  * BS9 - Bun Sentinel 9
  * Crash Loop Detector with Exponential Backoff
  *
  * Copyright (c) 2026 BS9 (Bun Sentinel 9)
- * Licensed under the MIT License
+ * SPDX-License-Identifier: AGPL-3.0-or-later
  * https://github.com/xarhang/bs9
  */
 

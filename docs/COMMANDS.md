@@ -935,6 +935,42 @@ bs9 issues my-app --clear
 - Automated AI diagnostic hints for common failure modes (`ECONNREFUSED`, `EADDRINUSE`, missing dependencies, memory limits).
 - Seamlessly accessible via CLI, JSON API, and native MCP server (`bs9_get_issues`).
 
+### 35. `bs9 inspect-ha` - Static HA Readiness Inspection
+
+Inspect an entry point and its relative imports for framework support, managed state usage, and unsafe module-level mutable state.
+
+```bash
+bs9 inspect-ha src/app.ts
+bs9 inspect-ha src/app.ts --json
+```
+
+The report is advisory static analysis. Follow it with `bs9 verify-ha` for an execution-based check.
+
+### 36. `bs9 verify-ha` - Isolated Failure Verification
+
+Exercise rolling reload and violent worker termination while generating HTTP traffic. Isolated ephemeral mode is the default.
+
+```bash
+bs9 verify-ha src/app.ts
+bs9 verify-ha src/app.ts --instances 4 --concurrency 20 --json
+bs9 verify-ha my-service --live
+```
+
+Options include `--live`, `--port`, `--concurrency`, `--instances`, `--ready-timeout`, `--drain-timeout`, and `--json`. Live mode affects a running cluster and must be selected explicitly.
+
+### 37. `bs9 daemon` - Controller and State Hub
+
+```bash
+bs9 daemon start
+bs9 daemon status
+bs9 daemon stop
+bs9 daemon start --foreground
+```
+
+The daemon owns authenticated lifecycle coordination, topology reconciliation, cluster operation locks, and the same-host State Hub. `start`, `reload`, and `scale` fail closed when they cannot establish the required control-plane authority.
+
+For the complete availability model, see [High-Availability Runtime Guide](HA_RUNTIME.md).
+
 ## 📝 Exit Codes
 
 - `0`: Success
@@ -959,4 +995,4 @@ bs9 issues my-app --clear
 ---
 
 *Last Updated: 2026*
-*BS9 Version: 1.6.1*
+*BS9 Version: 1.6.3*

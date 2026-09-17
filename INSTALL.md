@@ -6,7 +6,7 @@
 
 ```bash
 # Download pinned release installer
-curl -fsSLO https://github.com/xarhang/bs9/releases/download/v1.6.2/setup.sh
+curl -fsSLO https://github.com/xarhang/bs9/releases/download/v1.6.3/setup.sh
 
 # Verify checksum and inspect before execution
 sha256sum setup.sh   # on macOS: shasum -a 256 setup.sh
@@ -288,6 +288,10 @@ kubectl delete namespace bs9-system
 ```
 
 ## Next Steps
+
+- Review the [High-Availability Runtime Guide](docs/HA_RUNTIME.md) before using `-i max` with stateful applications.
+- Run `bs9 inspect-ha <entry-file>` and `bs9 verify-ha <entry-file>` before production deployment.
+- Review the [GNU AGPL licensing terms](LICENSE) that apply to BS9 1.6.3 and later.
 
 After successful installation:
 

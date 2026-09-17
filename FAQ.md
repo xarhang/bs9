@@ -35,7 +35,7 @@ bs9 save --all             # JSON-based backup
 
 ### Q: "How does BS9 compare to PM2?"
 
-| Feature | PM2 (Runtime / Plus / Enterprise) | BS9 (v1.6.0) |
+| Feature | PM2 (Runtime / Plus / Enterprise) | BS9 (v1.6.3) |
 |--------|-----|-----|
 | **Runtime Efficiency** | Node.js (~60-120MB+ idle) | ⚡ Bun Native (~15-30MB idle, 3-5x faster) |
 | **Clustering** | Node IPC cluster master | 🚀 Bun `SO_REUSEPORT` kernel load balancing |
@@ -216,7 +216,8 @@ bs9 logs app.js --follow
 
 #### 📚 **Documentation**
 - **[README.md](README.md)**: Complete getting started guide
-- **[COMMANDS.md](docs/COMMANDS.md)**: All 34 commands documented
+- **[COMMANDS.md](docs/COMMANDS.md)**: Complete CLI command reference
+- **[HA_RUNTIME.md](docs/HA_RUNTIME.md)**: High-availability guarantees, state handling, and limitations
 - **[SECURITY.md](SECURITY.md)**: Security policies and reporting
 - **[PRODUCTION.md](PRODUCTION.md)**: Production deployment guide
 

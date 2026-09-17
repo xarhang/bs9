@@ -45,6 +45,9 @@ import { startupCommand, unstartupCommand } from "../src/commands/startup.js";
 import { envCommand } from "../src/commands/env.js";
 import { mcpCommand } from "../src/commands/mcp.js";
 import { issuesCommand } from "../src/commands/issues.js";
+import { inspectHaCommand } from "../src/commands/inspect-ha.js";
+import { verifyHaCommand } from "../src/commands/verify-ha.js";
+import { daemonCommand } from "../src/commands/daemon.js";
 import { initializePlatformDirectories } from "../src/platform/detect.js";
 
 // Initialize platform directories at startup
@@ -399,6 +402,54 @@ program
   .option("--deep", "Deep system analysis")
   .option("-v, --verbose", "Verbose output with detailed analysis")
   .action(inspectCommand);
+
+program
+  .command("inspect-ha")
+  .description("🔍 Analyze application code for High-Availability readiness and state pitfalls")
+  .argument("<file>", "Application entry point file to inspect")
+  .option("--json", "Output inspection report as JSON")
+  .action(async (file, options) => {
+    try {
+      await inspectHaCommand(file, options);
+    } catch {
+      process.exit(1);
+    }
+  });
+
+program
+  .command("verify-ha")
+  .description("🛡️ Run isolated zero-downtime reload and violent crash recovery tests")
+  .argument("<file>", "Application file or service name to verify")
+  .option("--live", "Test against an active live cluster instead of isolated ephemeral cluster")
+  .option("-p, --port <port>", "Port for verification traffic (default: ephemeral high port)")
+  .option("-c, --concurrency <number>", "Number of concurrent HTTP test requests", "5")
+  .option("-i, --instances <number>", "Number of cluster instances", "2")
+  .option("--ready-timeout <ms>", "Worker readiness timeout in ms", "15000")
+  .option("--drain-timeout <ms>", "Worker drain timeout in ms", "5000")
+  .option("--json", "Output verification metrics as JSON")
+  .action(async (file, options) => {
+    try {
+      const result = await verifyHaCommand(file, {
+        ...options,
+        concurrency: options.concurrency ? parseInt(options.concurrency, 10) : 5,
+        instances: options.instances ? parseInt(options.instances, 10) : 2,
+        readyTimeoutMs: options.readyTimeout ? parseInt(options.readyTimeout, 10) : 15000,
+        drainTimeoutMs: options.drainTimeout ? parseInt(options.drainTimeout, 10) : 5000,
+      });
+      if (!result.passed) {
+        process.exit(1);
+      }
+    } catch {
+      process.exit(1);
+    }
+  });
+
+program
+  .command("daemon")
+  .description("⚙️ Manage the persistent BS9 Controller and Hub daemon")
+  .argument("[action]", "Action to perform: start, stop, status", "status")
+  .option("-f, --foreground", "Run daemon in foreground (for systemd/launchd supervision)", false)
+  .action(daemonCommand);
 
 // Explicitly handle no arguments case
 if (!process.argv.slice(2).length) {

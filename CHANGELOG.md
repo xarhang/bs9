@@ -5,7 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.6.3] - 2026-09-10
+## [1.6.3] - 2026-09-17
+
+### High-availability runtime
+
+- Added authenticated lifecycle coordination, logical slots, physical generations, and replace-first rolling reload.
+- Added fail-closed renewable cluster locks with ownership tokens and remote validation at destructive command boundaries.
+- Added the same-host State Hub with TTL/CAS/increment operations, WAL recovery, snapshots, distributed leases with fencing tokens, and durable queues.
+- Added the typed `bs9/runtime` client, strict cluster fallback policy, and the `express-session` compatibility adapter.
+- Added `bs9 inspect-ha`, `bs9 verify-ha`, and persistent daemon management.
+- Added crash, reload, lock-loss, WAL recovery, and end-to-end lifecycle coverage.
+
+### Licensing
+
+- Relicensed current project sources from MIT to GNU Affero General Public License v3.0 or later (`AGPL-3.0-or-later`). Previously published MIT releases remain under their original terms.
 
 ### 🛡️ Enterprise-Grade Security Hardening & Zero-Vulnerability Protocol
 - **Arbitrary Command & Script Injection Elimination**:

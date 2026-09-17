@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Advanced monitoring and metrics plugin for BS9",
   "author": "BS9 Community",
-  "license": "MIT",
+  "license": "AGPL-3.0-or-later",
   "category": "core-extensions",
   "keywords": ["bs9", "monitoring", "metrics", "performance"],
   "repository": "https://github.com/xarhang/bs9-marketplace",

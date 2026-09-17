@@ -5,7 +5,7 @@
  * High-performance, non-root process manager for Bun
  * 
  * Copyright (c) 2026 BS9 (Bun Sentinel 9)
- * Licensed under the MIT License
+ * SPDX-License-Identifier: AGPL-3.0-or-later
  * https://github.com/xarhang/bs9
  */
 
@@ -14,6 +14,7 @@ import { unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { getPlatformInfo } from "../platform/detect.js";
 import { parseServiceArray, confirmAction, displayBatchResults } from "../utils/array-parser.js";
+import { listServices } from "../utils/service-discovery.js";
 
 interface DeleteOptions {
   all?: boolean;
@@ -92,6 +93,43 @@ async function handleSingleServiceDelete(name: string, platformInfo: any, option
     throw new Error(`Security: Invalid service name: ${name}`);
   }
 
+  const clean = name.replace(/^(BS9_|bs9\.)/, "");
+  try {
+    const allServices = await listServices();
+
+    // 1. Logical slot match (e.g. "api-0" matching "api-0-g1", "api-0-g2")
+    const slotWorkers = allServices.filter(s => {
+      const sClean = s.name.replace(/^(BS9_|bs9\.)/, "");
+      return new RegExp(`^${clean}-g\\d+$`).test(sClean);
+    });
+
+    if (slotWorkers.length > 0) {
+      for (const w of slotWorkers) {
+        const wClean = w.name.replace(/^(BS9_|bs9\.)/, "");
+        await deleteDirectService(wClean, platformInfo, options);
+      }
+      return;
+    }
+
+    // 2. Cluster app match (e.g. "api" matching "api-0-g1", "api-1-g1")
+    const clusterWorkers = allServices.filter(s => {
+      const sClean = s.name.replace(/^(BS9_|bs9\.)/, "");
+      return new RegExp(`^${clean}-\\d+(-g\\d+)?$`).test(sClean);
+    });
+
+    if (clusterWorkers.length > 0) {
+      for (const w of clusterWorkers) {
+        const wClean = w.name.replace(/^(BS9_|bs9\.)/, "");
+        await deleteDirectService(wClean, platformInfo, options);
+      }
+      return;
+    }
+  } catch {}
+
+  await deleteDirectService(name, platformInfo, options);
+}
+
+async function deleteDirectService(name: string, platformInfo: any, options: DeleteOptions): Promise<void> {
   try {
     if (platformInfo.isLinux) {
       const escapedName = name.replace(/[^a-zA-Z0-9._-]/g, '');

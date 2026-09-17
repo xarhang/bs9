@@ -5,7 +5,7 @@
  * High-performance, non-root process manager for Bun
  * 
  * Copyright (c) 2026 BS9 (Bun Sentinel 9)
- * Licensed under the MIT License
+ * SPDX-License-Identifier: AGPL-3.0-or-later
  * https://github.com/xarhang/bs9
  */
 
@@ -53,7 +53,7 @@ export class WindowsServiceManager {
 
   constructor() {
     const platformInfo = getPlatformInfo();
-    this.configPath = join(homedir(), '.bs9', 'windows-services.json');
+    this.configPath = join(platformInfo.configDir, 'windows-services.json');
     this.servicesDir = platformInfo.serviceDir;
     this.ensureConfigDir();
   }
@@ -109,7 +109,8 @@ export class WindowsServiceManager {
 
     if (isAdmin) {
       // Native Windows Service path
-      const scriptPath = join(homedir(), '.bs9', `${config.name}-setup.ps1`);
+      const platformInfo = getPlatformInfo();
+      const scriptPath = join(platformInfo.configDir, `${config.name}-setup.ps1`);
       writeFileSync(scriptPath, this.generateServiceScript(config));
       try {
         const res = spawnSync("powershell", ["-Bypass", "-File", scriptPath], { stdio: 'inherit' });
@@ -257,7 +258,8 @@ export class WindowsServiceManager {
   private async startBackgroundProcess(metadata: any): Promise<void> {
     console.log(`🚀 Starting background process for '${metadata.name}'...`);
 
-    const logsDir = join(homedir(), '.bs9', 'logs');
+    const platformInfo = getPlatformInfo();
+    const logsDir = platformInfo.logDir;
     if (!existsSync(logsDir)) mkdirSync(logsDir, { recursive: true });
 
     // Path to dedicated detached watchdog agent

@@ -379,5 +379,5 @@ Welcome to the comprehensive BS9 training program! This program is designed to t
 
 ---
 
-*Last Updated: September 10, 2026*  
-*BS9 Version: 1.5.20*
+*Last Updated: September 17, 2026*
+*BS9 Version: 1.6.3*

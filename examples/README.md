@@ -421,5 +421,5 @@ bs9 doctor
 
 ---
 
-*Last Updated: January 25, 2026*
-*BS9 Version: 1.3.5*
+*Last Updated: September 17, 2026*
+*BS9 Version: 1.6.3*

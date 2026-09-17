@@ -22,20 +22,84 @@ export interface ServiceMetrics {
     pid: string;
     description: string;
     health?: string;
+    slot?: number;
+    generation?: number;
+    appName?: string;
+    logicalSlot?: string;
+}
+
+export interface WorkerSlotInfo {
+    appName: string;
+    slot: number;
+    generation: number;
+    logicalSlot: string; // e.g. "api-0"
+    physicalName: string; // e.g. "api-0-g1"
+    hasGenerationSuffix: boolean;
+}
+
+export function parseWorkerSlot(serviceName: string): WorkerSlotInfo | null {
+    if (!serviceName) return null;
+    const clean = serviceName.replace(/^(BS9_|bs9\.)/, "");
+    const match = clean.match(/^(.+)-(\d+)(?:-g(\d+))?$/);
+    if (!match) return null;
+    const appName = match[1];
+    const slot = parseInt(match[2], 10);
+    const generation = match[3] !== undefined ? parseInt(match[3], 10) : 1;
+    return {
+        appName,
+        slot,
+        generation,
+        logicalSlot: `${appName}-${slot}`,
+        physicalName: clean,
+        hasGenerationSuffix: match[3] !== undefined,
+    };
 }
 
 export async function listServices(): Promise<ServiceMetrics[]> {
     const platformInfo = getPlatformInfo();
 
+    let services: ServiceMetrics[] = [];
     if (platformInfo.isLinux) {
-        return getLinuxServices();
+        services = await getLinuxServices();
     } else if (platformInfo.isWindows) {
-        return getWindowsServices();
+        services = await getWindowsServices();
     } else if (platformInfo.isMacOS) {
-        return getMacOSServices();
+        services = await getMacOSServices();
     }
 
-    return [];
+    for (const s of services) {
+        const info = parseWorkerSlot(s.name);
+        if (info) {
+            s.slot = info.slot;
+            s.generation = info.generation;
+            s.appName = info.appName;
+            s.logicalSlot = info.logicalSlot;
+        }
+    }
+
+    return services;
+}
+
+export async function findClusterWorkers(appName: string, allServices?: ServiceMetrics[]): Promise<ServiceMetrics[]> {
+    const services = allServices || await listServices();
+    const cleanApp = appName.replace(/^(BS9_|bs9\.)/, "");
+    return services.filter(s => {
+        const clean = s.name.replace(/^(BS9_|bs9\.)/, "");
+        return new RegExp(`^${cleanApp}-\\d+(-g\\d+)?$`).test(clean);
+    });
+}
+
+export async function resolveActiveWorkerForSlot(slotName: string, allServices?: ServiceMetrics[]): Promise<ServiceMetrics | null> {
+    const services = allServices || await listServices();
+    const cleanSlot = slotName.replace(/^(BS9_|bs9\.)/, "");
+    const matching = services.filter(s => {
+        const clean = s.name.replace(/^(BS9_|bs9\.)/, "");
+        return clean === cleanSlot || new RegExp(`^${cleanSlot}-g\\d+$`).test(clean);
+    });
+    if (matching.length === 0) return null;
+    const active = matching.find(s => s.active === "active");
+    if (active) return active;
+    return matching.sort((a, b) => (b.generation || 0) - (a.generation || 0))[0];
 }
 
 async function getLinuxServices(): Promise<ServiceMetrics[]> {
@@ -155,7 +219,8 @@ async function getWindowsServices(): Promise<ServiceMetrics[]> {
     } catch { /* skip native if failed */ }
 
     const backgroundMeta: any[] = [];
-    const userBs9Dir = join(homedir(), '.bs9', 'services');
+    const platformInfo = getPlatformInfo();
+    const userBs9Dir = platformInfo.serviceDir;
     if (existsSync(userBs9Dir)) {
         const files = readdirSync(userBs9Dir).filter(f => f.endsWith('.json'));
         for (const file of files) {

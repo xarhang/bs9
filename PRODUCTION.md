@@ -366,6 +366,29 @@ bs9 start app.js \
   --env SSL_KEY_PATH=/etc/letsencrypt/live/your-domain.com/privkey.pem
 ```
 
+## High-Availability Runtime
+
+For supported Bun HTTP services, start one worker per available CPU and verify the workload before routing production traffic:
+
+```bash
+bs9 start app.ts -i max
+bs9 inspect-ha app.ts
+bs9 verify-ha app.ts
+bs9 daemon status
+```
+
+BS9 uses logical slots and generation-qualified physical workers. Reload is replace-first: a new generation must authenticate and report readiness before the previous generation is drained. Cluster-changing commands use renewable ownership locks and abort if lock ownership is lost.
+
+For application state, follow these rules:
+
+- Stateless request handlers need no BS9-specific imports.
+- Use `bs9/runtime` for same-host shared state, leases, queues, and events.
+- Never rely on worker `0` as a permanent cron leader; use a renewable lease with a fencing token.
+- Do not enable `BS9_ALLOW_DEGRADED_LOCAL=true` for correctness-critical state because each worker may diverge.
+- Put multi-host durable state in an external database or broker. The bundled State Hub is intentionally same-host and is not a consensus database.
+
+Before every production upgrade, run the isolated `verify-ha` test in CI and retain its JSON report. See the [High-Availability Runtime Guide](docs/HA_RUNTIME.md) for guarantees and limitations.
+
 ## Monitoring and Observability
 
 ### OpenTelemetry Integration

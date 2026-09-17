@@ -134,6 +134,7 @@ Other approaches you've thought about
 - [Architecture Overview](ARCHITECTURE.md)
 - [Production Deployment](PRODUCTION.md)
 - [Security Policy](SECURITY.md)
+- [High-Availability Runtime Guide](docs/HA_RUNTIME.md)
 
 ### Example Applications
 - [Examples Directory](examples/)
@@ -151,6 +152,6 @@ Other approaches you've thought about
 
 ---
 
-*Last Updated: September 10, 2026*  
-*BS9 Version: 1.5.20*  
+*Last Updated: September 17, 2026*
+*BS9 Version: 1.6.3*
 *Maintained by: [@xarhang](https://github.com/xarhang)*

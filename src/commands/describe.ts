@@ -5,7 +5,7 @@
  * Displays comprehensive runtime and metadata info for a service, mirroring `pm2 show/describe`
  *
  * Copyright (c) 2026 BS9 (Bun Sentinel 9)
- * Licensed under the MIT License
+ * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
 import { listServices } from "../utils/service-discovery.js";
@@ -70,7 +70,7 @@ export async function describeCommand(name: string): Promise<void> {
 
   // Windows Specific Metadata
   if (platformInfo.isWindows) {
-    const metaPath = join(homedir(), ".bs9", "services", `BS9_${cleanName}.json`);
+    const metaPath = join(platformInfo.serviceDir, `BS9_${cleanName}.json`);
     if (existsSync(metaPath)) {
       try {
         const meta = JSON.parse(readFileSync(metaPath, "utf-8"));

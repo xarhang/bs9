@@ -7,7 +7,7 @@
  * Equivalent to PM2 Plus "Issue Dashboard" ($39/mo) — 100% Free & Built-in for BS9.
  * 
  * Copyright (c) 2026 BS9 (Bun Sentinel 9)
- * Licensed under the MIT License
+ * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
 import { existsSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
@@ -209,7 +209,7 @@ export async function issuesCommand(name?: string, options: IssuesOptions = {}):
         const clean = s.name.replace(/^(BS9_|bs9\.)/, "");
         const tClean = name.replace(/^(BS9_|bs9\.)/, "");
         const safeTClean = escapeRegExp(tClean);
-        const isWorker = new RegExp(`^${safeTClean}-\\d+$`).test(clean);
+        const isWorker = new RegExp(`^${safeTClean}-\\d+(-g\\d+)?$`).test(clean);
         return s.name === name || clean === tClean || isWorker;
       })
     : allServices;

@@ -5,7 +5,7 @@
  * High-performance, non-root process manager for Bun
  * 
  * Copyright (c) 2026 BS9 (Bun Sentinel 9)
- * Licensed under the MIT License
+ * SPDX-License-Identifier: AGPL-3.0-or-later
  * https://github.com/xarhang/bs9
  */
 
@@ -13,6 +13,7 @@ import { execSync, spawn } from "node:child_process";
 import { getPlatformInfo } from "../platform/detect.js";
 import { join } from "node:path";
 import { existsSync, readFileSync, readdirSync, watch } from "node:fs";
+import { listServices } from "../utils/service-discovery.js";
 
 interface LogsOptions {
   follow?: boolean;
@@ -39,10 +40,36 @@ export async function logsCommand(name?: string, options: LogsOptions = {}): Pro
     process.exit(1);
   }
 
+  let targetName = name;
+  const clean = name.replace(/^(BS9_|bs9\.)/, "");
+
+  try {
+    const allServices = await listServices();
+    const exact = allServices.find(s => {
+      const sClean = s.name.replace(/^(BS9_|bs9\.)/, "");
+      return s.name === name || sClean === clean;
+    });
+
+    if (exact) {
+      targetName = exact.name.replace(/^(BS9_|bs9\.)/, "");
+    } else {
+      // Logical slot match: e.g. "api-0" matching "api-0-g1", "api-0-g2"
+      const slotWorkers = allServices.filter(s => {
+        const sClean = s.name.replace(/^(BS9_|bs9\.)/, "");
+        return new RegExp(`^${clean}-g\\d+$`).test(sClean);
+      });
+      if (slotWorkers.length > 0) {
+        const active = slotWorkers.find(s => s.active === "active") ||
+          slotWorkers.sort((a, b) => (b.generation || 0) - (a.generation || 0))[0];
+        targetName = active.name.replace(/^(BS9_|bs9\.)/, "");
+      }
+    }
+  } catch {}
+
   // Resolve full name (e.g. handle BS9_ prefix on Windows)
-  let fullName = name;
-  if (platformInfo.isWindows && !name.startsWith('BS9_')) fullName = `BS9_${name}`;
-  if (platformInfo.isMacOS && !name.startsWith('bs9.')) fullName = `bs9.${name}`;
+  let fullName = targetName;
+  if (platformInfo.isWindows && !targetName.startsWith('BS9_')) fullName = `BS9_${targetName}`;
+  if (platformInfo.isMacOS && !targetName.startsWith('bs9.')) fullName = `bs9.${targetName}`;
 
   const linesCount = options.lines ? Math.max(1, parseInt(options.lines, 10) || 50) : 50;
 
@@ -61,8 +88,20 @@ export async function logsCommand(name?: string, options: LogsOptions = {}): Pro
       }
     }
 
-    const logFile = join(platformInfo.logDir, `${fullName}.out.log`);
-    const errorFile = join(platformInfo.logDir, `${fullName}.err.log`);
+    let logFile = join(platformInfo.logDir, `${fullName}.out.log`);
+    let errorFile = join(platformInfo.logDir, `${fullName}.err.log`);
+
+    if (!existsSync(logFile) && !existsSync(errorFile)) {
+      const existingFiles = existsSync(platformInfo.logDir) ? readdirSync(platformInfo.logDir) : [];
+      const cleanPrefix = fullName.replace(/^(BS9_|bs9\.)/, "");
+      const genLogs = existingFiles
+        .filter(f => f.includes(cleanPrefix) && (f.endsWith(".out.log") || f.endsWith(".err.log")))
+        .sort().reverse();
+      const outCandidate = genLogs.find(f => f.endsWith(".out.log"));
+      const errCandidate = genLogs.find(f => f.endsWith(".err.log"));
+      if (outCandidate) logFile = join(platformInfo.logDir, outCandidate);
+      if (errCandidate) errorFile = join(platformInfo.logDir, errCandidate);
+    }
 
     if (!existsSync(logFile) && !existsSync(errorFile)) {
       console.warn(`⚠️  No log files found for service '${fullName}' in ${platformInfo.logDir}`);

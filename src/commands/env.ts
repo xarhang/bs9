@@ -6,7 +6,7 @@
  * Mirrors `pm2 env <app>`
  *
  * Copyright (c) 2026 BS9 (Bun Sentinel 9)
- * Licensed under the MIT License
+ * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -37,7 +37,7 @@ export async function envCommand(name: string): Promise<void> {
   let envMap: Record<string, string> | null = null;
 
   if (platformInfo.isWindows) {
-    const metaPath = join(homedir(), ".bs9", "services", `BS9_${cleanName}.json`);
+    const metaPath = join(platformInfo.serviceDir, `BS9_${cleanName}.json`);
     if (existsSync(metaPath)) {
       try {
         const meta = JSON.parse(readFileSync(metaPath, "utf-8"));

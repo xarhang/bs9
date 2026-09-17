@@ -6,7 +6,7 @@
  * Mirrors `pm2 scale <app> <N|+N|-N>`
  *
  * Copyright (c) 2026 BS9 (Bun Sentinel 9)
- * Licensed under the MIT License
+ * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
 import { listServices } from "../utils/service-discovery.js";
@@ -42,12 +42,17 @@ export async function scaleCommand(name: string, countStr: string): Promise<void
   const workers = allServices
     .filter(s => {
       const clean = s.name.replace(/^(BS9_|bs9\.)/, "");
-      const isWorker = new RegExp(`^${safeClean}-\\d+$`).test(clean);
+      const isWorker = new RegExp(`^${safeClean}-\\d+(-g\\d+)?$`).test(clean);
       return clean === cleanName || isWorker;
     })
     .sort((a, b) => {
-      const idxA = Number(a.name.split("-").pop()) || 0;
-      const idxB = Number(b.name.split("-").pop()) || 0;
+      if (a.slot !== undefined && b.slot !== undefined) {
+        return a.slot - b.slot;
+      }
+      const matchA = a.name.match(/-(\d+)(?:-g\d+)?$/);
+      const matchB = b.name.match(/-(\d+)(?:-g\d+)?$/);
+      const idxA = matchA ? Number(matchA[1]) : 0;
+      const idxB = matchB ? Number(matchB[1]) : 0;
       return idxA - idxB;
     });
 
@@ -79,7 +84,34 @@ export async function scaleCommand(name: string, countStr: string): Promise<void
 
   const platformInfo = getPlatformInfo();
 
-  if (targetCount > currentCount) {
+  let adminClient: any = null;
+  let lockSession: any = null;
+  let operationCompleted = false;
+  const { ensureDaemonRunning } = await import("../daemon/ensure.js");
+  await ensureDaemonRunning();
+  const { ControllerAdminClient, ClusterLockSession } = await import("../cluster/admin-client.js");
+  const client = new ControllerAdminClient();
+  if (!(await client.connect())) {
+    throw new Error(`Cannot scale '${cleanName}': BS9 daemon lock authority is unavailable`);
+  }
+  adminClient = client;
+  const lockResult = await adminClient.lockCluster(cleanName, "scale", 60000, "scale-command");
+  if (!lockResult.locked || !lockResult.lockToken) {
+    adminClient.disconnect();
+    throw new Error(`Cluster '${cleanName}' is locked for '${lockResult.reason}' by ${lockResult.currentOwner || "another operation"}`);
+  }
+  lockSession = new ClusterLockSession(adminClient, cleanName, lockResult.lockToken, {
+    renewIntervalMs: 15000,
+    extendMs: 60000,
+    onLost: (err: any) => console.error(`❌ [ClusterLock] ${err.message}`),
+  });
+  lockSession.start();
+
+  try {
+    if (lockSession) {
+      await lockSession.assertActive();
+    }
+    if (targetCount > currentCount) {
     // Scaling UP: add workers
     const toAdd = targetCount - currentCount;
     console.log(`📈 Scaling up '${cleanName}' from ${currentCount} to ${targetCount} workers (+${toAdd})...`);
@@ -89,12 +121,11 @@ export async function scaleCommand(name: string, countStr: string): Promise<void
     const baseClean = baseWorker.name.replace(/^(BS9_|bs9\.)/, "");
 
     if (platformInfo.isWindows) {
-      const servicesDir = join(homedir(), ".bs9", "services");
+      const servicesDir = platformInfo.serviceDir;
       const baseMetaPath = join(servicesDir, `BS9_${baseClean}.json`);
 
       if (!existsSync(baseMetaPath)) {
-        console.error(`❌ Cannot find base configuration for '${baseWorker.name}' in ${servicesDir}`);
-        process.exit(1);
+        throw new Error(`Cannot find base configuration for '${baseWorker.name}' in ${servicesDir}`);
       }
 
       const baseMeta = JSON.parse(readFileSync(baseMetaPath, "utf-8"));
@@ -102,6 +133,7 @@ export async function scaleCommand(name: string, countStr: string): Promise<void
       const manager = new WindowsServiceManager();
 
       for (let i = currentCount; i < targetCount; i++) {
+        await lockSession.assertActive();
         const workerName = `${cleanName}-${i}`;
         const newMeta = {
           ...baseMeta,
@@ -110,9 +142,13 @@ export async function scaleCommand(name: string, countStr: string): Promise<void
           environment: {
             ...baseMeta.environment,
             BS9_CLUSTER: "true",
+            BS9_CLUSTER_NAME: cleanName,
             BS9_CLUSTER_ID: String(i),
+            NODE_APP_INSTANCE: String(i),
             BS9_CLUSTER_TOTAL: String(targetCount),
+            BS9_CLUSTER_GENERATION: baseMeta.environment?.BS9_CLUSTER_GENERATION || "1",
             BS9_REUSE_PORT: "true",
+            BS9_AUTH_TOKEN_FILE: baseMeta.environment?.BS9_AUTH_TOKEN_FILE || "",
             SERVICE_NAME: workerName
           },
           status: "stopped",
@@ -122,9 +158,11 @@ export async function scaleCommand(name: string, countStr: string): Promise<void
 
         const targetMetaPath = join(servicesDir, `BS9_${workerName}.json`);
         writeFileSync(targetMetaPath, JSON.stringify(newMeta, null, 2));
+        await lockSession.assertActive();
 
         console.log(`   ➕ Starting worker ${workerName}...`);
         await manager.startService(`BS9_${workerName}`);
+        await lockSession.assertActive();
       }
     } else if (platformInfo.isLinux) {
       // Linux systemd unit scaling
@@ -132,26 +170,28 @@ export async function scaleCommand(name: string, countStr: string): Promise<void
       const baseUnitPath = join(userUnitDir, `${baseClean}.service`);
 
       if (!existsSync(baseUnitPath)) {
-        console.error(`❌ Base systemd unit '${baseClean}.service' not found`);
-        process.exit(1);
+        throw new Error(`Base systemd unit '${baseClean}.service' not found`);
       }
 
       const baseContent = readFileSync(baseUnitPath, "utf-8");
 
       for (let i = currentCount; i < targetCount; i++) {
+        await lockSession.assertActive();
         const workerName = `${cleanName}-${i}`;
         const newUnitPath = join(userUnitDir, `${workerName}.service`);
         const newContent = baseContent
           .replace(new RegExp(`Description=BS9 Service: ${baseClean}`, "g"), `Description=BS9 Service: ${workerName}`)
           .replace(new RegExp(`SERVICE_NAME=${baseClean}`, "g"), `SERVICE_NAME=${workerName}`)
           .replace(new RegExp(`SyslogIdentifier=${baseClean}`, "g"), `SyslogIdentifier=${workerName}`)
-          .replace(/BS9_CLUSTER_ID=\d+/, `BS9_CLUSTER_ID=${i}`)
+          .replace(/BS9_CLUSTER_ID=\d+/, `BS9_CLUSTER_ID=${i}\nEnvironment=NODE_APP_INSTANCE=${i}`)
           .replace(/BS9_CLUSTER_TOTAL=\d+/, `BS9_CLUSTER_TOTAL=${targetCount}`);
 
         writeFileSync(newUnitPath, newContent);
+        await lockSession.assertActive();
         const { execSync } = await import("node:child_process");
         execSync(`systemctl --user daemon-reload`, { stdio: "ignore" });
         execSync(`systemctl --user enable --now ${workerName}.service`, { stdio: "ignore" });
+        await lockSession.assertActive();
         console.log(`   ➕ Started worker ${workerName}`);
       }
     } else if (platformInfo.isMacOS) {
@@ -160,13 +200,13 @@ export async function scaleCommand(name: string, countStr: string): Promise<void
       const basePlistPath = join(launchDir, `bs9.${baseClean}.plist`);
 
       if (!existsSync(basePlistPath)) {
-        console.error(`❌ Base macOS launchd plist 'bs9.${baseClean}.plist' not found`);
-        process.exit(1);
+        throw new Error(`Base macOS launchd plist 'bs9.${baseClean}.plist' not found`);
       }
 
       const basePlist = readFileSync(basePlistPath, "utf-8");
 
       for (let i = currentCount; i < targetCount; i++) {
+        await lockSession.assertActive();
         const workerName = `${cleanName}-${i}`;
         const newPlistPath = join(launchDir, `bs9.${workerName}.plist`);
         const newPlist = basePlist
@@ -174,9 +214,11 @@ export async function scaleCommand(name: string, countStr: string): Promise<void
           .replace(new RegExp(`<string>com\\.bs9\\.${baseClean}</string>`, "g"), `<string>com.bs9.${workerName}</string>`);
 
         writeFileSync(newPlistPath, newPlist);
+        await lockSession.assertActive();
         const { execSync } = await import("node:child_process");
         try {
           execSync(`launchctl load "${newPlistPath}"`, { stdio: "ignore" });
+          await lockSession.assertActive();
           console.log(`   ➕ Started worker ${workerName}`);
         } catch (e) {
           console.warn(`   ⚠️ Warning while launching worker ${workerName}: ${e}`);
@@ -191,16 +233,42 @@ export async function scaleCommand(name: string, countStr: string): Promise<void
     console.log(`📉 Scaling down '${cleanName}' from ${currentCount} to ${targetCount} workers (-${toRemove})...`);
 
     for (let i = currentCount - 1; i >= targetCount; i--) {
+      await lockSession.assertActive();
       const worker = workers[i];
       console.log(`   ➖ Stopping and removing worker ${worker.name}...`);
       try {
         await stopCommand([worker.name], { force: true });
+        await lockSession.assertActive();
         await deleteCommand([worker.name], { force: true, remove: true });
+        await lockSession.assertActive();
       } catch (err) {
         console.warn(`   ⚠️ Warning while stopping ${worker.name}: ${err}`);
       }
     }
 
     console.log(`✅ Successfully scaled down '${cleanName}' to ${targetCount} worker(s)!`);
+  }
+    await lockSession.assertActive();
+    operationCompleted = true;
+  } finally {
+    if (adminClient) {
+      try {
+        if (operationCompleted && lockSession && !lockSession.isLost()) {
+          await lockSession.assertActive();
+          const manifest = await adminClient.getManifest(cleanName);
+          if (manifest) {
+            manifest.instances = targetCount;
+            manifest.updatedAt = Date.now();
+            await adminClient.setManifest(manifest);
+            await lockSession.assertActive();
+          }
+        }
+      } finally {
+        if (lockSession) {
+          await lockSession.release();
+        }
+        adminClient.disconnect();
+      }
+    }
   }
 }

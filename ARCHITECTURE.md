@@ -136,7 +136,106 @@ BS9 (Bun Sentinel 9) is a mission-critical process manager CLI designed to repla
    - Terminal UI refresh
    - Web API polling
    - Real-time status updates
+---
+
+## 🛡️ High-Availability (HA) Self-Healing Runtime Architecture
+
+BS9 separates high-availability into two orthogonal tiers. The normative operational boundaries are documented in the [High-Availability Runtime Guide](docs/HA_RUNTIME.md).
+1. **Stateless HTTP Workloads (Zero-Code)**: Supported web apps achieve continuous uptime during reloads and worker crashes without application code modifications.
+2. **Coordinated Stateful Workloads (Managed State)**: Stateful applications use the same-host State Hub via `bs9/runtime` to eliminate in-memory split-brain or data loss.
+
+### 1. Data Path vs Control Path Separation
+
 ```
+         Incoming HTTP Requests (:3000)
+                     │
+        ┌────────────┴────────────┐  (OS Kernel Socket Load Balancing - SO_REUSEPORT)
+        ▼                         ▼
+┌─────────────────┐       ┌─────────────────┐
+│ Worker Slot 0   │       │ Worker Slot 1   │
+│ (Bun.serve)     │       │ (Bun.serve)     │
+└────────┬────────┘       └────────┬────────┘
+         │ (IPC Channel)           │ (IPC Channel)
+         │                         │
+         └────────────┬────────────┘
+                      ▼
+        ┌───────────────────────────┐
+        │  BS9 Lifecycle Controller │ (Out of HTTP Data Path)
+        │  & Same-Host State Hub    │
+        └───────────────────────────┘
+```
+
+- **Zero Data-Path Overhead**: HTTP traffic is handled directly by Bun worker processes.
+- **Controller Crash Immunity**: If the BS9 controller or State Hub restarts, worker HTTP traffic continues serving uninterrupted.
+
+### 2. Logical Slots vs Physical Generations
+
+To guarantee zero dropped requests during rolling upgrades, BS9 decouples logical cluster slots from physical service units:
+- **Logical Slot**: `<cluster>-<slot>` (e.g. `api-0`, `api-1`)
+- **Physical Unit**: `<cluster>-<slot>-g<gen>` (e.g. `api-0-g1`, `api-0-g2`)
+
+#### Replace-First Rolling Reload Flow:
+```
+Time ──►
+
+Slot 0: [ g1 Running ] ─────────────► [ 2-Phase Drain ] ──► [ Stopped ]
+              │                               ▲
+              ▼                               │
+        [ Spawn g2 ] ──► [ Authenticated READY ]
+                               │
+Slot 0:                        ▼
+                         [ g2 Running ] ────────────────────────►
+```
+1. **Spawn Replacement**: BS9 spawns physical unit $g_{\text{next}}$ while $g_{\text{curr}}$ continues serving traffic.
+2. **Readiness Verification**: $g_{\text{next}}$ completes bootstrap, binds its port (`reusePort`), and sends an authenticated `READY` lifecycle signal to the controller.
+3. **Two-Phase Graceful Drain**: The controller sends `DRAIN_REQUEST` to $g_{\text{curr}}$. $g_{\text{curr}}$ closes its listening socket, awaits active in-flight HTTP requests, and responds with `DRAINED`.
+4. **Physical Unit Teardown**: BS9 stops and unregisters the old physical unit $g_{\text{curr}}$.
+5. **Atomic Rollback**: If $g_{\text{next}}$ crashes or fails readiness within timeout, $g_{\text{curr}}$ remains active and the upgrade aborts safely.
+
+### 3. Same-Host State Hub & WAL Persistence
+
+The State Hub provides high-speed, local coordination across cluster workers:
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                        BS9 State Hub Engine                            │
+├────────────────────────────────────────────────────────────────────────┤
+│ ┌───────────────────┐ ┌───────────────────┐ ┌────────────────────────┐ │
+│ │  In-Memory KV     │ │ Distributed Lease │ │ Durable Queues         │ │
+│ │  - TTL Eviction   │ │ - Fencing Tokens  │ │ - Visibility Timeout   │ │
+│ │  - CAS & Incr     │ │ - TTL Auto-Fail   │ │ - Redelivery & Ack/Nack│ │
+│ └─────────┬─────────┘ └─────────┬─────────┘ └───────────┬────────────┘ │
+│           └─────────────────────┼───────────────────────┘              │
+│                                 ▼                                      │
+│           ┌──────────────────────────────────────────────┐             │
+│           │ Write-Ahead Log (WAL) & Snapshot Compactor    │             │
+│           │ - Append-only wal.log with CRC32 checksums   │             │
+│           │ - Atomic snapshot.json via tempfile rename   │             │
+│           └──────────────────────────────────────────────┘             │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+- **Wire Protocol**: 4-byte unsigned big-endian length prefix framing with streaming defragmentation (`StreamingFrameDecoder`).
+- **Mutual Authentication**: Nonce challenge-response handshake signed with HMAC-SHA256 using an unreadable `0600` token file.
+- **Lease Fencing**: Guarantees strictly monotonic fencing tokens ($1, 2, 3\dots$) across leadership handovers to prevent split-brain zombies.
+- **Queue Semantics**: FIFO queuing with redelivery upon worker crash or visibility timeout expiration.
+
+### 4. Typed Client (`bs9/runtime`) & Fallback Matrix
+
+The `bs9/runtime` package exposes `State`, `Lease`, `Queue`, and `Events`:
+- **Standalone Mode (Outside BS9)**: Runs purely in-memory with zero dependencies and no errors.
+- **Cluster Mode (Inside BS9)**: Connects to local State Hub IPC. If Hub is unavailable, fails loudly by default to prevent silent inconsistency (or degraded in-memory if `allowDegradedLocal: true`).
+
+### 5. Compatibility Adapters (`express-session`)
+- Zero-code interceptor wraps `express-session` when `options.store` is omitted inside a BS9 cluster.
+- Tested and verified against express-session versions `1.17.x` - `1.18.x`.
+- Persists session state transparently in State Hub KV with automatic cookie TTL synchronization.
+
+### 6. Verification & Diagnostic Engine (`inspect-ha` & `verify-ha`)
+- `bs9 inspect-ha <file>`: Static AST/code analysis identifying framework entry points, in-memory mutable variables (`let`, `Map`, `Set`), and classifying workloads into Tier 1, 2, or 3.
+- `bs9 verify-ha <file>`: Spawns an isolated sandbox cluster on an ephemeral port, generates concurrent HTTP traffic, triggers rolling reloads and violent worker termination, and reports measured availability, dropped requests, and latency. A passing run applies to the tested workload and environment.
+
+---
 
 ## Security Architecture
 

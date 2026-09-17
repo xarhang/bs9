@@ -5,7 +5,7 @@
  * High-performance, non-root process manager for Bun
  * 
  * Copyright (c) 2026 BS9 (Bun Sentinel 9)
- * Licensed under the MIT License
+ * SPDX-License-Identifier: AGPL-3.0-or-later
  * https://github.com/xarhang/bs9
  */
 
@@ -160,9 +160,60 @@ async function handleClusterStart(file: string, options: StartOptions, instanceC
   console.log(`🔀 Starting ${instanceCount} cluster workers for '${baseName}' on port ${port}...`);
   console.log(`   Using Bun reusePort — kernel load balances across all workers`);
 
-  const results = await Promise.allSettled(
-    Array.from({ length: instanceCount }, async (_, i) => {
-      const workerName = `${baseName}-${i}`;
+  const { ensureDaemonRunning } = await import("../daemon/ensure.js");
+  await ensureDaemonRunning();
+
+  const { ControllerAdminClient, ClusterLockSession } = await import("../cluster/admin-client.js");
+  const adminClient = new ControllerAdminClient();
+  const connected = await adminClient.connect();
+  if (!connected) {
+    throw new Error("Failed to connect to BS9 daemon admin IPC");
+  }
+
+  const { tokenFilePath } = await adminClient.registerCluster(baseName);
+  const envMap: Record<string, string> = {};
+  if (options.env) {
+    for (const e of options.env) {
+      const [k, v] = e.split("=");
+      if (k && v !== undefined) envMap[k] = v;
+    }
+  }
+
+  let lockSession: any = null;
+  try {
+    const lockResult = await adminClient.lockCluster(baseName, "scale", 30000, "start-command");
+    if (!lockResult.locked || !lockResult.lockToken) {
+      throw new Error(`Cluster '${baseName}' is locked for '${lockResult.reason}' by ${lockResult.currentOwner || "another operation"}`);
+    }
+    lockSession = new ClusterLockSession(adminClient, baseName, lockResult.lockToken, {
+      renewIntervalMs: 10000,
+      extendMs: 30000,
+      onLost: (err: any) => console.error(`❌ [ClusterLock] ${err.message}`),
+    });
+    lockSession.start();
+
+    await adminClient.setManifest({
+      clusterName: baseName,
+      appFile: resolve(file),
+      instances: instanceCount,
+      port: parseInt(port, 10) || 3000,
+      host: options.host || "localhost",
+      env: envMap,
+      options: {
+        watch: options.watch,
+        maxMemoryRestart: options.maxMemoryRestart,
+        interpreter: options.interpreter,
+      },
+      currentGeneration: 1,
+      updatedAt: Date.now(),
+    });
+
+    // Start slots sequentially so losing the topology lock prevents any
+    // subsequent service-manager side effects from being scheduled.
+    const results: PromiseSettledResult<{ service: string; status: string; error: string | null }>[] = [];
+    for (let i = 0; i < instanceCount; i++) {
+      await lockSession.assertActive();
+      const workerName = `${baseName}-${i}-g1`;
       try {
         await handleSingleServiceStart(file, {
           ...options,
@@ -170,23 +221,33 @@ async function handleClusterStart(file: string, options: StartOptions, instanceC
           env: [
             ...(options.env || []),
             `BS9_CLUSTER=true`,
+            `BS9_CLUSTER_NAME=${baseName}`,
             `BS9_CLUSTER_ID=${i}`,
+            `NODE_APP_INSTANCE=${i}`,
             `BS9_CLUSTER_TOTAL=${instanceCount}`,
+            `BS9_CLUSTER_GENERATION=1`,
             `BS9_REUSE_PORT=true`,
+            `BS9_AUTH_TOKEN_FILE=${tokenFilePath}`,
           ],
-          instances: '1', // each worker is a single service
+          instances: '1',
         });
-        return { service: workerName, status: 'success', error: null };
+        results.push({ status: "fulfilled", value: { service: workerName, status: "success", error: null } });
       } catch (error) {
-        return { service: workerName, status: 'failed', error: (error as Error).message };
+        results.push({ status: "fulfilled", value: { service: workerName, status: "failed", error: (error as Error).message } });
       }
-    })
-  );
+      await lockSession.assertActive();
+    }
 
-  displayBatchResults(results, 'start');
-  console.log(`\n✅ Cluster '${baseName}' — ${instanceCount} workers running on port ${port}`);
-  console.log(`   Stop all workers: bs9 stop [${baseName}-0..${baseName}-${instanceCount - 1}]`);
-  console.log(`   Status: bs9 status [${baseName}-*]`);
+    displayBatchResults(results, 'start');
+    console.log(`\n✅ Cluster '${baseName}' — ${instanceCount} workers running on port ${port}`);
+    console.log(`   Stop all workers: bs9 stop [${baseName}-0..${baseName}-${instanceCount - 1}]`);
+    console.log(`   Status: bs9 status [${baseName}-*]`);
+  } finally {
+    if (lockSession) {
+      await lockSession.release();
+    }
+    adminClient.disconnect();
+  }
 }
 
 

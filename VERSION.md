@@ -1,194 +1,81 @@
-# BS9 Version Management
+# BS9 Version and Release Management
 
-## 🚀 Automated Version Management
+## Current release
 
-BS9 includes an automated version management system for incremental versions (1.5.x) and major versions (1.6.x, 1.7.x)
+- Source version: **1.6.3**
+- Release date: **September 17, 2026**
+- License: **GNU Affero General Public License v3.0 or later (`AGPL-3.0-or-later`)**
+- Previous Git tag: `v1.6.2`
+- Planned tag for this release: `v1.6.3`
 
-## 📋 Version Strategy
+`package.json` is the authoritative source for the CLI and package version. The CLI reads it at runtime; do not hard-code a second version in `bin/bs9`.
 
-### 🔄 Incremental Updates (1.5.x)
-- **1.5.1 → 1.5.2 → 1.5.3 → ... → 1.5.9 → 1.5.10**
-- **For**: Feature additions, improvements, bug fixes
-- **Auto-update**: CHANGELOG every time
+## Version policy
 
-### 🚀 Major Version Jumps (when commanded)
-- **1.5.x → 1.6.0** (Major features)
-- **1.6.x → 1.7.0** (Major features)
-- **When**: User commanded
+BS9 follows Semantic Versioning:
 
-## 🛠️ Usage
+- Patch (`1.6.3` to `1.6.4`): compatible fixes and documentation corrections.
+- Minor (`1.6.x` to `1.7.0`): backward-compatible features.
+- Major (`1.x` to `2.0.0`): incompatible public API or CLI contract changes.
 
-### 📦 Patch Updates (1.5.1 → 1.5.2)
+A license change is always called out prominently in the changelog and release notes even when runtime APIs remain compatible.
+
+## Files that must agree
+
+Before tagging a release, verify all of the following:
+
+- `package.json` version and SPDX license expression;
+- `bun.lock` dependency graph;
+- README version badge, installation URL, and license badge;
+- `INSTALL.md` release URL;
+- `CHANGELOG.md` release heading and date;
+- documentation version footers;
+- canonical `LICENSE` text and source SPDX identifiers; and
+- bundled marketplace package manifests.
+
+Search for stale release references with:
+
 ```bash
-# Version update only
-bun run version:patch "Added new feature"
-
-# Update and publish immediately
-bun run publish:patch "Fixed critical bug"
+rg -n "BS9 Version:|releases/download/v|version-[0-9]+\\.[0-9]+\\.[0-9]+" -g "*.md"
+rg -n "MIT License|License-MIT|opensource.org/licenses/MIT" -g "!node_modules/**"
 ```
 
-### 🚀 Minor Updates (1.5.x → 1.6.0)
-```bash
-# Version update only
-bun run version:minor "Added multi-service management"
+Historical changelog entries and the statement that older releases remain MIT-licensed are intentional and must not be rewritten.
 
-# Update and publish immediately
-bun run publish:minor "Major feature release"
+## Release verification
+
+Run the complete verification sequence before committing or tagging:
+
+```bash
+bun install --frozen-lockfile
+bun ./node_modules/typescript/bin/tsc --noEmit
+bun run build
+bun test
+git diff --check
+npm pack --dry-run
 ```
 
-### 🎯 Major Updates (1.6.x → 1.7.0)
-```bash
-# Version update only
-bun run version:major "Complete rewrite of core system"
+For the high-availability runtime, also retain the JSON output of an isolated verification run:
 
-# Update and publish immediately
-bun run publish:major "Major architectural changes"
+```bash
+bs9 verify-ha examples/express-app.js --json
 ```
 
-## 🔄 Automated Workflow
+## Commit, tag, and publish
 
-### Step 1: Version Update
-- ✅ Update `package.json`
-- ✅ Update `README.md` version badge
-- ✅ Update `CHANGELOG.md` with details
-- ✅ Git commit with version tag
+Review the complete diff before staging. The working tree may contain implementation changes in addition to generated version metadata.
 
-### Step 2: Publishing (publish commands only)
-- ✅ Push to GitHub
-- ✅ Publish to npm registry
-- ✅ Show success results
-
-## 📝 Usage Examples
-
-### Scenario 1: Bug Fix
 ```bash
-bun run publish:patch "Fixed memory leak in status command"
-```
-Result: 1.5.1 → 1.5.2
-
-### Scenario 2: Small Feature
-```bash
-bun run publish:patch "Added timeout option to deploy command"
-```
-Result: 1.5.2 → 1.5.3
-
-### Scenario 3: Major Feature (when commanded)
-```bash
-bun run publish:minor "Added Kubernetes integration"
-```
-Result: 1.5.3 → 1.6.0
-
-### Scenario 4: Complete Rewrite (when commanded)
-```bash
-bun run publish:major "Migrated to Rust core"
-```
-Result: 1.6.0 → 2.0.0
-
-## 🎯 Special Commands
-
-### Manual Version Manager
-```bash
-# Use script directly
-bun scripts/version-manager.js patch "Custom change description"
-bun scripts/version-manager.js minor "Minor feature"
-bun scripts/version-manager.js major "Major change"
+git add --all
+git commit -m "release: bs9 v1.6.3"
+git tag -a v1.6.3 -m "BS9 v1.6.3"
+git push origin main
+git push origin v1.6.3
+npm publish
 ```
 
-### Test Publisher (no npm publish)
-```bash
-# Test without publishing
-bun scripts/test-publish.js patch "Bug fix test"
-bun scripts/test-publish.js minor "Feature test"
-bun scripts/test-publish.js major "Major change test"
-```
+Pushing the branch, creating the GitHub release, and publishing to npm are separate external actions. Confirm each one independently and never reuse a version that has already been published to npm.
 
-### Auto Publisher
-```bash
-# Use auto-publish directly
-bun scripts/auto-publish.js patch "Bug fix with auto publish"
-bun scripts/auto-publish.js minor "Feature with auto publish"
-bun scripts/auto-publish.js major "Major with auto publish"
-```
+## Automated scripts
 
-## 📊 Version History
-
-### Current Pattern
-- **v1.5.0**: Multi-Service Management (Major Feature)
-- **v1.5.1**: Automated Version Management (Patch)
-- **v1.5.2**: Test Version Management (Patch)
-- **v1.5.3**: Testing Version System (Patch)
-- **v1.5.4**: Next patch update
-- **v1.5.5**: Next patch update
-- **...**
-- **v1.5.9**: Continue patch updates
-- **v1.5.10**: Continue patch updates
-- **v1.6.0**: Major version (when commanded)
-
-### Future Pattern
-- **v1.6.0**: Next major version
-- **v1.6.1**: Patch updates
-- **v1.6.2**: Patch updates
-- **...**
-- **v1.7.0**: Next major version (when commanded)
-
-## 🎯 Recommendations
-
-1. **Patch Updates**: Use for bug fixes, small features, improvements
-2. **Minor Updates**: Use for major features without breaking changes
-3. **Major Updates**: Use for breaking changes or major architectural changes
-4. **Auto-publish**: Use when confident and ready to publish immediately
-5. **Version-only**: Use when you want to update version before review
-
-## 🔧 Configuration
-
-Version management system is configured at:
-- **Scripts**: `scripts/version-manager.js` and `scripts/auto-publish.js`
-- **Package.json**: Convenience scripts
-- **Changelog**: Auto-updated every time
-- **Git**: Auto commit and tag every time
-
-## 📋 Available Scripts
-
-### Version Management
-```bash
-bun run version:patch    # Update patch version
-bun run version:minor    # Update minor version
-bun run version:major    # Update major version
-```
-
-### Publishing
-```bash
-bun run publish:patch    # Update and publish patch
-bun run publish:minor    # Update and publish minor
-bun run publish:major    # Update and publish major
-```
-
-### Testing
-```bash
-bun run test:patch       # Test patch without publish
-bun run test:minor       # Test minor without publish
-bun run test:major       # Test major without publish
-```
-
-## 🎯 Quick Start
-
-### For Quick Bug Fix
-```bash
-bun run publish:patch "Quick bug fix"
-```
-
-### For Feature Development
-```bash
-bun run test:patch "Testing new feature"
-# Review changes
-bun run publish:patch "Feature completed"
-```
-
-### For Major Release (when commanded)
-```bash
-bun run publish:minor "Major feature release"
-```
-
----
-
-**Ready to use!** 🚀
+The repository exposes `version:patch`, `version:minor`, `version:major`, and matching publish scripts. These scripts can commit, tag, push, or publish. Use them only from a reviewed, clean working tree; for a release containing many hand-written changes, the explicit workflow above is easier to audit.

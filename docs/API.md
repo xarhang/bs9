@@ -456,7 +456,7 @@ Get BS9 configuration.
 **Response:**
 ```json
 {
-  "version": "1.3.5",
+  "version": "1.6.3",
   "environment": "production",
   "logLevel": "info",
   "metrics": {
@@ -505,7 +505,7 @@ Get system health status.
 {
   "status": "healthy",
   "timestamp": "2024-01-01T12:00:00Z",
-  "version": "1.3.5",
+  "version": "1.6.3",
   "uptime": 86400,
   "checks": {
     "database": "healthy",
@@ -708,6 +708,29 @@ curl -X POST http://localhost:3000/api/v1/webhooks \
 }
 ```
 
+## Typed Runtime API (`bs9/runtime`)
+
+The runtime client provides process-safe state, lease, and queue access to the same-host State Hub:
+
+```ts
+import { state, events, lease, queue, configureRuntime } from "bs9/runtime";
+
+await state.set("key", { value: 1 }, { ttlMs: 60_000 });
+const value = await state.get("key");
+const count = await state.incr("counter");
+
+const acquired = await lease.acquire("leader", { ttlMs: 15_000 });
+const jobId = await queue.push("jobs", { kind: "email" });
+const job = await queue.pop("jobs", { timeoutMs: 5_000 });
+await events.emit("job.created", { jobId });
+```
+
+Available classes and singletons are `State/state`, `Events/events`, `Lease/lease`, and `Queue/queue`. Configuration helpers are `configureRuntime`, `getRuntimeConfig`, `resetRuntime`, and `isBs9Environment`. The current `Events` implementation dispatches to subscribers inside the same process; it is not a cross-process event bus.
+
+Outside BS9, the default backend is process-local memory. Inside a BS9 cluster, connection failure is fatal by default. `allowDegradedLocal` or `BS9_ALLOW_DEGRADED_LOCAL=true` explicitly permits local fallback and should not be used for correctness-critical production data.
+
+See [High-Availability Runtime Guide](HA_RUNTIME.md) for lifecycle guarantees and deployment boundaries.
+
 ## 🧪 Testing
 
 ### Test Environment
@@ -739,5 +762,5 @@ https://github.com/xarhang/bs9/blob/main/docs/postman-collection.json
 
 ---
 
-*Last Updated: January 25, 2026*
-*BS9 Version: 1.3.5*
+*Last Updated: September 17, 2026*
+*BS9 Version: 1.6.3*

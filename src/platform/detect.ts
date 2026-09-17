@@ -5,7 +5,7 @@
  * High-performance, non-root process manager for Bun
  * 
  * Copyright (c) 2026 BS9 (Bun Sentinel 9)
- * Licensed under the MIT License
+ * SPDX-License-Identifier: AGPL-3.0-or-later
  * https://github.com/xarhang/bs9
  */
 
@@ -25,11 +25,15 @@ export interface PlatformInfo {
   logDir: string;
   serviceDir: string;
   backupDir: string;
+  runtimeDir: string;
+  stateDir: string;
+  clusterDir: string;
+  socketPath: string;
 }
 
 export function getPlatformInfo(): PlatformInfo {
   const currentPlatform = platform() as Platform;
-  const userHome = homedir();
+  const userHome = process.env.BS9_HOME || homedir();
 
   const baseInfo: PlatformInfo = {
     platform: currentPlatform,
@@ -40,33 +44,54 @@ export function getPlatformInfo(): PlatformInfo {
     configDir: '',
     logDir: '',
     serviceDir: '',
-    backupDir: ''
+    backupDir: '',
+    runtimeDir: '',
+    stateDir: '',
+    clusterDir: '',
+    socketPath: ''
   };
 
   switch (currentPlatform) {
-    case 'linux':
+    case 'linux': {
       baseInfo.serviceManager = 'systemd';
       baseInfo.configDir = join(userHome, '.config', 'bs9');
       baseInfo.logDir = join(userHome, '.local', 'share', 'bs9', 'logs');
       baseInfo.serviceDir = join(userHome, '.config', 'systemd', 'user');
       baseInfo.backupDir = join(baseInfo.configDir, 'backups');
+      const xdgRuntime = process.env.XDG_RUNTIME_DIR;
+      baseInfo.runtimeDir = xdgRuntime ? join(xdgRuntime, 'bs9') : join(userHome, '.local', 'run', 'bs9');
+      baseInfo.stateDir = join(userHome, '.local', 'state', 'bs9');
+      baseInfo.clusterDir = join(baseInfo.configDir, 'clusters');
+      baseInfo.socketPath = process.env.BS9_CONTROLLER_SOCKET || join(baseInfo.runtimeDir, 'controller.sock');
       break;
+    }
 
-    case 'darwin':
+    case 'darwin': {
       baseInfo.serviceManager = 'launchd';
       baseInfo.configDir = join(userHome, '.bs9');
       baseInfo.logDir = join(userHome, '.bs9', 'logs');
       baseInfo.serviceDir = join(userHome, 'Library', 'LaunchAgents');
       baseInfo.backupDir = join(baseInfo.configDir, 'backups');
+      baseInfo.runtimeDir = join(userHome, '.bs9', 'run');
+      baseInfo.stateDir = join(userHome, '.bs9', 'state');
+      baseInfo.clusterDir = join(baseInfo.configDir, 'clusters');
+      baseInfo.socketPath = process.env.BS9_CONTROLLER_SOCKET || join(baseInfo.runtimeDir, 'controller.sock');
       break;
+    }
 
-    case 'win32':
+    case 'win32': {
       baseInfo.serviceManager = 'windows-service';
       baseInfo.configDir = join(userHome, '.bs9');
       baseInfo.logDir = join(userHome, '.bs9', 'logs');
       baseInfo.serviceDir = join(userHome, '.bs9', 'services');
       baseInfo.backupDir = join(baseInfo.configDir, 'backups');
+      baseInfo.runtimeDir = join(userHome, '.bs9', 'run');
+      baseInfo.stateDir = join(userHome, '.bs9', 'state');
+      baseInfo.clusterDir = join(baseInfo.configDir, 'clusters');
+      const safeUser = (process.env.USERNAME || 'default').replace(/[^a-zA-Z0-9_-]/g, '_');
+      baseInfo.socketPath = process.env.BS9_CONTROLLER_SOCKET || `\\\\.\\pipe\\bs9-controller-${safeUser}`;
       break;
+    }
 
     default:
       throw new Error(`Unsupported platform: ${currentPlatform}`);
@@ -162,6 +187,9 @@ export function initializePlatformDirectories(): void {
     mkdirSync(platformInfo.logDir, { recursive: true });
     mkdirSync(platformInfo.backupDir, { recursive: true });
     mkdirSync(platformInfo.serviceDir, { recursive: true });
+    mkdirSync(platformInfo.runtimeDir, { recursive: true });
+    mkdirSync(platformInfo.stateDir, { recursive: true });
+    mkdirSync(platformInfo.clusterDir, { recursive: true });
   } catch (error) {
     console.warn(`⚠️  Warning: Could not create platform directories: ${error}`);
   }

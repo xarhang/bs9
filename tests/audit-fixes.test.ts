@@ -10,7 +10,7 @@
  * 4. Multi-language script file name sanitization
  * 
  * Copyright (c) 2026 BS9 (Bun Sentinel 9)
- * Licensed under the MIT License
+ * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
 import { describe, it, expect } from "bun:test";

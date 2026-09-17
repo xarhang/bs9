@@ -5,13 +5,11 @@
  * High-performance, non-root process manager for Bun
  * 
  * Copyright (c) 2026 BS9 (Bun Sentinel 9)
- * Licensed under the MIT License
+ * SPDX-License-Identifier: AGPL-3.0-or-later
  * https://github.com/xarhang/bs9
  */
 
-/// <reference path="./types.d.ts" />
-
-import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { existsSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -173,7 +171,7 @@ setInterval(() => {
 
       const result = await mockDeleteCommand("", options);
       
-      expect(result.success).true;
+      expect(result.success).toBe(true);
       expect(result.message).toContain("All services deleted");
     });
   });

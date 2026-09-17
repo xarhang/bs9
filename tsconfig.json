@@ -5,9 +5,13 @@
     "moduleResolution": "Bundler",
     "strict": true,
     "skipLibCheck": true,
-    "types": ["bun-types", "node"],
+    "types": ["node"],
     "lib": ["ES2022", "DOM"],
-    "noEmit": true
+    "noEmit": true,
+    "paths": {
+      "bs9/runtime": ["./src/runtime/index.ts"],
+      "bs9": ["./src/index.ts"]
+    }
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts", "tests/**/*.ts"]
 }

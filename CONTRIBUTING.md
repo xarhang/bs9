@@ -4,7 +4,7 @@ Thank you for your interest in contributing to BS9! This document provides guide
 
 ## 🚀 Our Mission
 
-BS9 is a 100% open source, community-driven project. We believe in making enterprise-grade process management available to everyone, completely free. All features are available to everyone under the MIT license.
+BS9 is a 100% open-source, community-driven project. We believe in making enterprise-grade process management available to everyone. All project code is licensed under `AGPL-3.0-or-later`.
 
 ## 🤝 Why Contribute?
 
@@ -305,4 +305,4 @@ Be respectful and inclusive. Follow the [Contributor Covenant](https://www.contr
 
 ## License
 
-By contributing to BS9, you agree that your contributions will be licensed under the MIT License.
+By submitting a contribution to BS9, you agree that your contribution is licensed under the GNU Affero General Public License v3.0 or later (`AGPL-3.0-or-later`). Only submit work that you have the right to license under these terms.

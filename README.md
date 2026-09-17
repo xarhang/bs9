@@ -1,6 +1,6 @@
 # BS9 (Bun Sentinel 9) 🚀
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: AGPL v3+](https://img.shields.io/badge/License-AGPL_v3%2B-blue.svg)](https://www.gnu.org/licenses/agpl-3.0.html)
 [![Version](https://img.shields.io/badge/version-1.6.3-blue.svg)](https://github.com/xarhang/bs9)
 [![Security](https://img.shields.io/badge/security-Enterprise-green.svg)](SECURITY.md)
 [![Production Ready](https://img.shields.io/badge/production-Ready-brightgreen.svg)](PRODUCTION.md)
@@ -85,7 +85,89 @@ bs9 deploy app.ts --name my-api --port 8080 --env NODE_ENV=production
 ```bash
 # Update configuration without downtime
 bs9 deploy app.ts --reload --env NEW_CONFIG=value
+---
+
+## 🛡️ High-Availability Self-Healing Runtime & State Hub
+
+BS9 transforms Bun process management beyond PM2 into a **production-grade, self-healing application runtime**. See the [High-Availability Runtime Guide](docs/HA_RUNTIME.md) for the exact guarantees, verification workflow, and single-host boundaries.
+
+### 1. Primary UX: Zero-Code Stateless HA
+```bash
+bs9 start app.ts -i max
 ```
+For supported Bun web workloads (`Bun.serve`, Hono, Elysia, Express on Bun), BS9 provides a tested continuous-availability path:
+- **Kernel-Level Port Sharing (`SO_REUSEPORT`)**: Traffic flows directly to worker sockets via OS kernel load balancing. The BS9 lifecycle controller is **strictly out of the HTTP data path**—if the controller restarts, workers continue serving traffic without interruption.
+- **Replace-First Rolling Reload**: `bs9 reload <app>` spawns replacement worker generation $g_{\text{next}}$, waits for an authenticated `READY` lifecycle signal, initiates a non-destructive 2-phase drain (`DRAIN_REQUEST` $\to$ `DRAINED`) on $g_{\text{curr}}$, and only stops the old worker once the new worker is actively serving.
+- **Violent Crash Resilience**: If a worker suffers an unhandled crash or violent termination (`kill -9`), sibling workers on the shared socket continue accepting connections while BS9 resurrects the missing slot. Use `bs9 verify-ha` to measure dropped requests for the actual workload and environment.
+
+### 2. Same-Host State Hub & Typed Client (`bs9/runtime`)
+To prevent state loss when workers restart, BS9 includes a low-latency, local IPC State Hub:
+- **Streaming Length-Prefixed IPC**: Big-endian 4-byte framing over Unix Domain Sockets or Windows Named Pipes with HMAC-SHA256 authentication.
+- **In-Memory KV Engine**: TTL eviction, Compare-And-Swap (`cas`), and atomic counter increments (`incr`).
+- **Distributed Leases**: Mutex and cron coordination with strictly monotonic fencing tokens and TTL automatic failover.
+- **Durable Queues**: FIFO work queues with visibility timeouts, redelivery, and ack/nack semantics.
+- **Write-Ahead Log (WAL)**: Append-only durability with CRC32 integrity verification and atomic snapshot compaction.
+
+#### Using the Typed Runtime Client:
+```typescript
+import { State, Lease, Queue } from "bs9/runtime";
+
+// Synchronized state across cluster workers
+const state = new State();
+await state.set("cart:user-123", { items: ["book", "coffee"] }, { ttlMs: 3600_000 });
+const cart = await state.get("cart:user-123");
+
+// Singleton cron job (runOnce callback receives no arguments)
+const lease = new Lease();
+const executed = await lease.runOnce(
+  "nightly-reconciliation",
+  async () => reconcileNightly(),
+  { ttlMs: 60_000 },
+);
+
+// Durable FIFO work queue
+const queue = new Queue();
+await queue.push("email-jobs", { to: "user@example.com", template: "welcome" });
+const job = await queue.pop("email-jobs", { timeoutMs: 5000 });
+```
+
+#### Strict Fallback Policy
+- **Standalone Mode**: If your application runs outside BS9 (e.g. locally in dev via `bun run app.ts`), `bs9/runtime` gracefully falls back to local in-memory execution without throwing errors.
+- **Cluster Strictness**: When running inside BS9 (`BS9_CLUSTER_NAME`), if the State Hub is unreachable, operations fail loudly with actionable diagnostics to prevent silent split-brain state. (Opt-in degraded local fallback is available via `BS9_ALLOW_DEGRADED_LOCAL=true`).
+
+### 3. Zero-Code Compatibility Adapters (`express-session`)
+For existing Express and Connect applications running on Bun, BS9 automatically intercepts `express-session`:
+- **Tested Version Matrix**: `1.17.x` - `1.18.x`.
+- **Zero Configuration**: Calling `session({ secret: "..." })` without an explicit store automatically mounts `Bs9SessionStore`, backed by the State Hub KV engine. Sessions persist seamlessly across worker reloads and crashes.
+- **Standalone Safety**: Automatically falls back to native `MemoryStore` when executed outside BS9.
+
+### 4. Verification & Diagnostic Tooling
+BS9 provides built-in tools to inspect and prove high availability before deploying to production:
+
+#### Static Analysis: `bs9 inspect-ha`
+```bash
+bs9 inspect-ha src/app.ts
+```
+Scans your entry file and dependencies to classify your app into HA readiness tiers:
+- **Tier 1 (Stateless HA Ready)**: No unsafe state pattern was detected by static inspection; confirm behavior with `bs9 verify-ha` before production.
+- **Tier 2 (Managed HA Ready)**: Utilizes `bs9/runtime` for coordinated state, leases, and queues.
+- **Tier 3 (In-Memory State Warning)**: Highlights unsafe module-level mutable variables (`let`, `Map`, `Set`) that risk data loss on worker restart, with suggested refactors.
+
+#### Dynamic Fault-Injection: `bs9 verify-ha`
+```bash
+bs9 verify-ha src/app.ts
+```
+- Spawns an isolated sandbox cluster on an ephemeral port without touching production.
+- Generates concurrent HTTP traffic across cluster slots.
+- Executes automated rolling reload and violent worker crash (`kill -9`).
+- Quantifies availability (%), dropped requests, and latency percentiles (p50, p95, p99).
+
+### 5. Clear Product Boundaries & Guarantees
+- **No Arbitrary Heap Replication**: BS9 does not pretend arbitrary JavaScript variables (`let x = 1`) can be magically synced across isolated OS processes. Use `bs9/runtime` (`State`) for shared state.
+- **No Global Monkey-Patching**: BS9 never alters Web-standard `BroadcastChannel` or injects polluted globals like `globalThis.shared`.
+- **Zero-Code Scope**: Zero-code HA is strictly guaranteed for supported stateless HTTP entry points and tested adapters. Custom in-memory caches and state machines require explicit `bs9/runtime` constructs.
+
+---
 
 ## 📋 Complete CLI Commands
 
@@ -204,6 +286,12 @@ bs9 delete myapp                                   # Delete specific service
 bs9 delete myapp --remove                          # Delete and remove config files
 bs9 delete --all                                   # Delete all services
 bs9 delete --all --force                           # Force delete all services
+
+# 🛡️ High-Availability Diagnostics & Verification (NEW!)
+bs9 inspect-ha app.ts                               # Static analysis of HA readiness (Tier 1/2/3)
+bs9 inspect-ha app.ts --json                        # Machine-readable report for CI/CD
+bs9 verify-ha app.ts                                # Ephemeral traffic test with rolling reload & crash injection
+bs9 verify-ha app.ts --json                         # Verification metrics and latency percentiles
 
 # Deploy applications (KILLER FEATURE)
 bs9 deploy app.ts                                  # Zero-config deployment
@@ -812,9 +900,9 @@ bs9 export --service myapp --hours 24
 
 ## 📄 License
 
-**MIT License** - see [LICENSE](LICENSE) file for details.
+BS9 is licensed under the **GNU Affero General Public License v3.0 or later (`AGPL-3.0-or-later`)**. See [LICENSE](LICENSE) for the complete terms.
 
-BS9 is 100% open source and free for everyone - no restrictions, no enterprise features, no paid tiers. All features are available to everyone under the MIT license.
+You may use, study, modify, and redistribute BS9 under the AGPL. If you modify BS9 and make the modified program available to users over a network, you must offer those users the corresponding source as required by AGPL section 13. Releases previously published under the MIT License remain available under the terms that applied to those releases.
 
 ### 🤝 Support Open Source
 If you find BS9 useful, please consider:
