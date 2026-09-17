@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.5] - 2026-09-17
+
+### Fixes
+
+- Fixed single wildcard expressions such as `bs9 delete 'api-*'` being rejected by service-name validation instead of expanding to matching services.
+- Retire HA desired-state manifests before deleting a complete cluster so the daemon cannot resurrect replacement generations.
+- Added a bounded residual-worker sweep to remove a generation that was already being spawned when deletion began.
+- Added regression coverage and verified wildcard cluster deletion end to end under Ubuntu WSL with systemd.
+
 ## [1.6.4] - 2026-09-17
 
 ### Documentation

@@ -13,6 +13,10 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { existsSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import {
+  findFullyCoveredClusters,
+  shouldUseMultiServiceDelete,
+} from "../src/commands/delete.js";
 
 // Mock the deleteCommand since we can't import it directly
 const mockDeleteCommand = async (name: string, options: any, configPath?: string) => {
@@ -113,6 +117,24 @@ setInterval(() => {
   });
 
   describe("Basic Functionality", () => {
+    it("should route a single wildcard expression through batch expansion", () => {
+      expect(shouldUseMultiServiceDelete(["api-*"])).toBe(true);
+      expect(shouldUseMultiServiceDelete(["api"])).toBe(false);
+    });
+
+    it("should retire a cluster manifest only when every discovered worker is selected", () => {
+      const services = [
+        { name: "api-0-g1" },
+        { name: "api-1-g2" },
+        { name: "standalone" },
+      ];
+
+      expect(findFullyCoveredClusters(["api-0", "api-1"], services as any)).toEqual(["api"]);
+      expect(findFullyCoveredClusters(["api-0-g1", "api-1-g2"], services as any)).toEqual(["api"]);
+      expect(findFullyCoveredClusters(["api"], services as any)).toEqual(["api"]);
+      expect(findFullyCoveredClusters(["api-0"], services as any)).toEqual([]);
+    });
+
     it("should delete a single service", async () => {
       const options = {
         remove: true
