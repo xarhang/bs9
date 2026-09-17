@@ -14,15 +14,9 @@ permalink: /
     <a class="button primary" href="{{ '/commands/' | relative_url }}">Explore commands →</a>
     <a class="button" href="https://github.com/xarhang/bs9">View on GitHub ↗</a>
   </div>
-  <div class="install">
-
-```bash
-bun add -g bs9
+  <div class="install"><pre><code>bun add -g bs9
 bs9 start app.ts --name api -i max
-bs9 status
-```
-
-  </div>
+bs9 status</code></pre></div>
 </section>
 
 <section class="feature-grid" aria-label="Key capabilities">
@@ -84,4 +78,3 @@ Perform a replace-first rolling reload when a new version is ready:
 ```bash
 bs9 reload web
 ```
-
