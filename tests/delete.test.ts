@@ -17,6 +17,7 @@ import {
   findFullyCoveredClusters,
   shouldUseMultiServiceDelete,
 } from "../src/commands/delete.js";
+import { normalizeManagedServiceName } from "../src/utils/array-parser.js";
 
 // Mock the deleteCommand since we can't import it directly
 const mockDeleteCommand = async (name: string, options: any, configPath?: string) => {
@@ -117,6 +118,12 @@ setInterval(() => {
   });
 
   describe("Basic Functionality", () => {
+    it("should normalize Windows and macOS service-manager prefixes", () => {
+      expect(normalizeManagedServiceName("BS9_api-0-g1")).toBe("api-0-g1");
+      expect(normalizeManagedServiceName("bs9.api-0-g1")).toBe("api-0-g1");
+      expect(normalizeManagedServiceName("api-0-g1")).toBe("api-0-g1");
+    });
+
     it("should route a single wildcard expression through batch expansion", () => {
       expect(shouldUseMultiServiceDelete(["api-*"])).toBe(true);
       expect(shouldUseMultiServiceDelete(["api"])).toBe(false);

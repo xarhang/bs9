@@ -86,15 +86,16 @@ export async function parseServiceArray(input: string | string[]): Promise<strin
 
 import { listServices } from "./service-discovery.js";
 
+export function normalizeManagedServiceName(name: string): string {
+  return name.replace(/^(BS9_|bs9\.)/, '');
+}
+
 export async function getAllServices(): Promise<string[]> {
   try {
     const services = await listServices();
-    // Return only the base names (without BS9_ prefix if applicable, 
-    // or just return names that listServices provides which are normalized)
-    // listServices returns full names like 'BS9_app'. We should trim the prefix if we want the 'short' name
-    // But most commands expect the short name and then prepend the prefix.
-    // However, listServices is our source of truth now.
-    return services.map(s => s.name.replace(/^BS9_/, ''));
+    // Commands consume platform-neutral names and add the native prefix only
+    // at the service-manager boundary.
+    return services.map(s => normalizeManagedServiceName(s.name));
   } catch {
     return [];
   }
@@ -120,12 +121,12 @@ export async function getServiceInfo(serviceName: string): Promise<ServiceInfo |
   try {
     const services = await listServices();
     // Match either the provided name or the prefixed name
-    const service = services.find(s => s.name === serviceName || s.name === `BS9_${serviceName}`);
+    const service = services.find(s => normalizeManagedServiceName(s.name) === normalizeManagedServiceName(serviceName));
 
     if (!service) return null;
 
     return {
-      name: service.name.replace(/^BS9_/, ''),
+      name: normalizeManagedServiceName(service.name),
       status: service.active === 'active' ? 'active' : 'inactive',
       pid: service.pid !== '-' ? parseInt(service.pid) : undefined
       // Port matching would require parsing description or checking env, 
