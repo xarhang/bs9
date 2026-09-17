@@ -9,13 +9,13 @@ permalink: /commands/
 
 ## Overview
 
-BS9 (Bun Sentinel 9) provides 39 powerful CLI commands for managing Bun and polyglot applications. All commands are designed to be intuitive, secure, and production-ready with automatic platform detection (Linux systemd, macOS launchd, and Windows services/watchdog) and zero-configuration setup.
+BS9 (Bun Sentinel 9) provides 39 CLI commands for managing Bun and polyglot applications. Commands support automatic platform detection (Linux systemd, macOS launchd, and Windows services/watchdog) and standard configuration workflows.
 
 ---
 
 ## 📑 Command Categories
 
-- [Core Process Lifecycle](#-core-process-lifecycle)
+- [Core Process Lifecycle](#core-process-lifecycle)
   - [`bs9 start`](#1-bs9-start---start-applications)
   - [`bs9 stop`](#2-bs9-stop---stop-applications)
   - [`bs9 restart`](#3-bs9-restart---restart-applications)
@@ -61,7 +61,7 @@ BS9 (Bun Sentinel 9) provides 39 powerful CLI commands for managing Bun and poly
 
 ---
 
-## 🚀 Core Process Lifecycle
+## Core Process Lifecycle
 
 ### 1. `bs9 start` - Start Applications
 
