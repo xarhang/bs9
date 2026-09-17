@@ -1,3 +1,10 @@
+---
+layout: default
+title: CLI Commands
+description: Complete command reference for managing services with BS9.
+permalink: /commands/
+---
+
 # BS9 CLI Commands Documentation
 
 ## Overview

@@ -1,3 +1,10 @@
+---
+layout: default
+title: API Reference
+description: REST management endpoints and the typed bs9/runtime SDK.
+permalink: /api/
+---
+
 # BS9 API Documentation
 
 ## Overview

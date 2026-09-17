@@ -1,3 +1,10 @@
+---
+layout: default
+title: High Availability
+description: Runtime architecture, shared state, and zero-downtime operations.
+permalink: /high-availability/
+---
+
 # High-Availability Runtime Guide
 
 This guide defines the supported high-availability behavior of BS9 1.6.3. It distinguishes automatic, zero-code process availability from application state that must use an explicit shared-state mechanism.
