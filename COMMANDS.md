@@ -65,7 +65,7 @@ BS9 (Bun Sentinel 9) provides 39 powerful CLI commands for managing Bun and poly
 
 ### 1. `bs9 start` - Start Applications
 
-Starts single-process or clustered services with built-in security auditing, monitoring instrumentation, and automatic process supervision.
+Starts single-process or clustered services with a pre-start security pattern audit and automatic process supervision.
 
 ```bash
 # Basic start (defaults to localhost:3000, HTTP)
@@ -110,8 +110,8 @@ bs9 start app.ts --cron "0 4 * * *"                 # Daily restart at 4 AM
 - `--time`: Prefix logs with ISO timestamps.
 - `--cron <pattern>`: Cron pattern for scheduled forced restarts.
 - `--interpreter <bin>`: Custom interpreter binary (e.g., `python3`, `go`, `node`, `none`).
-- `--otel`: Enable OpenTelemetry instrumentation (default: `true`).
-- `--prometheus`: Enable Prometheus metrics endpoint (default: `true`).
+- `--otel`: Configure OpenTelemetry service/exporter environment variables (default: `true`; application instrumentation is still required).
+- `--prometheus`: Record Prometheus integration metadata (default: `true`; the application must expose its own metrics endpoint).
 - `--build`: Build TypeScript before starting.
 
 ---
