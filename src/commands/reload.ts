@@ -442,14 +442,23 @@ async function spawnReplacementWorker(
         const oldLabel = `bs9.${currentPhysicalName}`;
         if (configs[oldLabel]) {
           const newLabel = `bs9.${nextPhysicalName}`;
-          const newCfg = { ...configs[oldLabel], name: newLabel };
-          if (newCfg.env) {
-            const parsedEnv = JSON.parse(newCfg.env);
-            parsedEnv.BS9_CLUSTER_GENERATION = String(nextGen);
-            parsedEnv.SERVICE_NAME = nextPhysicalName;
-            newCfg.env = JSON.stringify(parsedEnv);
-          }
-          await launchdCommand('create', newCfg);
+          const oldCfg = configs[oldLabel];
+          const environmentVariables = {
+            ...(oldCfg.environmentVariables || {}),
+            BS9_CLUSTER_GENERATION: String(nextGen),
+            SERVICE_NAME: nextPhysicalName,
+          };
+          await launchdCommand('create', {
+            name: newLabel,
+            file: oldCfg.programArguments?.[0],
+            args: oldCfg.programArguments?.slice(1) || [],
+            workingDir: oldCfg.workingDirectory,
+            env: JSON.stringify(environmentVariables),
+            autoStart: oldCfg.runAtLoad,
+            keepAlive: oldCfg.keepAlive,
+            logOut: oldCfg.standardOutPath,
+            logErr: oldCfg.standardErrorPath,
+          });
           await launchdCommand('start', { name: newLabel });
         }
       } catch {}

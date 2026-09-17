@@ -426,6 +426,7 @@ program
   .option("-i, --instances <number>", "Number of cluster instances", "2")
   .option("--ready-timeout <ms>", "Worker readiness timeout in ms", "15000")
   .option("--drain-timeout <ms>", "Worker drain timeout in ms", "5000")
+  .option("--duration <seconds>", "Additional sustained traffic duration after chaos checks", "0")
   .option("--json", "Output verification metrics as JSON")
   .action(async (file, options) => {
     try {
@@ -435,6 +436,7 @@ program
         instances: options.instances ? parseInt(options.instances, 10) : 2,
         readyTimeoutMs: options.readyTimeout ? parseInt(options.readyTimeout, 10) : 15000,
         drainTimeoutMs: options.drainTimeout ? parseInt(options.drainTimeout, 10) : 5000,
+        durationMs: options.duration ? parseInt(options.duration, 10) * 1000 : 0,
       });
       if (!result.passed) {
         process.exit(1);

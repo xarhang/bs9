@@ -28,6 +28,16 @@ export function hasUsableUserSystemd(): boolean {
  * fail immediately when systemd auto-restarts the stale unit.
  */
 export function removeSandboxSystemdLinks(sandboxDir: string): void {
+  if (process.platform === "darwin") {
+    const launchAgentsDir = join(resolve(sandboxDir), "Library", "LaunchAgents");
+    if (existsSync(launchAgentsDir)) {
+      for (const entry of readdirSync(launchAgentsDir).filter(name => name.endsWith(".plist"))) {
+        spawnSync("launchctl", ["unload", join(launchAgentsDir, entry)], { stdio: "ignore" });
+      }
+    }
+    return;
+  }
+
   if (process.platform !== "linux") return;
 
   // Stop the unit first so systemd does not restart it after we remove files.

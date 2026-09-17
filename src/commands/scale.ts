@@ -13,9 +13,8 @@ import { listServices } from "../utils/service-discovery.js";
 import { stopCommand } from "./stop.js";
 import { deleteCommand } from "./delete.js";
 import { getPlatformInfo } from "../platform/detect.js";
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
 import { escapeRegExp } from "../utils/array-parser.js";
 
 function isValidServiceName(name: string): boolean {
@@ -119,6 +118,7 @@ export async function scaleCommand(name: string, countStr: string): Promise<void
     // Retrieve base configuration from existing worker
     const baseWorker = workers[0];
     const baseClean = baseWorker.name.replace(/^(BS9_|bs9\.)/, "");
+    const generation = baseWorker.generation || 1;
 
     if (platformInfo.isWindows) {
       const servicesDir = platformInfo.serviceDir;
@@ -134,7 +134,7 @@ export async function scaleCommand(name: string, countStr: string): Promise<void
 
       for (let i = currentCount; i < targetCount; i++) {
         await lockSession.assertActive();
-        const workerName = `${cleanName}-${i}`;
+        const workerName = `${cleanName}-${i}-g${generation}`;
         const newMeta = {
           ...baseMeta,
           name: `BS9_${workerName}`,
@@ -166,7 +166,7 @@ export async function scaleCommand(name: string, countStr: string): Promise<void
       }
     } else if (platformInfo.isLinux) {
       // Linux systemd unit scaling
-      const userUnitDir = join(homedir(), ".config", "systemd", "user");
+      const userUnitDir = platformInfo.serviceDir;
       const baseUnitPath = join(userUnitDir, `${baseClean}.service`);
 
       if (!existsSync(baseUnitPath)) {
@@ -177,7 +177,7 @@ export async function scaleCommand(name: string, countStr: string): Promise<void
 
       for (let i = currentCount; i < targetCount; i++) {
         await lockSession.assertActive();
-        const workerName = `${cleanName}-${i}`;
+        const workerName = `${cleanName}-${i}-g${generation}`;
         const newUnitPath = join(userUnitDir, `${workerName}.service`);
         const newContent = baseContent
           .replace(new RegExp(`Description=BS9 Service: ${baseClean}`, "g"), `Description=BS9 Service: ${workerName}`)
@@ -195,34 +195,45 @@ export async function scaleCommand(name: string, countStr: string): Promise<void
         console.log(`   ➕ Started worker ${workerName}`);
       }
     } else if (platformInfo.isMacOS) {
-      // macOS launchd plist scaling
-      const launchDir = join(homedir(), "Library", "LaunchAgents");
-      const basePlistPath = join(launchDir, `bs9.${baseClean}.plist`);
-
-      if (!existsSync(basePlistPath)) {
-        throw new Error(`Base macOS launchd plist 'bs9.${baseClean}.plist' not found`);
+      // macOS launchd scaling through the manager so its config registry stays
+      // consistent with the loaded plist files.
+      const configPath = join(platformInfo.configDir, "launchd-services.json");
+      if (!existsSync(configPath)) {
+        throw new Error(`macOS launchd registry not found: ${configPath}`);
       }
-
-      const basePlist = readFileSync(basePlistPath, "utf-8");
+      const configs = JSON.parse(readFileSync(configPath, "utf-8"));
+      const baseConfig = configs[`bs9.${baseClean}`];
+      if (!baseConfig) {
+        throw new Error(`Base macOS launchd service 'bs9.${baseClean}' not found`);
+      }
+      const { launchdCommand } = await import("../macos/launchd.js");
 
       for (let i = currentCount; i < targetCount; i++) {
         await lockSession.assertActive();
-        const workerName = `${cleanName}-${i}`;
-        const newPlistPath = join(launchDir, `bs9.${workerName}.plist`);
-        const newPlist = basePlist
-          .replace(new RegExp(`<string>bs9\\.${baseClean}</string>`, "g"), `<string>bs9.${workerName}</string>`)
-          .replace(new RegExp(`<string>com\\.bs9\\.${baseClean}</string>`, "g"), `<string>com.bs9.${workerName}</string>`);
-
-        writeFileSync(newPlistPath, newPlist);
+        const workerName = `${cleanName}-${i}-g${generation}`;
+        const environmentVariables = {
+          ...(baseConfig.environmentVariables || {}),
+          BS9_CLUSTER: "true",
+          BS9_CLUSTER_NAME: cleanName,
+          BS9_CLUSTER_ID: String(i),
+          NODE_APP_INSTANCE: String(i),
+          BS9_CLUSTER_TOTAL: String(targetCount),
+          BS9_CLUSTER_GENERATION: String(generation),
+          SERVICE_NAME: workerName,
+        };
+        await launchdCommand("create", {
+          name: `bs9.${workerName}`,
+          file: baseConfig.programArguments?.[0],
+          args: baseConfig.programArguments?.slice(1) || [],
+          workingDir: baseConfig.workingDirectory,
+          env: JSON.stringify(environmentVariables),
+          autoStart: baseConfig.runAtLoad,
+          keepAlive: baseConfig.keepAlive,
+          logOut: baseConfig.standardOutPath,
+          logErr: baseConfig.standardErrorPath,
+        });
         await lockSession.assertActive();
-        const { execSync } = await import("node:child_process");
-        try {
-          execSync(`launchctl load "${newPlistPath}"`, { stdio: "ignore" });
-          await lockSession.assertActive();
-          console.log(`   ➕ Started worker ${workerName}`);
-        } catch (e) {
-          console.warn(`   ⚠️ Warning while launching worker ${workerName}: ${e}`);
-        }
+        console.log(`   ➕ Started worker ${workerName}`);
       }
     }
 

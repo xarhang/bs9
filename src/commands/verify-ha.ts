@@ -456,12 +456,50 @@ async function runLiveVerification(clusterName: string, options: VerifyHaOptions
     await reloadCommand([clusterName], options);
     await new Promise((r) => setTimeout(r, 300));
 
+    const reloadRecords = records.slice(reloadStartIdx);
+    const droppedInReload = reloadRecords.filter((r) => r.status < 200 || r.status >= 300).length;
+    const reloadPassed = droppedInReload === 0 && reloadRecords.length > 0;
+
+    // Violently terminate one native service-manager worker while traffic is
+    // still flowing. The surviving worker must absorb every request and the
+    // platform supervisor must bring the victim service back with a new PID.
+    const postReloadServices = await listServices();
+    const victim = postReloadServices.find((service) =>
+      service.name.includes(clusterName) &&
+      service.active === "active" &&
+      service.pid !== "-" &&
+      Number.isFinite(Number(service.pid))
+    );
+    const victimPid = victim ? Number(victim.pid) : 0;
+    const crashStartIdx = records.length;
+    let supervisorRecovered = false;
+
+    if (victim && victimPid > 0) {
+      violentlyKillProcess(victimPid);
+      const recoveryDeadline = Date.now() + (options.readyTimeoutMs || 15_000);
+      while (Date.now() < recoveryDeadline) {
+        const current = (await listServices()).find(service => service.name === victim.name);
+        const currentPid = current?.pid && current.pid !== "-" ? Number(current.pid) : 0;
+        if (current?.active === "active" && currentPid > 0 && currentPid !== victimPid) {
+          supervisorRecovered = true;
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 100));
+      }
+    }
+
+    await new Promise((r) => setTimeout(r, 300));
+    if (options.durationMs && options.durationMs > 0) {
+      await new Promise((r) => setTimeout(r, options.durationMs));
+    }
+
     isGenerating = false;
     await trafficPromise;
 
-    const reloadRecords = records.slice(reloadStartIdx);
-    const dropped = reloadRecords.filter((r) => r.status < 200 || r.status >= 300).length;
-    const passed = dropped === 0 && reloadRecords.length > 0;
+    const crashRecords = records.slice(crashStartIdx);
+    const droppedInCrash = crashRecords.filter((r) => r.status < 200 || r.status >= 300).length;
+    const crashPassed = victimPid > 0 && supervisorRecovered && droppedInCrash === 0 && crashRecords.length > 0;
+    const passed = reloadPassed && crashPassed;
 
     const total = records.length;
     const success = records.filter((r) => r.status >= 200 && r.status < 300).length;
@@ -482,27 +520,28 @@ async function runLiveVerification(clusterName: string, options: VerifyHaOptions
       },
       tests: {
         rollingReload: {
-          passed,
+          passed: reloadPassed,
           totalRequests: reloadRecords.length,
-          successfulRequests: reloadRecords.length - dropped,
-          droppedRequests: dropped,
+          successfulRequests: reloadRecords.length - droppedInReload,
+          droppedRequests: droppedInReload,
           generationsSeen: [],
         },
         violentCrashRecovery: {
-          passed: true,
-          totalRequests: 0,
-          successfulRequests: 0,
-          droppedRequests: 0,
-          victimPid: 0,
-          survived: true,
+          passed: crashPassed,
+          totalRequests: crashRecords.length,
+          successfulRequests: crashRecords.length - droppedInCrash,
+          droppedRequests: droppedInCrash,
+          victimPid,
+          survived: supervisorRecovered,
         },
       },
       summary: passed
-        ? `Live cluster '${clusterName}' verified: No failed requests observed during rolling reload.`
-        : `Live cluster verification failed: ${dropped} dropped requests detected during rolling reload.`,
+        ? `Live cluster '${clusterName}' verified during rolling reload and violent worker recovery with no failed requests.`
+        : `Live cluster verification failed: reload dropped ${droppedInReload}, crash recovery dropped ${droppedInCrash}, supervisor recovered: ${supervisorRecovered}.`,
     };
   } finally {
     isGenerating = false;
+    await trafficPromise;
   }
 }
 
@@ -536,7 +575,7 @@ function displayVerifyReport(result: VerifyHaResult): void {
 
   // Test 2: Violent Crash
   const cTest = result.tests.violentCrashRecovery;
-  if (result.mode === "ephemeral") {
+  if (result.mode === "ephemeral" || cTest.victimPid > 0) {
     console.log(`\n  2. Violent Crash Recovery (SIGKILL / Forced Terminate):`);
     console.log(`     Status:           ${cTest.passed ? "\x1b[32m✅ PASSED (Surviving Worker Absorbed Load)\x1b[0m" : `\x1b[31m❌ FAILED (${cTest.droppedRequests} dropped requests)\x1b[0m`}`);
     console.log(`     Victim PID:       ${cTest.victimPid}`);
