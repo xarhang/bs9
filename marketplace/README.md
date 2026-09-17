@@ -450,5 +450,5 @@ await plugin.updateConfig(newConfig);
 ---
 
 *Last Updated: September 17, 2026*
-*BS9 Version: 1.6.3*
+*BS9 Version: 1.6.4*
 *Marketplace Version: 1.0.0*
