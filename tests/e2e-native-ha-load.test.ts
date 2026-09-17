@@ -20,10 +20,10 @@ describe.skipIf(!enabled)("Native HA load and chaos gate", () => {
   const platformInfo = getPlatformInfo();
   const controllerSocket = process.platform === "win32"
     ? `\\\\.\\pipe\\bs9-ha-controller-${testId}`
-    : join(home, ".bs9", "run", "controller.sock");
+    : join(platformInfo.runtimeDir, `controller-${testId}.sock`);
   const hubSocket = process.platform === "win32"
     ? `\\\\.\\pipe\\bs9-ha-hub-${testId}`
-    : join(home, ".bs9", "run", "hub.sock");
+    : join(platformInfo.runtimeDir, `hub-${testId}.sock`);
   const env: Record<string, string> = {
     ...(process.env as Record<string, string>),
     BS9_HOME: home,
@@ -92,6 +92,7 @@ describe.skipIf(!enabled)("Native HA load and chaos gate", () => {
 
   beforeAll(() => {
     mkdirSync(fixtureDir, { recursive: true });
+    mkdirSync(platformInfo.runtimeDir, { recursive: true });
     mkdirSync(reportDir, { recursive: true });
     writeFileSync(reportPath, `BS9 native HA load gate\nplatform=${process.platform}\ncluster=${clusterName}\nport=${port}\n`);
     writeFileSync(appFile, `
