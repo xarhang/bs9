@@ -16,6 +16,24 @@ import { getPlatformInfo } from "../platform/detect.js";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { escapeRegExp } from "../utils/array-parser.js";
+import { startUserSystemdUnit } from "../utils/systemd.js";
+
+export function cloneSystemdWorkerUnit(
+  baseContent: string,
+  baseName: string,
+  workerName: string,
+  slot: number,
+  total: number,
+): string {
+  const safeBaseName = escapeRegExp(baseName);
+  return baseContent
+    .replace(/^Description=.*$/m, `Description=BS9 Cluster Worker ${workerName}`)
+    .replace(new RegExp(`SERVICE_NAME=${safeBaseName}(?=["\\s]|$)`, "g"), `SERVICE_NAME=${workerName}`)
+    .replace(new RegExp(`SyslogIdentifier=${safeBaseName}(?=\\s|$)`, "g"), `SyslogIdentifier=${workerName}`)
+    .replace(/BS9_CLUSTER_ID=\d+/g, `BS9_CLUSTER_ID=${slot}`)
+    .replace(/NODE_APP_INSTANCE=\d+/g, `NODE_APP_INSTANCE=${slot}`)
+    .replace(/BS9_CLUSTER_TOTAL=\d+/g, `BS9_CLUSTER_TOTAL=${total}`);
+}
 
 function isValidServiceName(name: string): boolean {
   const validPattern = /^[a-zA-Z0-9._-]+$/;
@@ -179,18 +197,17 @@ export async function scaleCommand(name: string, countStr: string): Promise<void
         await lockSession.assertActive();
         const workerName = `${cleanName}-${i}-g${generation}`;
         const newUnitPath = join(userUnitDir, `${workerName}.service`);
-        const newContent = baseContent
-          .replace(new RegExp(`Description=BS9 Service: ${baseClean}`, "g"), `Description=BS9 Service: ${workerName}`)
-          .replace(new RegExp(`SERVICE_NAME=${baseClean}`, "g"), `SERVICE_NAME=${workerName}`)
-          .replace(new RegExp(`SyslogIdentifier=${baseClean}`, "g"), `SyslogIdentifier=${workerName}`)
-          .replace(/BS9_CLUSTER_ID=\d+/, `BS9_CLUSTER_ID=${i}\nEnvironment=NODE_APP_INSTANCE=${i}`)
-          .replace(/BS9_CLUSTER_TOTAL=\d+/, `BS9_CLUSTER_TOTAL=${targetCount}`);
+        const newContent = cloneSystemdWorkerUnit(
+          baseContent,
+          baseClean,
+          workerName,
+          i,
+          targetCount,
+        );
 
         writeFileSync(newUnitPath, newContent);
         await lockSession.assertActive();
-        const { execSync } = await import("node:child_process");
-        execSync(`systemctl --user daemon-reload`, { stdio: "ignore" });
-        execSync(`systemctl --user enable --now ${workerName}.service`, { stdio: "ignore" });
+        startUserSystemdUnit(newUnitPath, `${workerName}.service`);
         await lockSession.assertActive();
         console.log(`   ➕ Started worker ${workerName}`);
       }
