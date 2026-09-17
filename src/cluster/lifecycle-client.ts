@@ -143,6 +143,7 @@ export class LifecycleClient extends EventEmitter {
               this.handleServerMessage(envelope);
             }
           } catch (err) {
+
             if (this.listenerCount("error") > 0) {
               this.emit("error", err);
             }
@@ -173,6 +174,10 @@ export class LifecycleClient extends EventEmitter {
           }
           this.removeListener("authenticated", onAuth);
           this.removeListener("rejected", onReject);
+          if (this.readyResolver) {
+            this.readyResolver();
+            this.readyResolver = null;
+          }
         };
 
         this.socket.on("close", () => {
@@ -351,8 +356,20 @@ export class LifecycleClient extends EventEmitter {
   ): Promise<void> {
     this.lastReadyData = { port, metadata };
 
-    if (this.readyPromise) {
-      await this.readyPromise;
+    if (!this.isAuthenticated) {
+      await new Promise<void>((resolve) => {
+        let timer: any = null;
+        const onAuth = () => {
+          if (timer) clearTimeout(timer);
+          this.removeListener("authenticated", onAuth);
+          resolve();
+        };
+        timer = setTimeout(() => {
+          this.removeListener("authenticated", onAuth);
+          resolve();
+        }, 5000);
+        this.once("authenticated", onAuth);
+      });
     }
 
     const envelope = createEnvelope<LifecycleReadyPayload>(

@@ -7,6 +7,7 @@ import { ControllerAdminClient } from "../src/cluster/admin-client.js";
 import { HubClient } from "../src/hub/client.js";
 import { ensureDaemonRunning, isDaemonResponsive } from "../src/daemon/ensure.js";
 import { daemonCommand } from "../src/commands/daemon.js";
+import { hasUsableUserSystemd, removeSandboxSystemdLinks } from "./helpers/systemd.js";
 
 describe("Daemon Supervision & Crash Recovery E2E", () => {
   const testId = Date.now() + "_" + Math.floor(Math.random() * 1000);
@@ -16,12 +17,11 @@ describe("Daemon Supervision & Crash Recovery E2E", () => {
   const origHome = process.env.BS9_HOME;
   const origCtrlSock = process.env.BS9_CONTROLLER_SOCKET;
   const origHubSock = process.env.BS9_HUB_SOCKET;
-  process.env.BS9_HOME = sandboxDir;
-  const platformInfo = getPlatformInfo();
+  let platformInfo: ReturnType<typeof getPlatformInfo>;
 
   const clusterName = `sup_cluster_${testId}`;
   const workerScript = join(sandboxDir, "worker-app.ts");
-  const pidFile = join(platformInfo.runtimeDir, "bs9-daemon.pid");
+  let pidFile = "";
 
   let port = 0;
   let workerProc: any = null;
@@ -40,6 +40,9 @@ describe("Daemon Supervision & Crash Recovery E2E", () => {
   }
 
   beforeAll(async () => {
+    process.env.BS9_HOME = sandboxDir;
+    platformInfo = getPlatformInfo();
+    pidFile = join(platformInfo.runtimeDir, "bs9-daemon.pid");
     mkdirSync(sandboxDir, { recursive: true });
 
     // Cluster Worker Application Script
@@ -92,6 +95,7 @@ Bun.serve({
     }
 
     await new Promise((r) => setTimeout(r, 500));
+    removeSandboxSystemdLinks(sandboxDir);
 
     if (origHome !== undefined) {
       process.env.BS9_HOME = origHome;
@@ -116,7 +120,7 @@ Bun.serve({
     } catch {}
   });
 
-  it("survives daemon SIGKILL: supervisor restarts daemon, workers reconnect, WAL restores state", async () => {
+  it.skipIf(!hasUsableUserSystemd())("survives daemon SIGKILL: supervisor restarts daemon, workers reconnect, WAL restores state", async () => {
     // 1. Launch Daemon under Platform Supervisor (Windows watchdog / systemd)
     await ensureDaemonRunning({ timeoutMs: 15000 });
     expect(await isDaemonResponsive()).toBe(true);

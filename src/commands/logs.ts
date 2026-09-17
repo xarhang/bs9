@@ -9,7 +9,7 @@
  * https://github.com/xarhang/bs9
  */
 
-import { execSync, spawn } from "node:child_process";
+import { execSync, spawn, spawnSync } from "node:child_process";
 import { getPlatformInfo } from "../platform/detect.js";
 import { join } from "node:path";
 import { existsSync, readFileSync, readdirSync, watch } from "node:fs";
@@ -79,10 +79,25 @@ export async function logsCommand(name?: string, options: LogsOptions = {}): Pro
         const args = ["--user", "--no-pager", "-n", String(linesCount), "-u", `${fullName}.service`];
         if (options.follow) {
           args.push("-f");
+          const child = spawn("journalctl", args, { stdio: "inherit" });
+          const exitCode = await new Promise<number>((resolve) => {
+            child.once("error", () => resolve(-1));
+            child.once("close", (code) => resolve(code ?? -1));
+          });
+          if (exitCode === 0) return;
+        } else {
+          // Capture the result so a missing user journal or an empty unit can
+          // fall back to BS9's portable file logs. Spawning with inherited
+          // stdio hides journalctl's exit status/content from this decision.
+          const result = spawnSync("journalctl", args, { encoding: "utf-8" });
+          const output = result.stdout?.trim();
+          const hasEntries = Boolean(output && !output.includes("-- No entries --"));
+
+          if (result.status === 0 && hasEntries) {
+            console.log(output);
+            return;
+          }
         }
-        const child = spawn("journalctl", args, { stdio: "inherit" });
-        await new Promise<void>((resolve) => child.on("close", () => resolve()));
-        return;
       } catch {
         // Fallback to file-based logs
       }

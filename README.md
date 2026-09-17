@@ -761,38 +761,49 @@ bun run build
 ```
 BS9/
 ├── bin/
-│   └── bs9                 # CLI entry point
+│   └── bs9                     # CLI entry point
 ├── src/
-│   ├── commands/           # CLI commands
-│   │   ├── start.ts        # Service management
-│   │   ├── stop.ts         # Stop services
-│   │   ├── restart.ts      # Restart services
-│   │   ├── status.ts       # Status dashboard
-│   │   ├── logs.ts         # Log viewing
-│   │   ├── monit.ts        # Terminal dashboard
-│   │   ├── web.ts          # Web dashboard
-│   │   ├── alert.ts        # Alert management
-│   │   ├── delete.ts       # Service deletion
-│   │   ├── save.ts         # Service backup
-│   │   ├── resurrect.ts    # Service restoration
-│   │   └── export.ts       # Data export
-│   ├── web/                # Web dashboard
-│   │   └── dashboard.ts    # Web server
-│   ├── storage/            # Metrics storage
-│   │   └── metrics.ts       # Historical data
-│   ├── alerting/           # Alert system
-│   │   └── config.ts       # Alert management
-│   ├── injectors/          # Auto-injection
-│   │   └── otel.ts         # OpenTelemetry
-│   ├── docker/             # Docker files
-│   │   └── Dockerfile       # Container setup
-│   └── k8s/                # Kubernetes manifests
-│       └── bs9-deployment.yaml
-├── examples/               # Example apps
-├── configs/                # Configuration templates
-├── setup.sh               # One-click installer
+│   ├── commands/               # CLI command implementations
+│   │   ├── start.ts            # Start single or clustered workloads
+│   │   ├── reload.ts           # Replace-first rolling reload
+│   │   ├── scale.ts            # Cluster scaling
+│   │   ├── daemon.ts           # Supervisor daemon command
+│   │   ├── inspect-ha.ts       # Static HA compatibility checks
+│   │   └── verify-ha.ts        # Bounded live HA verification
+│   ├── cluster/                # Worker lifecycle and control clients
+│   ├── daemon/                 # Topology reconciliation and recovery
+│   ├── hub/                    # State Hub, WAL, leases, and queues
+│   ├── runtime/                # Typed bs9/runtime client APIs
+│   ├── platform/               # Cross-platform detection and paths
+│   ├── alerting/               # Alert configuration
+│   ├── database/               # Database monitoring helpers
+│   ├── discovery/              # Service discovery
+│   ├── loadbalancer/           # Load-balancer integration
+│   ├── monitoring/             # Metrics and process monitoring
+│   ├── storage/                # Metrics persistence
+│   ├── injectors/              # Runtime auto-injection
+│   ├── mcp/                    # MCP integration
+│   ├── web/                    # Web dashboard
+│   ├── windows/                # Windows service support
+│   ├── macos/                  # launchd support
+│   ├── docker/                 # Container assets
+│   ├── k8s/                    # Kubernetes manifests
+│   ├── utils/                  # Shared utilities
+│   └── index.ts                # Package exports
+├── tests/                  # Unit, integration, lifecycle, and HA tests
+├── docs/                   # Command, API, and HA runtime guides
+├── examples/               # Runnable example applications
+├── configs/                # Service configuration templates
+├── scripts/                # Build, release, and verification tooling
+├── marketplace/            # Plugin marketplace examples
+├── training/               # Training material
+├── videos/                 # Video tutorial scripts
+├── setup.sh                # One-click installer
 ├── docker-compose.yml      # Docker stack
-└── README.md
+├── package.json            # Package metadata and scripts
+├── ARCHITECTURE.md         # System architecture
+├── PRODUCTION.md           # Production operations guide
+└── README.md               # Project overview
 ```
 
 ---

@@ -19,6 +19,8 @@ import { getPlatformInfo } from "../platform/detect.js";
 import { join } from "node:path";
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import { execSync } from "node:child_process";
+import { startUserSystemdUnit } from "../utils/systemd.js";
+
 
 export interface ReloadOptions {
   force?: boolean;
@@ -428,8 +430,8 @@ async function spawnReplacementWorker(
       );
       const newServiceFile = join(platformInfo.serviceDir, `${nextPhysicalName}.service`);
       writeFileSync(newServiceFile, content, "utf-8");
-      try { execSync("systemctl --user daemon-reload", { stdio: "ignore" }); } catch {}
-      try { execSync(`systemctl --user start ${nextPhysicalName}`, { stdio: "ignore" }); } catch {}
+      try { startUserSystemdUnit(newServiceFile, `${nextPhysicalName}.service`); } catch {}
+
     }
   } else if (platformInfo.isMacOS) {
     const { launchdCommand } = await import("../macos/launchd.js");

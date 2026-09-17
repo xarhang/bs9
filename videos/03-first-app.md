@@ -281,15 +281,17 @@ curl http://localhost:3000/metrics
 
 ### 📋 Application Structure
 ```
-bs9/
+BS9/
 ├── bin/
-│   └── bs9
+│   └── bs9                     # CLI entry point
 ├── src/
-│   └── commands/
-│   ├── start.ts
-│   ├── stop.ts
-│   ├── restart.ts
-│   └── status.ts
+│   ├── commands/               # CLI commands, including HA operations
+│   ├── cluster/                # Worker lifecycle control
+│   ├── daemon/                 # Self-healing topology reconciler
+│   ├── hub/                    # Same-host state coordination
+│   ├── runtime/                # Typed bs9/runtime APIs
+│   └── platform/               # Cross-platform support
+├── tests/                  # Unit, integration, and HA tests
 ├── examples/
 │   ├── simple-app.js
 │   ├── express-app.js
@@ -297,8 +299,11 @@ bs9/
 │   ├── database-app.js
 │   └── microservices-app.js
 ├── docs/
-├�── COMMANDS.md
-└── API.md
+│   ├── COMMANDS.md
+│   ├── API.md
+│   └── HA_RUNTIME.md
+├── setup.sh
+├── package.json
 └── README.md
 ```
 

@@ -19,6 +19,7 @@ import { getPlatformInfo } from "../platform/detect.js";
 import { parseServiceArray, getMultipleServiceInfo, confirmAction, displayBatchResults } from "../utils/array-parser.js";
 import { isEcosystemConfig, parseEcosystemConfig } from "../utils/ecosystem-config.js";
 import { resolveRuntime } from "../utils/runtime-resolver.js";
+import { startUserSystemdUnit } from "../utils/systemd.js";
 
 // Security: Host validation function
 export function isValidHost(host: string): boolean {
@@ -220,6 +221,9 @@ async function handleClusterStart(file: string, options: StartOptions, instanceC
           name: workerName,
           env: [
             ...(options.env || []),
+            ...(process.env.BS9_HOME ? [`BS9_HOME=${process.env.BS9_HOME}`] : []),
+            ...(process.env.BS9_CONTROLLER_SOCKET ? [`BS9_CONTROLLER_SOCKET=${process.env.BS9_CONTROLLER_SOCKET}`] : []),
+            ...(process.env.BS9_HUB_SOCKET ? [`BS9_HUB_SOCKET=${process.env.BS9_HUB_SOCKET}`] : []),
             `BS9_CLUSTER=true`,
             `BS9_CLUSTER_NAME=${baseName}`,
             `BS9_CLUSTER_ID=${i}`,
@@ -236,6 +240,18 @@ async function handleClusterStart(file: string, options: StartOptions, instanceC
         results.push({ status: "fulfilled", value: { service: workerName, status: "failed", error: (error as Error).message } });
       }
       await lockSession.assertActive();
+    }
+
+    // Bounded wait for initial workers to report ready before releasing topology lock
+    for (let i = 0; i < instanceCount; i++) {
+      const waitStart = Date.now();
+      while (Date.now() - waitStart < 5000) {
+        await lockSession.assertActive();
+        try {
+          if (await adminClient.isSlotReady(baseName, i, 1)) break;
+        } catch {}
+        await new Promise((r) => setTimeout(r, 100));
+      }
     }
 
     displayBatchResults(results, 'start');
@@ -517,15 +533,14 @@ async function createLinuxService(serviceName: string, execPath: string, host: s
       // First time: Create service file
       writeFileSync(unitPath, unitContent);
       console.log(`✅ Systemd user unit written to: ${unitPath}`);
-      spawnSync("systemctl", ["--user", "daemon-reload"]);
       spawnSync("systemctl", ["--user", "enable", serviceName]);
       console.log(`🔧 Service '${serviceName}' created and enabled`);
     } else {
       console.log(`📋 Service '${serviceName}' already exists, starting...`);
     }
 
-    // Always start the service
-    spawnSync("systemctl", ["--user", "start", serviceName], { stdio: "inherit" });
+    // Always start the service (handles daemon-reload + optional link)
+    startUserSystemdUnit(unitPath, `${serviceName}.service`);
 
     console.log(`🚀 Service '${serviceName}' started successfully`);
     console.log(`   Health: ${protocol}://${host}:${port}/healthz`);
@@ -648,8 +663,17 @@ async function securityAudit(filePath: string): Promise<SecurityAuditResult> {
   const content = readFileSync(filePath, "utf-8");
   const stat = statSync(filePath);
 
-  // Check file permissions (Unix-style world-writable check is unreliable on Windows)
-  if (process.platform !== "win32" && (stat.mode & 0o002)) {
+  // Check file permissions (Unix-style world-writable check is unreliable on Windows
+  // and on Windows-mounted NTFS filesystems in WSL, where all permission bits are
+  // synthetic — e.g. 0o777 regardless of actual ACLs).
+  // Indicator of synthetic permissions: all three triplets (u/g/o) identical,
+  // which almost never occurs on real Linux fs but is the norm for NTFS mounts.
+  const rawPerms = stat.mode & 0o777;
+  const uPerms = (rawPerms >> 6) & 0o7;
+  const gPerms = (rawPerms >> 3) & 0o7;
+  const oPerms = rawPerms & 0o7;
+  const hasSyntheticPerms = uPerms === gPerms && gPerms === oPerms;
+  if (process.platform !== "win32" && !hasSyntheticPerms && (stat.mode & 0o002)) {
     result.critical.push("File is world-writable");
   }
 
@@ -746,7 +770,6 @@ ExecStart=${execStart}
 ${envSection}
 
 # Security hardening (user systemd compatible)
-PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
 ReadWritePaths=${workingDir}

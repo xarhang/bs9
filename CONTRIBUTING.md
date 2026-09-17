@@ -89,38 +89,39 @@ We welcome contributions in all areas! Here are some high-priority areas:
 ```
 BS9/
 ├── bin/
-│   └── bs9                 # CLI entry point
+│   └── bs9                     # CLI entry point
 ├── src/
-│   ├── commands/           # CLI command implementations
-│   │   ├── start.ts        # Start command with security audit
-│   │   ├── stop.ts         # Stop command
-│   │   ├── restart.ts      # Restart command
-│   │   ├── status.ts       # Status with SRE metrics
-│   │   ├── logs.ts         # Logs via journalctl
-│   │   ├── monit.ts        # Real-time monitoring dashboard
-│   │   ├── web.ts          # Web-based dashboard
-│   │   ├── alert.ts        # Alert management
-│   │   └── export.ts       # Historical data export
-│   ├── web/                # Web dashboard
-│   │   └── dashboard.ts    # Web server implementation
-│   ├── storage/            # Metrics storage system
-│   │   └── metrics.ts       # Historical data management
-│   ├── alerting/           # Alert system
-│   │   └── config.ts       # Alert configuration
-│   ├── injectors/          # Auto-injection modules
-│   │   └── otel.ts         # OpenTelemetry injection
-│   ├── docker/             # Docker containerization
-│   │   └── Dockerfile       # Production container
-│   └── k8s/                # Kubernetes manifests
-│       └── bs9-deployment.yaml
-├── examples/
-│   ├── simple-app.js       # Example JavaScript app
-│   └── typescript-app.ts   # Example TypeScript app
-├── configs/                # Configuration templates
+│   ├── commands/               # One module per CLI command
+│   ├── cluster/                # Worker lifecycle and authenticated control
+│   ├── daemon/                 # Desired-state topology reconciler
+│   ├── hub/                    # State, WAL, leases, and durable queues
+│   ├── runtime/                # Public typed runtime client
+│   ├── platform/               # Platform detection and paths
+│   ├── alerting/               # Alert configuration
+│   ├── database/               # Database monitoring helpers
+│   ├── discovery/              # Service discovery
+│   ├── loadbalancer/           # Load-balancer integration
+│   ├── monitoring/             # Runtime monitoring
+│   ├── storage/                # Metrics persistence
+│   ├── injectors/              # Runtime auto-injection
+│   ├── mcp/                    # MCP integration
+│   ├── web/                    # Web dashboard
+│   ├── windows/                # Windows service support
+│   ├── macos/                  # launchd support
+│   ├── docker/                 # Container assets
+│   ├── k8s/                    # Kubernetes manifests
+│   ├── utils/                  # Shared utilities
+│   └── index.ts                # Package exports
+├── tests/                  # Bun unit and integration tests
+├── docs/                   # Command, API, and HA documentation
+├── examples/               # Runnable example applications
+├── configs/                # Service configuration templates
+├── scripts/                # Build, release, and verification tools
+├── marketplace/            # Plugin examples
+├── setup.sh                # One-click installer
 ├── docker-compose.yml      # Docker Compose stack
-├── setup.sh               # One-click installer
-├── package.json
-└── README.md
+├── package.json            # Package metadata and scripts
+└── README.md               # Project overview
 ```
 
 ## Code Style

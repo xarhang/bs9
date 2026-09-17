@@ -16,7 +16,7 @@ import { existsSync, writeFileSync, mkdirSync, openSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { getPlatformInfo } from "../platform/detect.js";
 import { ControllerAdminClient } from "../cluster/admin-client.js";
-import { generateSystemdUnit } from "../utils/systemd.js";
+import { generateSystemdUnit, startUserSystemdUnit } from "../utils/systemd.js";
 
 export interface EnsureDaemonOptions {
   timeoutMs?: number;
@@ -80,19 +80,23 @@ export async function launchSupervisedDaemon(): Promise<void> {
     }
   } else if (platformInfo.isLinux) {
     try {
-      const { execSync } = await import("node:child_process");
       const serviceFile = join(platformInfo.serviceDir, "bs9-daemon.service");
+      const daemonEnv: Record<string, string> = { BS9_DAEMON: "true" };
+      for (const key of ["BS9_HOME", "BS9_CONTROLLER_SOCKET", "BS9_HUB_SOCKET"]) {
+        const value = process.env[key];
+        if (value) daemonEnv[key] = value;
+      }
+      mkdirSync(platformInfo.serviceDir, { recursive: true });
       const unitContent = generateSystemdUnit({
         description: "BS9 Unified Persistent Controller and State Hub Daemon",
         workingDir: process.cwd(),
         executable: process.execPath,
         args: ["run", daemonFile],
-        env: { BS9_DAEMON: "true" },
+        env: daemonEnv,
         restartSec: 2,
       });
       writeFileSync(serviceFile, unitContent, "utf-8");
-      execSync("systemctl --user daemon-reload", { stdio: "ignore" });
-      execSync("systemctl --user start bs9-daemon", { stdio: "ignore" });
+      startUserSystemdUnit(serviceFile, "bs9-daemon.service");
       return;
     } catch {
       // Fallback to detached spawn

@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { writeFileSync, rmSync, existsSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { getPlatformInfo } from "../src/platform/detect.js";
+import { hasUsableUserSystemd, removeSandboxSystemdLinks } from "./helpers/systemd.js";
 
 describe("E2E CLI Lifecycle Integration (Isolated)", () => {
   const testId = Date.now() + "_" + Math.floor(Math.random() * 1000);
@@ -11,15 +12,26 @@ describe("E2E CLI Lifecycle Integration (Isolated)", () => {
   const serviceName = `svc_${testId}`;
   const port = 49000 + Math.floor(Math.random() * 800);
   const binPath = resolve(join(process.cwd(), "bin", "bs9"));
+
+  // On Linux, Unix domain sockets must live on a native filesystem (tmpfs/ext4).
+  // Processes launched by systemd cannot create sockets on Windows-mounted paths
+  // (/mnt/d/... → ENOTSUP). Use /tmp for socket files on Linux so both the WSL dev
+  // environment and real GitHub Linux runners work. App scripts stay in sandboxDir
+  // because the start command's path allowlist uses process.cwd() which is sandboxDir.
+  const socketBase = platformInfo.isLinux
+    ? `/tmp/bs9-test-${testId}`
+    : sandboxDir;
+
   const appFile = join(sandboxDir, "app.ts");
+
 
   const ctrlSocket = platformInfo.isWindows
     ? `\\\\.\\pipe\\bs9-test-ctrl-${testId}`
-    : join(sandboxDir, "ctrl.sock");
+    : join(socketBase, "ctrl.sock");
 
   const hubSocket = platformInfo.isWindows
     ? `\\\\.\\pipe\\bs9-test-hub-${testId}`
-    : join(sandboxDir, "hub.sock");
+    : join(socketBase, "hub.sock");
 
   const testEnv: Record<string, string> = {
     ...process.env as Record<string, string>,
@@ -55,6 +67,9 @@ describe("E2E CLI Lifecycle Integration (Isolated)", () => {
 
   beforeAll(() => {
     mkdirSync(sandboxDir, { recursive: true });
+    // Ensure the socket directory exists before the daemon tries to bind.
+    // On Linux socketBase is /tmp/bs9-test-{testId}/ (distinct from sandboxDir).
+    mkdirSync(socketBase, { recursive: true });
 
     // Create test Bun.serve app
     const appSource = `
@@ -81,6 +96,7 @@ describe("E2E CLI Lifecycle Integration (Isolated)", () => {
     writeFileSync(appFile, appSource, "utf-8");
   });
 
+
   afterAll(async () => {
     // Guaranteed cleanup
     try {
@@ -89,11 +105,16 @@ describe("E2E CLI Lifecycle Integration (Isolated)", () => {
     try {
       await runCli(["daemon", "stop"], 5000);
     } catch {}
+    removeSandboxSystemdLinks(sandboxDir);
     try {
       if (existsSync(sandboxDir)) {
         rmSync(sandboxDir, { recursive: true, force: true });
       }
     } catch {}
+    // Clean up Linux-native socket dir in /tmp
+    if (platformInfo.isLinux) {
+      try { rmSync(socketBase, { recursive: true, force: true }); } catch {}
+    }
   });
 
   async function fetchWithRetry(url: string, maxWaitMs = 15000): Promise<Response> {
@@ -111,7 +132,7 @@ describe("E2E CLI Lifecycle Integration (Isolated)", () => {
     throw lastErr || new Error(`Timed out fetching ${url}`);
   }
 
-  it("should run full CLI lifecycle: daemon start, ping, start cluster, status, reload, stop, daemon stop", async () => {
+  it.skipIf(!hasUsableUserSystemd())("should run full CLI lifecycle: daemon start, ping, start cluster, status, reload, stop, daemon stop", async () => {
     // 1. Start Daemon
     const daemonStart = await runCli(["daemon", "start"]);
     expect(daemonStart.exitCode).toBe(0);
@@ -152,7 +173,7 @@ describe("E2E CLI Lifecycle Integration (Isolated)", () => {
     expect(statusRes.stdout).toContain(serviceName);
 
     // 6. Reload Cluster
-    const reloadRes = await runCli(["reload", serviceName]);
+    const reloadRes = await runCli(["reload", serviceName], 30000);
     expect(reloadRes.exitCode).toBe(0);
 
     // Verify HTTP response is still 200 after reload
@@ -166,5 +187,5 @@ describe("E2E CLI Lifecycle Integration (Isolated)", () => {
     // 8. Stop Daemon
     const daemonStop = await runCli(["daemon", "stop"]);
     expect(daemonStop.exitCode).toBe(0);
-  }, 45000);
+  }, 60000);
 });

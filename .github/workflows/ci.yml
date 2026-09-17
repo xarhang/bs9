@@ -49,9 +49,6 @@ jobs:
     - name: Build application
       run: bun run build
       
-    - name: Build application
-      run: bun run build
-      
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:

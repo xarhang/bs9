@@ -7,6 +7,9 @@
  * Copyright (c) 2026 BS9 (Bun Sentinel 9)
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
+import { execFileSync } from "node:child_process";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 
 /**
  * Escapes a string value for safe inclusion inside a systemd double-quoted string.
@@ -54,6 +57,25 @@ export function escapeSystemdArg(arg: string): string {
 export function formatSystemdExecStart(executable: string, args: string[] = []): string {
   const parts = [escapeSystemdArg(executable), ...args.map(escapeSystemdArg)];
   return parts.join(" ");
+}
+
+/**
+ * Makes a user unit visible to systemd and starts it. BS9_HOME may place unit
+ * files outside systemd's normal ~/.config/systemd/user search path, so those
+ * units must first be linked explicitly.
+ */
+export function startUserSystemdUnit(unitPath: string, unitName: string): void {
+  const absoluteUnitPath = resolve(unitPath);
+  const defaultUnitDir = resolve(join(homedir(), ".config", "systemd", "user"));
+
+  if (resolve(dirname(absoluteUnitPath)) !== defaultUnitDir) {
+    execFileSync("systemctl", ["--user", "link", "--force", absoluteUnitPath], {
+      stdio: "ignore",
+    });
+  }
+
+  execFileSync("systemctl", ["--user", "daemon-reload"], { stdio: "ignore" });
+  execFileSync("systemctl", ["--user", "start", unitName], { stdio: "ignore" });
 }
 
 /**

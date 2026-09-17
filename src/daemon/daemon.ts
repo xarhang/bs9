@@ -19,13 +19,12 @@
 
 import { existsSync, writeFileSync, unlinkSync, mkdirSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
-import { execSync } from "node:child_process";
 import { HubServer, getDefaultHubSocketPath } from "../hub/server.js";
 import { ClusterController } from "../cluster/controller.js";
 import { ClusterReconciler } from "./reconciler.js";
 import { getPlatformInfo } from "../platform/detect.js";
 import { resolveRuntime } from "../utils/runtime-resolver.js";
-import { generateSystemdUnit } from "../utils/systemd.js";
+import { generateSystemdUnit, startUserSystemdUnit } from "../utils/systemd.js";
 import type { ClusterManifestData } from "../hub/protocol.js";
 
 export interface DaemonOptions {
@@ -142,8 +141,7 @@ export class Bs9Daemon {
         restartSec: 2,
       });
       writeFileSync(unitPath, unitContent, "utf-8");
-      try { execSync("systemctl --user daemon-reload", { stdio: "ignore" }); } catch {}
-      try { execSync(`systemctl --user start ${physicalName}`, { stdio: "ignore" }); } catch {}
+      startUserSystemdUnit(unitPath, `${physicalName}.service`);
     } else if (platformInfo.isMacOS) {
       const { launchdCommand } = await import("../macos/launchd.js");
       await launchdCommand("create", {
