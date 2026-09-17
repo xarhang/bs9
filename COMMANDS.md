@@ -9,7 +9,7 @@ permalink: /commands/
 
 ## Overview
 
-BS9 (Bun Sentinel 9) provides 39 powerful CLI commands for managing Bun and polyglot applications. All commands are designed to be intuitive, secure, and production-ready with automatic platform detection (Linux systemd, macOS launchd, and Windows services/watchdog) and zero-configuration setup.
+BS9 (Bun Sentinel 9) provides 39 CLI commands for managing Bun and polyglot applications. Commands support automatic platform detection (Linux systemd, macOS launchd, and Windows services/watchdog) and standard configuration workflows.
 
 ---
 
