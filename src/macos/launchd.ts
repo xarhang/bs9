@@ -12,7 +12,7 @@
 import { execSync, spawnSync } from "node:child_process";
 import { existsSync, writeFileSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { homedir } from "node:os";
+import { getPlatformInfo } from "../platform/detect.js";
 
 export function isValidServiceName(name: string): boolean {
   const clean = name.replace(/^bs9\./, '');
@@ -45,8 +45,9 @@ class LaunchdServiceManager {
   private configPath: string;
   
   constructor() {
-    this.launchAgentsDir = join(homedir(), 'Library', 'LaunchAgents');
-    this.configPath = join(homedir(), '.bs9', 'launchd-services.json');
+    const platformInfo = getPlatformInfo();
+    this.launchAgentsDir = platformInfo.serviceDir;
+    this.configPath = join(platformInfo.configDir, 'launchd-services.json');
     this.ensureDirectories();
   }
   
@@ -212,26 +213,36 @@ ${Object.entries(plistContent).map(([key, value]) => {
     try {
       const res = spawnSync("launchctl", ["list", label], { encoding: 'utf-8' });
       const output = res.stdout || '';
-      
-      const lines = output.split('\n');
-      const dataLine = lines.find(line => line.includes(label));
-      
-      if (dataLine) {
-        const parts = dataLine.trim().split(/\s+/);
+
+      if (res.status === 0 && output.trim()) {
         const status: LaunchdServiceStatus = {
           label: label,
           status: 'loaded'
         };
-        
-        if (parts[0] !== '-') {
-          status.pid = parseInt(parts[0]);
+
+        // Current macOS returns a dictionary, while older versions may return
+        // a tab-separated PID/status/label row.
+        const dictionaryPid = output.match(/"PID"\s*=\s*(\d+)/);
+        const dictionaryExit = output.match(/"LastExitStatus"\s*=\s*(-?\d+)/);
+        const row = output.split('\n').find(line => line.trim().endsWith(label));
+        const parts = row?.trim().split(/\s+/);
+        const parsedPid = dictionaryPid
+          ? parseInt(dictionaryPid[1], 10)
+          : parts?.[0] && parts[0] !== '-'
+            ? parseInt(parts[0], 10)
+            : undefined;
+
+        if (parsedPid !== undefined && Number.isFinite(parsedPid)) {
+          status.pid = parsedPid;
           status.status = 'running';
         }
-        
-        if (parts[1] !== '-') {
-          status.lastExitStatus = parseInt(parts[1]);
+
+        if (dictionaryExit) {
+          status.lastExitStatus = parseInt(dictionaryExit[1], 10);
+        } else if (parts?.[1] && parts[1] !== '-') {
+          status.lastExitStatus = parseInt(parts[1], 10);
         }
-        
+
         return status;
       }
     } catch (error) {
@@ -339,8 +350,8 @@ export async function launchdCommand(action: string, options: any): Promise<void
           environmentVariables: options.env ? JSON.parse(options.env) : {},
           runAtLoad: options.autoStart !== false,
           keepAlive: options.keepAlive !== false,
-          standardOutPath: options.logOut || join(homedir(), '.bs9', 'logs', `${options.name}.out.log`),
-          standardErrorPath: options.logErr || join(homedir(), '.bs9', 'logs', `${options.name}.err.log`)
+          standardOutPath: options.logOut || join(getPlatformInfo().logDir, `${options.name}.out.log`),
+          standardErrorPath: options.logErr || join(getPlatformInfo().logDir, `${options.name}.err.log`)
         };
         
         await manager.createService(config);
@@ -371,6 +382,7 @@ export async function launchdCommand(action: string, options: any): Promise<void
         await manager.startService(options.name);
         break;
         
+      case 'delete':
       case 'unload':
         if (!options.name) {
           console.error('❌ --name is required for unload action');

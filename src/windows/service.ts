@@ -87,6 +87,9 @@ export class WindowsServiceManager {
   }
 
   public checkAdminPrivileges(): boolean {
+    // Ephemeral environments can exercise the supported watchdog path without
+    // registering machine-wide services in the Windows SCM.
+    if (process.env.BS9_WINDOWS_BACKGROUND === '1') return false;
     try {
       execSync('net session', { stdio: 'ignore' });
       return true;
@@ -107,6 +110,25 @@ export class WindowsServiceManager {
     configs[config.name] = config;
     this.saveConfigs(configs);
 
+    // Keep fallback metadata even for administrators. Bun/Node applications do
+    // not implement the Windows SCM protocol themselves, so a failed native
+    // service start must be able to fall back to BS9's detached watchdog.
+    this.saveProcessMetadata(config.name, {
+      name: config.name,
+      description: config.description,
+      executable: config.executable,
+      arguments: config.arguments,
+      workingDir: config.workingDirectory,
+      environment: config.environment,
+      status: 'stopped',
+      watch: config.watch,
+      maxMemoryRestart: config.maxMemoryRestart,
+      restartDelay: config.restartDelay,
+      noAutorestart: config.noAutorestart,
+      time: config.time,
+      scriptFile: config.scriptFile
+    });
+
     if (isAdmin) {
       // Native Windows Service path
       const platformInfo = getPlatformInfo();
@@ -122,21 +144,6 @@ export class WindowsServiceManager {
     } else {
       // Background Process path
       console.log(`ℹ️ Non-admin user detected. Registering '${config.name}' as a background process...`);
-      this.saveProcessMetadata(config.name, {
-        name: config.name,
-        description: config.description,
-        executable: config.executable,
-        arguments: config.arguments,
-        workingDir: config.workingDirectory,
-        environment: config.environment,
-        status: 'stopped',
-        watch: config.watch,
-        maxMemoryRestart: config.maxMemoryRestart,
-        restartDelay: config.restartDelay,
-        noAutorestart: config.noAutorestart,
-        time: config.time,
-        scriptFile: config.scriptFile
-      });
       console.log(`✅ Service '${config.name}' registered for background execution`);
     }
   }
@@ -219,10 +226,9 @@ export class WindowsServiceManager {
       try {
         const res = spawnSync("sc.exe", ["query", serviceName], { encoding: 'utf-8' });
         const output = res.stdout || '';
-        const status: WindowsServiceStatus = { name: serviceName, state: 'stopped', startType: 'demand' };
-        if (output.includes('RUNNING')) status.state = 'running';
-        // (Simplified parsing for brevity)
-        return status;
+        if (res.status === 0 && output.includes('RUNNING')) {
+          return { name: serviceName, state: 'running', startType: 'demand' };
+        }
       } catch { }
     }
 
@@ -230,8 +236,8 @@ export class WindowsServiceManager {
     const metadata = this.getProcessMetadata(serviceName);
     if (metadata && metadata.pid) {
       try {
-        const res = spawnSync("tasklist", ["/FI", `PID eq ${metadata.pid}`, "/NH"], { stdio: 'ignore' });
-        if (res.status === 0) {
+        const res = spawnSync("tasklist", ["/FI", `PID eq ${metadata.pid}`, "/NH"], { encoding: 'utf-8' });
+        if (res.status === 0 && (res.stdout || '').includes(String(metadata.pid))) {
           return { name: serviceName, state: 'running', startType: 'demand', processId: metadata.pid };
         }
       } catch { }

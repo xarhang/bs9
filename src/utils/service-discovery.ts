@@ -7,7 +7,6 @@ import { execSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { getPlatformInfo, PlatformInfo } from "../platform/detect.js";
-import { homedir } from "node:os";
 
 export interface ServiceMetrics {
     name: string;
@@ -287,9 +286,8 @@ async function getMacOSServices(): Promise<ServiceMetrics[]> {
         const { execSync } = await import("node:child_process");
         const { existsSync, readFileSync } = await import("node:fs");
         const { join } = await import("node:path");
-        const { homedir } = await import("node:os");
-
-        const configPath = join(homedir(), '.bs9', 'launchd-services.json');
+        const platformInfo = getPlatformInfo();
+        const configPath = join(platformInfo.configDir, 'launchd-services.json');
         if (!existsSync(configPath)) return [];
 
         const configs: Record<string, any> = JSON.parse(readFileSync(configPath, 'utf-8'));
@@ -304,18 +302,15 @@ async function getMacOSServices(): Promise<ServiceMetrics[]> {
             let uptime = '-';
 
             try {
-                // launchctl list <label> → "PID\tLastExitStatus\tLabel"
                 const out = execSync(`launchctl list "${label}"`, { encoding: 'utf-8' });
-                const lines = out.split('\n');
-                // Find the data line (not the header)
-                const dataLine = lines.find(l => l.includes(label) && !l.startsWith('PID'));
-                if (dataLine) {
-                    const parts = dataLine.trim().split(/\s+/);
-                    if (parts[0] !== '-') {
-                        pid = parts[0];
-                        active = 'active';
-                        sub = 'running';
-                    }
+                const dictionaryPid = out.match(/"PID"\s*=\s*(\d+)/);
+                const row = out.split('\n').find(l => l.trim().endsWith(label));
+                const rowPid = row?.trim().split(/\s+/)[0];
+                const parsedPid = dictionaryPid?.[1] || (rowPid && rowPid !== '-' ? rowPid : undefined);
+                if (parsedPid && /^\d+$/.test(parsedPid)) {
+                    pid = parsedPid;
+                    active = 'active';
+                    sub = 'running';
                 }
             } catch {
                 // service not loaded in launchd

@@ -104,11 +104,16 @@ export async function launchSupervisedDaemon(): Promise<void> {
   } else if (platformInfo.isMacOS) {
     try {
       const { launchdCommand } = await import("../macos/launchd.js");
+      const daemonEnv: Record<string, string> = { BS9_DAEMON: "true" };
+      for (const key of ["BS9_HOME", "BS9_CONTROLLER_SOCKET", "BS9_HUB_SOCKET"]) {
+        const value = process.env[key];
+        if (value) daemonEnv[key] = value;
+      }
       await launchdCommand("create", {
         name: "com.bs9.daemon",
         file: process.execPath,
         args: ["run", daemonFile],
-        env: JSON.stringify({ BS9_DAEMON: "true" }),
+        env: JSON.stringify(daemonEnv),
       });
       await launchdCommand("start", { name: "com.bs9.daemon" });
       return;
