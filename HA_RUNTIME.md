@@ -7,7 +7,7 @@ permalink: /high-availability/
 
 # High-Availability Runtime Guide
 
-This guide defines the supported high-availability behavior of BS9 1.6.6. It distinguishes automatic, zero-code process availability from application state that must use an explicit shared-state mechanism.
+This guide defines the supported high-availability behavior of BS9 1.6.7. It distinguishes automatic, zero-code process availability from application state that must use an explicit shared-state mechanism.
 
 ## Availability model
 

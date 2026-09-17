@@ -7,7 +7,7 @@ permalink: /
 ---
 
 <section class="hero">
-  <p class="eyebrow">Bun Sentinel 9 · v1.6.6</p>
+  <p class="eyebrow">Bun Sentinel 9 · v1.6.7</p>
   <h1>Keep services running.<br><span>Stay in control.</span></h1>
   <p class="lede">Self-healing process manager for Bun with zero-downtime clustering, real-time dashboards, TypeScript build support, and durable same-host state.</p>
   <div class="actions">
