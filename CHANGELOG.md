@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.9] - 2026-09-18
+
+### Fixed
+
+- **CLI Version Flags (`-v`, `-V`, `--version`)**: Added fast-path version inspection in `bin/bs9` supporting lowercase `-v`, uppercase `-V`, and `--version` universally across all terminal shells without Commander option parsing errors.
+- **Windows Service Stop / Delete**: Fixed `TypeError: this.stopBackgroundProcess is not a function` in `src/windows/service.ts` when stopping or deleting already-stopped or missing background services.
+- **Batch Delete Error Propagation**: Re-throw deletion errors in `deleteDirectService` in `src/commands/delete.ts` so batch deletion summaries accurately report failures instead of false 100% successes.
+- **Database Pool Queue Timeout Leak**: Fixed memory leak in `src/database/pool.ts` where timed-out queue items remained in `waitingQueue`.
+
+### Added
+
+- **QA Test Suite Expansion**: Added 7 comprehensive test suites (`tests/doctor.test.ts`, `tests/export-deps.test.ts`, `tests/loadbalancer-pool.test.ts`, `tests/save-resurrect.test.ts`, `tests/status-monit.test.ts`, `tests/wal-chaos-recovery.test.ts`, `tests/delete.test.ts`) bringing test coverage to 328 passing tests with 0 failures.
+
 ## [1.6.8] - 2026-09-18
 
 ### Fixed

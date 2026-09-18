@@ -455,7 +455,7 @@ program
   .action(daemonCommand);
 
 const rawArgs = process.argv.slice(2);
-if (rawArgs.length === 1 && rawArgs[0] === "-v") {
+if (rawArgs.length === 1 && (rawArgs[0] === "-v" || rawArgs[0] === "-V" || rawArgs[0] === "--version")) {
   console.log(version);
   process.exit(0);
 }
