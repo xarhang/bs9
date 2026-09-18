@@ -1,13 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { doctorCommand } from "../src/commands/doctor.js";
 import * as health from "../src/utils/health.js";
-import { getPlatformInfo } from "../src/platform/detect.js";
+import { getPlatformInfo, initializePlatformDirectories } from "../src/platform/detect.js";
 
 describe("Doctor Diagnostics and Health Checks", () => {
   let stdoutLogs: string[] = [];
   const originalLog = console.log;
 
   beforeEach(() => {
+    initializePlatformDirectories();
     stdoutLogs = [];
     console.log = (...args: any[]) => {
       stdoutLogs.push(args.map(String).join(" "));

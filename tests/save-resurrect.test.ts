@@ -1,4 +1,4 @@
-﻿import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { saveCommand } from "../src/commands/save.js";
 import { resurrectCommand } from "../src/commands/resurrect.js";
 import { getPlatformInfo, initializePlatformDirectories } from "../src/platform/detect.js";
@@ -12,6 +12,7 @@ describe("Save & Resurrect Command QA Suite", () => {
   const originalLog = console.log;
 
   beforeEach(() => {
+    process.exitCode = 0;
     stderrLogs = [];
     stdoutLogs = [];
     console.error = (...args: any[]) => stderrLogs.push(args.map(String).join(" "));
@@ -22,6 +23,7 @@ describe("Save & Resurrect Command QA Suite", () => {
   afterEach(() => {
     console.error = originalErr;
     console.log = originalLog;
+    process.exitCode = 0;
   });
 
   it("rejects malicious service names with path traversal on save", async () => {

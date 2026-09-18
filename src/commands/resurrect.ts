@@ -57,7 +57,9 @@ export async function resurrectCommand(name: string, options: ResurrectOptions):
 
       if (!existsSync(backupFile)) {
         console.error(`❌ No backup found for service '${name}'`);
-        process.exitCode = 1;
+        if (!options.force) {
+          process.exitCode = 1;
+        }
         return;
       }
 

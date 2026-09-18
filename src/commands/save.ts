@@ -58,7 +58,9 @@ export async function saveCommand(name: string, options: SaveOptions): Promise<v
 
       if (!existsSync(serviceFile)) {
         console.error(`❌ Service configuration not found for '${name}'`);
-        process.exitCode = 1;
+        if (!options.force) {
+          process.exitCode = 1;
+        }
         return;
       }
 
