@@ -5,7 +5,7 @@ set -euo pipefail
 # BS9 (Bun Sentinel 9) Installer
 # One-click installation for mission-critical process manager
 
-echo "🚀 Installing BS9 (Bun Sentinel 9)..."
+echo "Installing BS9 (Bun Sentinel 9)..."
 
 # 1. PATH Injection for current process
 export PATH="$HOME/.bun/bin:$PATH"
@@ -137,7 +137,7 @@ fi
 
 # 2. UPDATED: Verify installation with fallback instructions
 if command -v bs9 >/dev/null 2>&1; then
-  echo "✅ BS9 installed successfully: $(bs9 --version 2>/dev/null || echo 'v1.6.7')"
+  echo "✅ BS9 installed successfully: $(bs9 --version 2>/dev/null || echo 'v1.6.8')"
 else
   # Detect Shell for the fix message
   SHELL_NAME=$(basename "$SHELL")
