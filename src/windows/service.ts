@@ -158,7 +158,7 @@ export class WindowsServiceManager {
     if (isAdmin) {
       const res = spawnSync("net", ["start", serviceName], { stdio: 'inherit' });
       if (res.status === 0) {
-        console.log(`🚀 Windows service '${serviceName}' started successfully`);
+        console.log(`Windows service '${serviceName}' started successfully`);
       } else {
         // If net start fails, maybe it's a legacy background process or service doesn't exist
         const metadata = this.getProcessMetadata(serviceName);
@@ -262,7 +262,7 @@ export class WindowsServiceManager {
   }
 
   private async startBackgroundProcess(metadata: any): Promise<void> {
-    console.log(`🚀 Starting background process for '${metadata.name}'...`);
+    console.log(`Starting background process for '${metadata.name}'...`);
 
     const platformInfo = getPlatformInfo();
     const logsDir = platformInfo.logDir;
@@ -280,11 +280,16 @@ export class WindowsServiceManager {
     const watchdogOut = openSync(join(logsDir, `${metadata.name}.watchdog.log`), 'a');
 
     // Spawn detached watchdog agent that persists even after CLI exits
-    const watchdog = spawn(process.execPath, ['run', agentFile, metadata.name], {
-      cwd: metadata.workingDir,
+    const watchdog = spawn(process.execPath, ['run', agentFile, metadata.name, this.servicesDir], {
+      cwd: metadata.workingDir || process.cwd(),
       detached: true,
+      windowsHide: true,
       stdio: ['ignore', watchdogOut, watchdogOut],
-      env: { ...process.env },
+      env: {
+        ...process.env,
+        ...(process.env.BS9_HOME ? { BS9_HOME: process.env.BS9_HOME } : {}),
+        BS9_SERVICES_DIR: this.servicesDir,
+      },
     });
 
     watchdog.unref();
@@ -292,9 +297,9 @@ export class WindowsServiceManager {
     metadata.watchdogPid = watchdog.pid;
     this.saveProcessMetadata(metadata.name, metadata);
 
-    // Wait briefly up to 1 second for child process to be spawned and record PID
+    // Wait up to 3 seconds for child process to be spawned and record PID
     let attempts = 0;
-    while (attempts < 10) {
+    while (attempts < 30) {
       await sleep(100);
       const fresh = this.getProcessMetadata(metadata.name);
       if (fresh && fresh.pid) {
@@ -309,7 +314,7 @@ export class WindowsServiceManager {
   }
 
   private async stopBackgroundProcess(metadata: any): Promise<void> {
-    console.log(`🛑 Stopping background process for '${metadata.name}'...`);
+    console.log(`Stopping background process for '${metadata.name}'...`);
 
     // Signal status stopped so watchdog stops looping
     metadata.status = 'stopped';
@@ -320,7 +325,7 @@ export class WindowsServiceManager {
       try {
         process.kill(metadata.pid);
       } catch {
-        try { execSync(`taskkill /F /PID ${metadata.pid}`, { stdio: 'ignore' }); } catch { }
+        try { execSync(`taskkill /F /T /PID ${metadata.pid}`, { stdio: 'ignore' }); } catch { }
       }
       metadata.pid = null;
     }
@@ -330,7 +335,7 @@ export class WindowsServiceManager {
       try {
         process.kill(metadata.watchdogPid);
       } catch {
-        try { execSync(`taskkill /F /PID ${metadata.watchdogPid}`, { stdio: 'ignore' }); } catch { }
+        try { execSync(`taskkill /F /T /PID ${metadata.watchdogPid}`, { stdio: 'ignore' }); } catch { }
       }
       metadata.watchdogPid = null;
     }

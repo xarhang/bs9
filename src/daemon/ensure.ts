@@ -145,6 +145,7 @@ export function spawnDetachedDaemon(): void {
   const child = spawn(process.execPath, ["run", daemonFile], {
     cwd: process.cwd(),
     detached: true,
+    windowsHide: true,
     stdio: ["ignore", daemonOut, daemonOut],
     env: { ...process.env },
   });

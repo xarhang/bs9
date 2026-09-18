@@ -383,7 +383,7 @@ async function startLoadBalancer(options?: any): Promise<void> {
 
   const loadBalancer = new LoadBalancer(config);
 
-  console.log(`🚀 Starting BS9 Load Balancer`);
+  console.log(`Starting BS9 Load Balancer`);
   console.log(`📡 Port: ${config.port}`);
   console.log(`⚖️  Algorithm: ${config.algorithm}`);
   console.log(`🏥 Health Check: ${config.healthCheck.enabled ? 'Enabled' : 'Disabled'}`);

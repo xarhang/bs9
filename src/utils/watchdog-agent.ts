@@ -17,6 +17,25 @@ import { join } from "node:path";
 import { getPlatformInfo } from "../platform/detect.js";
 import { recordCrash, resetCrash, sleep, startHealthyTimer } from "./crash-tracker.js";
 
+// Detach completely from console on Windows so terminal closure does not terminate supervisor
+if (process.platform === "win32") {
+  try {
+    const { dlopen, FFIType } = await import("bun:ffi");
+    const kernel32 = dlopen("kernel32.dll", {
+      FreeConsole: {
+        args: [],
+        returns: FFIType.bool,
+      },
+    });
+    kernel32.symbols.FreeConsole();
+  } catch {}
+}
+
+// Ignore terminal hangup signal on POSIX and Windows so watchdog survives terminal/SSH closure
+process.on("SIGHUP", () => {
+  // Ignored by design in background watchdog
+});
+
 function isValidServiceName(name: string): boolean {
   const validPattern = /^[a-zA-Z0-9._-]+$/;
   return validPattern.test(name) && name.length <= 64 && !name.includes('..') && !name.includes('/');
@@ -29,7 +48,7 @@ if (!serviceName || !isValidServiceName(serviceName)) {
 }
 
 const platformInfo = getPlatformInfo();
-const servicesDir = platformInfo.serviceDir;
+const servicesDir = process.env.BS9_SERVICES_DIR || (process.argv[3] && existsSync(process.argv[3]) ? process.argv[3] : platformInfo.serviceDir);
 const logsDir = platformInfo.logDir;
 if (!existsSync(logsDir)) mkdirSync(logsDir, { recursive: true });
 
@@ -140,7 +159,10 @@ async function runSupervisor() {
         cwd: currentMeta.workingDir,
         env: { ...process.env, ...currentMeta.environment },
         stdio: ["ignore", "pipe", "pipe"],
+        detached: process.platform !== "win32",
+        windowsHide: true,
       });
+      child.unref();
 
       child.stdout.on("data", (chunk: Buffer) => {
         const time = new Date().toISOString();
@@ -162,7 +184,10 @@ async function runSupervisor() {
         cwd: currentMeta.workingDir,
         env: { ...process.env, ...currentMeta.environment },
         stdio: ["ignore", out, err],
+        detached: process.platform !== "win32",
+        windowsHide: true,
       });
+      child.unref();
       try { closeSync(out); } catch {}
       try { closeSync(err); } catch {}
     }

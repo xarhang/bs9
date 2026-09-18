@@ -27,6 +27,25 @@ import { resolveRuntime } from "../utils/runtime-resolver.js";
 import { generateSystemdUnit, startUserSystemdUnit } from "../utils/systemd.js";
 import type { ClusterManifestData } from "../hub/protocol.js";
 
+// Detach completely from console on Windows so terminal closure does not terminate daemon
+if (process.platform === "win32") {
+  try {
+    const { dlopen, FFIType } = await import("bun:ffi");
+    const kernel32 = dlopen("kernel32.dll", {
+      FreeConsole: {
+        args: [],
+        returns: FFIType.bool,
+      },
+    });
+    kernel32.symbols.FreeConsole();
+  } catch {}
+}
+
+// Ignore terminal hangup signal on POSIX and Windows so background daemon survives terminal/SSH closure
+process.on("SIGHUP", () => {
+  // Ignored by design in persistent daemon
+});
+
 export interface DaemonOptions {
   controllerSocketPath?: string;
   hubSocketPath?: string;
@@ -171,7 +190,7 @@ export class Bs9Daemon {
     // Record PID
     writeFileSync(this.pidFilePath, String(process.pid), { encoding: "utf-8" });
 
-    console.log(`🚀 BS9 Unified Daemon running (PID: ${process.pid})`);
+    console.log(`BS9 Unified Daemon running (PID: ${process.pid})`);
     console.log(`   Controller Socket: ${this.controller.getSocketPath()}`);
   }
 

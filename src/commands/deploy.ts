@@ -62,7 +62,7 @@ function isValidPort(port: string): boolean {
 }
 
 export async function deployCommand(file: string, options: DeployOptions): Promise<void> {
-  console.log("🚀 BS9 Deploy - Zero-Config Production Deployment");
+  console.log("BS9 Deploy - Zero-Config Production Deployment");
   console.log("=".repeat(50));
 
   // Initialize platform directories
@@ -240,5 +240,5 @@ function showDeploymentSummary(serviceName: string, options: DeployOptions): voi
   console.log(`  bs9 save ${serviceName}`);
 
 
-  console.log("\n🚀 Your service is now running in production mode!");
+  console.log("\nYour service is now running in production mode!");
 }

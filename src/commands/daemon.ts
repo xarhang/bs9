@@ -27,7 +27,7 @@ export async function daemonCommand(
   switch (action) {
     case "start": {
       if (options.foreground) {
-        console.log("🚀 Starting BS9 Persistent Daemon in foreground...");
+        console.log("Starting BS9 Persistent Daemon in foreground...");
         const daemon = new Bs9Daemon();
         await daemon.start();
         return;

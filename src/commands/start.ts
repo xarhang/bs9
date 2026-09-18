@@ -119,7 +119,7 @@ async function handleEcosystemStart(configFile: string, options: StartOptions): 
     process.exit(1);
   }
 
-  console.log(`🚀 Starting ${entries.length} app(s) from ecosystem config...`);
+  console.log(`Starting ${entries.length} app(s) from ecosystem config...`);
 
   const results = await Promise.allSettled(
     entries.map(async (app) => {
@@ -275,7 +275,7 @@ async function handleMultiServiceStart(file: string | string[], options: StartOp
     return;
   }
 
-  console.log(`🚀 Starting ${services.length} services...`);
+  console.log(`Starting ${services.length} services...`);
 
   const results = await Promise.allSettled(
     services.map(async (serviceName) => {
@@ -475,7 +475,7 @@ async function startExistingService(serviceName: string, platformInfo: any): Pro
       const { windowsCommand } = await import("../windows/service.js");
       await windowsCommand('start', { name: `BS9_${serviceName}` });
     }
-    console.log(`🚀 Service '${serviceName}' started successfully`);
+    console.log(`Service '${serviceName}' started successfully`);
   } catch (error) {
     throw error;
   }
@@ -542,7 +542,7 @@ async function createLinuxService(serviceName: string, execPath: string, host: s
     // Always start the service (handles daemon-reload + optional link)
     startUserSystemdUnit(unitPath, `${serviceName}.service`);
 
-    console.log(`🚀 Service '${serviceName}' started successfully`);
+    console.log(`Service '${serviceName}' started successfully`);
     console.log(`   Health: ${protocol}://${host}:${port}/healthz`);
     console.log(`   Metrics: ${protocol}://${host}:${port}/metrics`);
   } catch (error) {
@@ -591,7 +591,7 @@ async function createMacOSService(serviceName: string, execPath: string, host: s
       logErr: `${getPlatformInfo().logDir}/${serviceName}.err.log`
     });
 
-    console.log(`🚀 Service '${serviceName}' [${runtime.runtimeName}] started successfully`);
+    console.log(`Service '${serviceName}' [${runtime.runtimeName}] started successfully`);
     console.log(`   Health: ${protocol}://${host}:${port}/healthz`);
     console.log(`   Metrics: ${protocol}://${host}:${port}/metrics`);
   } catch (error) {
@@ -645,7 +645,7 @@ async function createWindowsService(serviceName: string, execPath: string, host:
       scriptFile: execPath
     });
 
-    console.log(`🚀 Service '${serviceName}' [${runtime.runtimeName}] initialization complete`);
+    console.log(`Service '${serviceName}' [${runtime.runtimeName}] initialization complete`);
     console.log(`   Health: ${protocol}://${host}:${port}/healthz`);
   } catch (error) {
     console.error(`❌ Failed to start Windows service: ${error}`);

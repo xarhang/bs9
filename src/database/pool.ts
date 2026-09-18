@@ -333,7 +333,7 @@ export async function dbpoolCommand(action: string, options: any): Promise<void>
   try {
     switch (action) {
       case 'start':
-        console.log(`🚀 Starting database pool...`);
+        console.log(`Starting database pool...`);
         console.log(`   Host: ${config.host}:${config.port}`);
         console.log(`   Database: ${config.database}`);
         console.log(`   Max Connections: ${config.maxConnections}`);

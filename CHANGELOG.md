@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.8] - 2026-09-18
+
+### Fixed
+
+- **Windows Non-Admin Process Detachment**: Decoupled background services and the watchdog supervisor from the calling terminal console by using `FreeConsole()` via Win32 FFI on startup, adding `windowsHide: true`, and propagating unreferenced process handles. Services now persist indefinitely after terminal closure.
+- **Cross-Platform Terminal Hangup (SIGHUP) Resilience**: Added explicit `SIGHUP` signal handling in background supervisor and persistent daemon processes on POSIX (Linux/macOS) and Windows, preventing unexpected process death on terminal exit or SSH disconnect.
+- **Watchdog Supervisor Child Detachment**: Configured child processes spawned by `watchdog-agent` with detached process groups, hidden window flags, and unreferenced handles.
+- **Process Cleanup Hardening**: Enhanced background process termination on Windows with process tree termination (`taskkill /T`).
+- **UI & Output Normalization**: Removed remaining decorative emojis from CLI output logs to maintain professional, standard formatting.
+
 ## [1.6.7] - 2026-09-18
 
 ### Documentation & Cleanup
