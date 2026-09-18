@@ -218,15 +218,21 @@ export class DatabasePool {
     }
     
     return new Promise((resolve, reject) => {
+      let queueItem: {
+        resolve: (connection: DatabaseConnection) => void;
+        reject: (error: Error) => void;
+        timestamp: number;
+      };
+
       const timeoutId = setTimeout(() => {
-        const index = this.waitingQueue.findIndex(item => item.resolve === resolve);
+        const index = this.waitingQueue.indexOf(queueItem);
         if (index !== -1) {
           this.waitingQueue.splice(index, 1);
         }
         reject(new Error('Connection acquire timeout'));
       }, this.config.acquireTimeoutMillis);
       
-      this.waitingQueue.push({
+      queueItem = {
         resolve: (connection) => {
           clearTimeout(timeoutId);
           resolve(connection);
@@ -236,7 +242,9 @@ export class DatabasePool {
           reject(error);
         },
         timestamp: now,
-      });
+      };
+
+      this.waitingQueue.push(queueItem);
     });
   }
   

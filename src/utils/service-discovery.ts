@@ -180,7 +180,7 @@ async function getWindowsProcessMetrics(pids: string[]): Promise<Map<string, { c
         const pidList = validPids.join(',');
         const command = `powershell -NoProfile -Command "$ids = @(${pidList}); Get-Process | Where-Object { $ids -contains $_.Id } | Select-Object Id, @{Name='Mem';Expression={ [Math]::Round($_.WorkingSet64 / 1024) }}, @{Name='CPU';Expression={ $_.TotalProcessorTime.ToString('hh\\:mm\\:ss') }} | ConvertTo-Csv -NoTypeInformation"`;
 
-        const output = execSync(command, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
+        const output = execSync(command, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
         const lines = output.split('\n');
 
         for (const line of lines) {

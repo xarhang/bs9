@@ -43,7 +43,8 @@ export async function saveCommand(name: string, options: SaveOptions): Promise<v
   // Security: Validate service name
   if (!isValidServiceName(name)) {
     console.error(`❌ Security: Invalid service name: ${name}`);
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
 
   try {
@@ -52,12 +53,13 @@ export async function saveCommand(name: string, options: SaveOptions): Promise<v
       const escapedName = name.replace(/[^a-zA-Z0-9._-]/g, '');
 
       // Get service status and configuration
-      const statusOutput = execSync(`systemctl --user show "${escapedName}"`, { encoding: "utf-8" });
+      const statusOutput = execSync(`systemctl --user show "${escapedName}"`, { encoding: "utf-8", windowsHide: true });
       const serviceFile = join(platformInfo.serviceDir, `${escapedName}.service`);
 
       if (!existsSync(serviceFile)) {
         console.error(`❌ Service configuration not found for '${name}'`);
-        process.exit(1);
+        process.exitCode = 1;
+        return;
       }
 
       // Read service configuration
@@ -109,7 +111,8 @@ export async function saveCommand(name: string, options: SaveOptions): Promise<v
   } catch (err) {
     console.error(`❌ Failed to save service '${name}': ${err}`);
     if (!options.force) {
-      process.exit(1);
+      process.exitCode = 1;
+      return;
     }
   }
 }
@@ -123,7 +126,7 @@ async function saveAllServices(platformInfo: any, options: SaveOptions): Promise
 
     if (platformInfo.isLinux) {
       // Get all BS9 services
-      const listOutput = execSync("systemctl --user list-units --type=service --no-pager --no-legend", { encoding: "utf-8" });
+      const listOutput = execSync("systemctl --user list-units --type=service --no-pager --no-legend", { encoding: "utf-8", windowsHide: true });
       const lines = listOutput.split("\n").filter(line => line.includes(".service"));
 
       const bs9Services: string[] = [];
@@ -153,7 +156,7 @@ async function saveAllServices(platformInfo: any, options: SaveOptions): Promise
 
           if (existsSync(serviceFile)) {
             const serviceConfig = readFileSync(serviceFile, 'utf8');
-            const statusOutput = execSync(`systemctl --user show "${serviceName}"`, { encoding: "utf-8" });
+            const statusOutput = execSync(`systemctl --user show "${serviceName}"`, { encoding: "utf-8", windowsHide: true });
             const config = parseServiceConfig(serviceConfig, statusOutput);
 
             const backupFile = join(platformInfo.backupDir, `${serviceName}.json`);
@@ -207,7 +210,8 @@ async function saveAllServices(platformInfo: any, options: SaveOptions): Promise
   } catch (err) {
     console.error(`❌ Failed to save all services: ${err}`);
     if (!options.force) {
-      process.exit(1);
+      process.exitCode = 1;
+      return;
     }
   }
 }

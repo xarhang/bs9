@@ -138,15 +138,26 @@ export async function getServiceInfo(serviceName: string): Promise<ServiceInfo |
 }
 
 export async function getMultipleServiceInfo(serviceNames: string[]): Promise<ServiceInfo[]> {
-  const results = await Promise.allSettled(
-    serviceNames.map(name => getServiceInfo(name))
-  );
+  try {
+    const services = await listServices();
+    const targetSet = new Set(serviceNames.map(normalizeManagedServiceName));
+    const result: ServiceInfo[] = [];
 
-  return results
-    .filter((result): result is PromiseFulfilledResult<ServiceInfo> =>
-      result.status === 'fulfilled' && result.value !== null
-    )
-    .map(result => result.value);
+    for (const service of services) {
+      const norm = normalizeManagedServiceName(service.name);
+      if (targetSet.has(norm)) {
+        result.push({
+          name: norm,
+          status: service.active === 'active' ? 'active' : 'inactive',
+          pid: service.pid !== '-' && !isNaN(Number(service.pid)) ? parseInt(service.pid, 10) : undefined,
+        });
+      }
+    }
+
+    return result;
+  } catch {
+    return [];
+  }
 }
 
 export function confirmAction(message: string): Promise<boolean> {

@@ -43,7 +43,8 @@ export async function resurrectCommand(name: string, options: ResurrectOptions):
   // Security: Validate service name
   if (!isValidServiceName(name)) {
     console.error(`❌ Security: Invalid service name: ${name}`);
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
 
   try {
@@ -56,7 +57,8 @@ export async function resurrectCommand(name: string, options: ResurrectOptions):
 
       if (!existsSync(backupFile)) {
         console.error(`❌ No backup found for service '${name}'`);
-        process.exit(1);
+        process.exitCode = 1;
+        return;
       }
 
       // Load backup configuration
@@ -66,7 +68,8 @@ export async function resurrectCommand(name: string, options: ResurrectOptions):
       const filePath = backupConfig.file;
       if (!existsSync(filePath)) {
         console.error(`❌ Service file not found: ${filePath}`);
-        process.exit(1);
+        process.exitCode = 1;
+        return;
       }
 
       // Restore service using backup configuration
@@ -109,7 +112,8 @@ export async function resurrectCommand(name: string, options: ResurrectOptions):
   } catch (err) {
     console.error(`❌ Failed to resurrect service '${name}': ${err}`);
     if (!options.force) {
-      process.exit(1);
+      process.exitCode = 1;
+      return;
     }
   }
 }
@@ -186,7 +190,8 @@ async function resurrectAllServices(platformInfo: any, options: ResurrectOptions
   } catch (err) {
     console.error(`❌ Failed to resurrect all services: ${err}`);
     if (!options.force) {
-      process.exit(1);
+      process.exitCode = 1;
+      return;
     }
   }
 }

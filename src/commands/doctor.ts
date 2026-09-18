@@ -71,7 +71,8 @@ export async function doctorCommand(options: DoctorOptions): Promise<void> {
   if (failed > 0) {
     console.log(`\n❌ Health check FAILED with ${failed} error(s)`);
     console.log("💡 Run 'bs9 doctor --verbose' for more details");
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   } else {
     console.log(`\n✅ Health check PASSED - BS9 is ready to use!`);
   }
@@ -102,6 +103,14 @@ function runSpecificCheck(check: string, platformInfo: PlatformInfo): health.Hea
   const checks: health.HealthCheckResult[] = [];
 
   switch (check.toLowerCase()) {
+    case "bun":
+      checks.push(health.checkBunInstallation());
+      break;
+
+    case "bs9":
+      checks.push(health.checkBS9Installation());
+      break;
+
     case "dependencies":
       checks.push(checkDependencies());
       break;
@@ -121,7 +130,7 @@ function runSpecificCheck(check: string, platformInfo: PlatformInfo): health.Hea
         name: "Specific Check",
         status: "❌ FAIL",
         message: `Unknown check: ${check}`,
-        details: "Available checks: dependencies, configuration, platform"
+        details: "Available checks: bun, bs9, dependencies, configuration, platform"
       });
   }
 

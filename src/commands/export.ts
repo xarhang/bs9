@@ -50,7 +50,8 @@ export async function exportCommand(options: ExportOptions): Promise<void> {
     
   } catch (error) {
     console.error(`❌ Failed to export metrics: ${error}`);
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
 }
 

@@ -139,16 +139,42 @@ async function handleStatus(options: StatusOptions, name?: string): Promise<void
   }
 }
 
+function truncate(str: string, maxLen: number): string {
+  if (!str) return "";
+  if (str.length <= maxLen) return str;
+  if (maxLen <= 3) return str.substring(0, maxLen);
+  return str.substring(0, maxLen - 3) + "...";
+}
+
 function displayServices(services: ServiceMetrics[]): void {
   if (services.length === 0) {
-    console.log("📋 No BS9 services found");
-    console.log("💡 Use 'bs9 start <file>' or 'bs9 deploy <file>' to create a service");
+    console.log("No BS9 services found");
+    console.log("Use 'bs9 start <file>' to start a service");
     return;
   }
 
-  // Header with better formatting
-  console.log(`${"SERVICE".padEnd(22)} ${"STATUS".padEnd(15)} ${"CPU".padEnd(10)} ${"MEMORY".padEnd(12)} ${"UPTIME".padEnd(12)} ${"TASKS".padEnd(8)} DESCRIPTION`);
-  console.log("─".repeat(105));
+  const termWidth = Math.max(60, process.stdout.columns || 80);
+
+  // Dynamic column layout tailored to terminal width
+  const statusWidth = 12;
+  const cpuWidth = 9;
+  const memWidth = 10;
+  const uptimeWidth = 10;
+  const tasksWidth = 6;
+  const rightColumnsWidth = statusWidth + cpuWidth + memWidth + uptimeWidth + tasksWidth + 5; // 5 spaces between columns
+
+  const svcWidth = Math.max(20, Math.min(32, termWidth - rightColumnsWidth - 1));
+  const baseWidth = svcWidth + rightColumnsWidth;
+  const showDesc = termWidth >= 100;
+  const descWidth = showDesc ? Math.max(12, termWidth - baseWidth - 2) : 0;
+
+  // Header
+  let header = `${"SERVICE".padEnd(svcWidth)} ${"STATUS".padEnd(statusWidth)} ${"CPU".padEnd(cpuWidth)} ${"MEMORY".padEnd(memWidth)} ${"UPTIME".padEnd(uptimeWidth)} ${"TASKS".padEnd(tasksWidth)}`;
+  if (showDesc) {
+    header += ` ${"DESCRIPTION".padEnd(descWidth)}`;
+  }
+  console.log(header);
+  console.log("─".repeat(Math.min(termWidth, header.length)));
 
   // Sort services by status (running first, then by name)
   const sortedServices = services.sort((a, b) => {
@@ -159,45 +185,42 @@ function displayServices(services: ServiceMetrics[]): void {
   });
 
   for (const svc of sortedServices) {
-    // Better status formatting with indicators
-    let statusIndicator = "";
     let status = `${svc.active}/${svc.sub}`;
-
     if (svc.active === "active" && svc.sub === "running") {
-      statusIndicator = "✅";
-      status = "running";
+      status = "online";
     } else if (svc.active === "activating" || svc.sub.includes("auto-restart")) {
-      statusIndicator = "🔄";
       status = "restarting";
     } else if (svc.active === "failed" || svc.sub === "failed") {
-      statusIndicator = "❌";
-      status = "failed";
+      status = "errored";
     } else if (svc.active === "inactive" || svc.sub === "stopped") {
-      statusIndicator = "⏸️";
       status = "stopped";
-    } else {
-      statusIndicator = "⚠️";
     }
 
-    const displayStatus = `${statusIndicator} ${status}`;
     const cleanName = svc.name.replace(/^(BS9_|bs9\.)/, "");
     const displayName = svc.logicalSlot && svc.logicalSlot !== cleanName
       ? `${svc.logicalSlot} -> ${cleanName}`
-      : svc.name;
+      : cleanName;
 
-    console.log(
-      `${displayName.padEnd(22)} ${displayStatus.padEnd(15)} ${svc.cpu.padEnd(10)} ${svc.memory.padEnd(12)} ${svc.uptime.padEnd(12)} ${(svc.tasks || "-").padEnd(8)} ${svc.description}`
-    );
+    const truncatedName = truncate(displayName, svcWidth);
+    const truncatedStatus = truncate(status, statusWidth);
+    const cpuStr = truncate(svc.cpu || "-", cpuWidth);
+    const memStr = truncate(svc.memory || "-", memWidth);
+    const uptimeStr = truncate(svc.uptime || "-", uptimeWidth);
+    const tasksStr = truncate(String(svc.tasks || "-"), tasksWidth);
+
+    let row = `${truncatedName.padEnd(svcWidth)} ${truncatedStatus.padEnd(statusWidth)} ${cpuStr.padEnd(cpuWidth)} ${memStr.padEnd(memWidth)} ${uptimeStr.padEnd(uptimeWidth)} ${tasksStr.padEnd(tasksWidth)}`;
+    if (showDesc) {
+      row += ` ${truncate(svc.description || "", descWidth).padEnd(descWidth)}`;
+    }
+    console.log(row);
   }
 
-  // Enhanced summary
-  console.log("\n📊 Service Summary:");
+  // Summary
+  console.log("\nService Summary:");
   const totalServices = services.length;
   const runningServices = services.filter(s => s.active === "active").length;
-
-  console.log(`  📈 Status: ${runningServices} running, ${totalServices - runningServices} not running`);
-  console.log(`  📦 Total: ${runningServices}/${totalServices} services active`);
-  console.log(`  🕒 Last updated: ${new Date().toLocaleString()}`);
+  console.log(`  Status: ${runningServices} running, ${totalServices - runningServices} stopped (${totalServices} total)`);
+  console.log(`  Updated: ${new Date().toLocaleString()}`);
 }
 
 function displayMultiServiceStatus(serviceInfo: any[], pattern: string | string[]): void {

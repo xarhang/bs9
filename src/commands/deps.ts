@@ -67,7 +67,8 @@ export async function depsCommand(options: DepOptions): Promise<void> {
 
   } catch (error) {
     console.error(`❌ Failed to analyze dependencies: ${error}`);
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
 }
 
@@ -110,7 +111,7 @@ async function buildDependencyGraph(): Promise<DependencyGraph> {
         : "launchctl list | grep bs9"; // Simplified for demonstration
 
       try {
-        const listOutput = execSync(listCmd, { encoding: "utf-8" });
+        const listOutput = execSync(listCmd, { encoding: "utf-8", windowsHide: true });
         const lines = listOutput.split("\n");
 
         for (const line of lines) {

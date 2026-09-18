@@ -19,7 +19,7 @@ export interface HealthCheckResult {
 
 export function checkBunInstallation(): HealthCheckResult {
     try {
-        const version = execSync("bun --version", { encoding: "utf-8" }).trim();
+        const version = execSync("bun --version", { encoding: "utf-8", windowsHide: true }).trim();
         return {
             name: "Bun Installation",
             status: "✅ PASS",
@@ -42,7 +42,7 @@ export function checkBS9Installation(): HealthCheckResult {
     try {
         let version = "";
         try {
-            version = execSync("bs9 --version", { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+            version = execSync("bs9 --version", { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], windowsHide: true }).trim();
         } catch {
             const pkgPath = join(process.cwd(), "package.json");
             if (existsSync(pkgPath)) {
@@ -143,7 +143,7 @@ export function checkNetworkConnectivity(): HealthCheckResult {
             ? "powershell -Command \"Invoke-WebRequest -Uri http://httpbin.org/ip -TimeoutSec 3 -UseBasicParsing\""
             : "curl -s --connect-timeout 3 http://httpbin.org/ip";
 
-        execSync(cmd, { stdio: "ignore" });
+        execSync(cmd, { stdio: "ignore", windowsHide: true });
         return {
             name: "Network Connectivity",
             status: "✅ PASS",
@@ -186,7 +186,7 @@ export function checkServiceManager(platformInfo: PlatformInfo): HealthCheckResu
                 };
 
             case "win32":
-                execSync("sc.exe query", { stdio: "ignore" });
+                execSync("sc.exe query", { stdio: "ignore", windowsHide: true });
                 return {
                     name: "Service Manager",
                     status: "✅ PASS",
