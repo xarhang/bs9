@@ -58,7 +58,7 @@ const program = new Command();
 program
   .name("bs9")
   .description("Self-healing process manager for Bun with zero-downtime clustering, real-time dashboards, TypeScript build support, and durable same-host state.")
-  .version(version);
+  .version(version, "-v, --version");
 
 program
   .command("start")
