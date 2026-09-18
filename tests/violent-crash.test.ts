@@ -35,6 +35,7 @@ describe("High-Availability Violent Worker Crash Recovery", () => {
       },
       stdout: "ignore",
       stderr: "ignore",
+      windowsHide: true,
     });
     activeProcs.push(proc);
     return proc;

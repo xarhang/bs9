@@ -122,6 +122,7 @@ describe("ESM Child-Process Zero-Code express-session Interception", () => {
           BS9_AUTH_TOKEN: token,
           PORT: String(port),
         },
+        windowsHide: true,
       }
     );
 

@@ -35,6 +35,7 @@ describe("Graceful Rolling Reload & Zero-Downtime Verification", () => {
       },
       stdout: "ignore",
       stderr: "ignore",
+      windowsHide: true,
     });
     activeProcs.set(`${slot}:${gen}`, proc);
     return proc;

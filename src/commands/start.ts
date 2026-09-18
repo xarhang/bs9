@@ -396,7 +396,7 @@ async function handleSingleServiceStart(file: string, options: StartOptions): Pr
       mkdirSync(buildDir, { recursive: true });
 
       const outputFile = join(buildDir, basename(fullPath, '.ts') + '.js');
-      const res = spawnSync("bun", ["build", fullPath, "--outdir", buildDir, "--target", "bun", "--minify", "--splitting"], { stdio: "inherit" });
+      const res = spawnSync("bun", ["build", fullPath, "--outdir", buildDir, "--target", "bun", "--minify", "--splitting"], { stdio: "inherit", windowsHide: true });
       if (res.status !== 0) {
         console.error(`❌ Build failed`);
         process.exit(1);

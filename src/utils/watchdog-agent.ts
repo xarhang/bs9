@@ -207,7 +207,7 @@ async function runSupervisor() {
           if (process.platform === "win32") {
             const out = execSync(
               `powershell -NoProfile -Command "try { (Get-Process -Id ${child.pid} -ErrorAction Stop).WorkingSet64 } catch { 0 }"`,
-              { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }
+              { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true }
             ).trim();
             const bytes = parseInt(out, 10);
             if (bytes > memoryLimitBytes) {

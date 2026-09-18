@@ -45,6 +45,7 @@ describe("E2E CLI Lifecycle Integration (Isolated)", () => {
       const proc = spawn(process.execPath, [binPath, ...args], {
         cwd: sandboxDir,
         env: testEnv,
+        windowsHide: true,
       });
 
       let stdout = "";

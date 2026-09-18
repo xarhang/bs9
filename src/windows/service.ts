@@ -91,7 +91,7 @@ export class WindowsServiceManager {
     // registering machine-wide services in the Windows SCM.
     if (process.env.BS9_WINDOWS_BACKGROUND === '1') return false;
     try {
-      execSync('net session', { stdio: 'ignore' });
+      execSync('net session', { stdio: 'ignore', windowsHide: true });
       return true;
     } catch {
       return false;
@@ -135,7 +135,7 @@ export class WindowsServiceManager {
       const scriptPath = join(platformInfo.configDir, `${config.name}-setup.ps1`);
       writeFileSync(scriptPath, this.generateServiceScript(config));
       try {
-        const res = spawnSync("powershell", ["-Bypass", "-File", scriptPath], { stdio: 'inherit' });
+        const res = spawnSync("powershell", ["-Bypass", "-File", scriptPath], { stdio: 'inherit', windowsHide: true });
         if (res.status !== 0) throw new Error(`powershell setup script failed with code ${res.status}`);
         console.log(`✅ Windows service '${config.name}' created successfully`);
       } catch (error) {
@@ -156,7 +156,7 @@ export class WindowsServiceManager {
     const isAdmin = this.checkAdminPrivileges();
 
     if (isAdmin) {
-      const res = spawnSync("net", ["start", serviceName], { stdio: 'inherit' });
+      const res = spawnSync("net", ["start", serviceName], { stdio: 'inherit', windowsHide: true });
       if (res.status === 0) {
         console.log(`Windows service '${serviceName}' started successfully`);
       } else {
@@ -180,7 +180,7 @@ export class WindowsServiceManager {
     const isAdmin = this.checkAdminPrivileges();
 
     if (isAdmin) {
-      const res = spawnSync("net", ["stop", serviceName], { stdio: 'inherit' });
+      const res = spawnSync("net", ["stop", serviceName], { stdio: 'inherit', windowsHide: true });
       if (res.status !== 0) {
         const metadata = this.getProcessMetadata(serviceName);
         if (metadata) await this.stopBackgroundProcess(metadata);
@@ -201,7 +201,7 @@ export class WindowsServiceManager {
     await this.stopService(serviceName);
 
     if (isAdmin) {
-      try { spawnSync("sc.exe", ["delete", serviceName], { stdio: 'ignore' }); } catch { }
+      try { spawnSync("sc.exe", ["delete", serviceName], { stdio: 'ignore', windowsHide: true }); } catch { }
     }
 
     // Remove metadata and config
@@ -224,7 +224,7 @@ export class WindowsServiceManager {
 
     if (isAdmin) {
       try {
-        const res = spawnSync("sc.exe", ["query", serviceName], { encoding: 'utf-8' });
+        const res = spawnSync("sc.exe", ["query", serviceName], { encoding: 'utf-8', windowsHide: true });
         const output = res.stdout || '';
         if (res.status === 0 && output.includes('RUNNING')) {
           return { name: serviceName, state: 'running', startType: 'demand' };
@@ -236,7 +236,7 @@ export class WindowsServiceManager {
     const metadata = this.getProcessMetadata(serviceName);
     if (metadata && metadata.pid) {
       try {
-        const res = spawnSync("tasklist", ["/FI", `PID eq ${metadata.pid}`, "/NH"], { encoding: 'utf-8' });
+        const res = spawnSync("tasklist", ["/FI", `PID eq ${metadata.pid}`, "/NH"], { encoding: 'utf-8', windowsHide: true });
         if (res.status === 0 && (res.stdout || '').includes(String(metadata.pid))) {
           return { name: serviceName, state: 'running', startType: 'demand', processId: metadata.pid };
         }
@@ -325,7 +325,7 @@ export class WindowsServiceManager {
       try {
         process.kill(metadata.pid);
       } catch {
-        try { execSync(`taskkill /F /T /PID ${metadata.pid}`, { stdio: 'ignore' }); } catch { }
+        try { execSync(`taskkill /F /T /PID ${metadata.pid}`, { stdio: 'ignore', windowsHide: true }); } catch { }
       }
       metadata.pid = null;
     }
@@ -335,7 +335,7 @@ export class WindowsServiceManager {
       try {
         process.kill(metadata.watchdogPid);
       } catch {
-        try { execSync(`taskkill /F /T /PID ${metadata.watchdogPid}`, { stdio: 'ignore' }); } catch { }
+        try { execSync(`taskkill /F /T /PID ${metadata.watchdogPid}`, { stdio: 'ignore', windowsHide: true }); } catch { }
       }
       metadata.watchdogPid = null;
     }

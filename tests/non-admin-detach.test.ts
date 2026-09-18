@@ -75,6 +75,7 @@ describe("Non-Admin Detached Background Process", () => {
       const child = spawn(process.execPath, [binPath, "start", "app.ts", "--name", `detach-${testId}`, "--port", String(testPort), "--host", "127.0.0.1"], {
         cwd: fixtureDir,
         env,
+        windowsHide: true,
       });
       let stdout = "";
       let stderr = "";
@@ -109,6 +110,7 @@ describe("Non-Admin Detached Background Process", () => {
       const child = spawn(process.execPath, [binPath, "stop", `detach-${testId}`], {
         cwd: fixtureDir,
         env,
+        windowsHide: true,
       });
       child.on("close", () => resolve());
     });

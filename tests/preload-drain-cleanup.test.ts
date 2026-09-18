@@ -97,6 +97,7 @@ describe("Preload Two-Phase Drain & Preserved Asynchronous App Cleanup", () => {
           BS9_CONTROLLER_SOCKET: socketPath,
           BS9_REUSE_PORT: "true",
         },
+        windowsHide: true,
       }
     );
 

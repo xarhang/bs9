@@ -92,6 +92,7 @@ if (import.meta.main) {
   const child = spawn("bun", ["run", binPath, ...process.argv.slice(2)], {
     stdio: "inherit",
     env: process.env,
+    windowsHide: true,
   });
   child.on("exit", (code) => process.exit(code ?? 0));
 }

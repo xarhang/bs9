@@ -129,7 +129,7 @@ function runSecurityInspection(platformInfo: PlatformInfo): InspectionResult[] {
     }
   } else if (process.platform === "win32") {
     try {
-      execSync("net session", { stdio: "ignore" });
+      execSync("net session", { stdio: "ignore", windowsHide: true });
       isRootOrAdmin = true;
       uidMsg = "Process is running with elevated Administrator privileges";
     } catch {
@@ -253,7 +253,7 @@ function runPerformanceInspection(): InspectionResult[] {
   if (process.platform === "win32") {
     try {
       // Basic Windows performance check using wmic or similar
-      const memInfo = execSync("wmic OS get FreePhysicalMemory,TotalVisibleMemorySize /Value", { encoding: "utf-8" });
+      const memInfo = execSync("wmic OS get FreePhysicalMemory,TotalVisibleMemorySize /Value", { encoding: "utf-8", windowsHide: true });
       const freeMem = parseInt(memInfo.match(/FreePhysicalMemory=(\d+)/)?.[1] || "0");
       const totalMem = parseInt(memInfo.match(/TotalVisibleMemorySize=(\d+)/)?.[1] || "1");
       const memPercent = ((totalMem - freeMem) / totalMem) * 100;
@@ -392,7 +392,7 @@ function runDeepInspection(platformInfo: PlatformInfo): InspectionResult[] {
 
   try {
     if (process.platform === "win32") {
-      const cpuInfoArr = execSync("wmic cpu get name", { encoding: "utf-8" }).split("\n");
+      const cpuInfoArr = execSync("wmic cpu get name", { encoding: "utf-8", windowsHide: true }).split("\n");
       const cpuInfo = cpuInfoArr.length > 1 ? cpuInfoArr[1] : "Unknown CPU";
       results.push({
         name: "Hardware Inventory",

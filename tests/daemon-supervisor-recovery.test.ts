@@ -175,6 +175,7 @@ Bun.serve({
         BS9_HOME: sandboxDir,
       },
       stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
     });
     workerProc.stderr.on("data", (d: Buffer) => { workerStderr += d.toString(); });
 

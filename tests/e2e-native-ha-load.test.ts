@@ -38,7 +38,7 @@ describe.skipIf(!enabled)("Native HA load and chaos gate", () => {
 
   function runCli(args: string[], timeoutMs = 60_000): Promise<{ stdout: string; stderr: string; exitCode: number }> {
     return new Promise((done) => {
-      const child = spawn(process.execPath, [binPath, ...args], { cwd: fixtureDir, env });
+      const child = spawn(process.execPath, [binPath, ...args], { cwd: fixtureDir, env, windowsHide: true });
       let stdout = "";
       let stderr = "";
       child.stdout.on("data", chunk => { stdout += chunk.toString(); });

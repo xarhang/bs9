@@ -150,7 +150,7 @@ function violentlyKillProcess(pid: number): void {
 
   if (process.platform === "win32") {
     try {
-      execSync(`taskkill /F /PID ${pid}`, { stdio: "ignore" });
+      execSync(`taskkill /F /PID ${pid}`, { stdio: "ignore", windowsHide: true });
     } catch {}
   }
 }
@@ -211,6 +211,7 @@ if (userModule.default && typeof userModule.default.fetch === "function") {
       },
       stdout: "ignore",
       stderr: "ignore",
+      windowsHide: true,
     });
     activeProcs.set(`${slot}:${gen}`, proc);
     return proc;

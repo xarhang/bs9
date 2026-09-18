@@ -447,7 +447,8 @@ serve({
         const child = spawn("bun", ["run", bs9Bin, cmd, name], {
           stdio: "ignore",
           shell: false,
-          detached: true
+          detached: true,
+          windowsHide: true,
         });
         child.unref();
         return new Response(JSON.stringify({ message: `Service '${name}' ${cmd} initiated` }), { headers: { "Content-Type": "application/json" } });

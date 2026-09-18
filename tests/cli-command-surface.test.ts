@@ -22,6 +22,7 @@ describe("CLI command surface contract", () => {
   it("registers the complete expected command inventory", () => {
     const result = spawnSync(process.execPath, [binPath, "--help"], {
       encoding: "utf8",
+      windowsHide: true,
       env: { ...process.env, BS9_HOME: sandbox },
     });
     expect(result.status, result.stderr).toBe(0);
@@ -35,6 +36,7 @@ describe("CLI command surface contract", () => {
       const result = spawnSync(process.execPath, [binPath, command, "--help"], {
         encoding: "utf8",
         timeout: 10_000,
+        windowsHide: true,
         env: { ...process.env, BS9_HOME: sandbox },
       });
       expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);

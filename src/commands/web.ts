@@ -50,6 +50,7 @@ export async function webCommand(options: WebOptions): Promise<void> {
     const child = spawn("bun", ["run", dashboardPath], {
       detached: true,
       stdio: 'ignore',
+      windowsHide: true,
       env: {
         ...process.env,
         WEB_DASHBOARD_PORT: port,

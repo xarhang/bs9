@@ -27,6 +27,7 @@ describe.skipIf(!enabled)("Native Windows/macOS service lifecycle", () => {
       const child = spawn(process.execPath, [binPath, ...args], {
         cwd: fixtureDir,
         env,
+        windowsHide: true,
       });
       let stdout = "";
       let stderr = "";
