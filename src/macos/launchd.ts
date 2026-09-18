@@ -440,13 +440,45 @@ export async function launchdCommand(action: string, options: any): Promise<void
         await manager.disableAutoStart(options.name);
         break;
         
+      case 'save':
+        if (options.name) {
+          const platformInfo = getPlatformInfo();
+          const plistFile = join(manager.launchAgentsDir, `${options.name}.plist`);
+          if (existsSync(plistFile)) {
+            const plistContent = readFileSync(plistFile, 'utf-8');
+            const backupFile = join(platformInfo.backupDir, `${options.name}.plist`);
+            if (!existsSync(platformInfo.backupDir)) mkdirSync(platformInfo.backupDir, { recursive: true });
+            writeFileSync(backupFile, plistContent);
+            console.log(`💾 Service '${options.name}' saved to backup`);
+          } else {
+            console.warn(`⚠️ No plist found for '${options.name}' to save`);
+          }
+        }
+        break;
+
+      case 'resurrect':
+        if (options.name) {
+          const platformInfo = getPlatformInfo();
+          const backupFile = join(platformInfo.backupDir, `${options.name}.plist`);
+          if (existsSync(backupFile)) {
+            const plistContent = readFileSync(backupFile, 'utf-8');
+            const plistFile = join(manager.launchAgentsDir, `${options.name}.plist`);
+            writeFileSync(plistFile, plistContent);
+            await manager.startService(options.name);
+            console.log(`✅ Service '${options.name}' resurrected from backup`);
+          } else {
+            throw new Error(`Backup for '${options.name}' not found`);
+          }
+        }
+        break;
+
       default:
         console.error(`❌ Unknown action: ${action}`);
-        console.log('Available actions: create, start, stop, restart, unload, status, enable, disable');
-        process.exit(1);
+        console.log('Available actions: create, start, stop, restart, unload, status, enable, disable, save, resurrect');
+        throw new Error(`Unknown action: ${action}`);
     }
   } catch (error) {
     console.error(`❌ Failed to ${action} macOS service: ${error}`);
-    process.exit(1);
+    throw error;
   }
 }
