@@ -9,12 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Windows Non-Admin Process Detachment**: Decoupled background services and the watchdog supervisor from the calling terminal console by using `FreeConsole()` via Win32 FFI on startup, adding `windowsHide: true`, and propagating unreferenced process handles. Services now persist indefinitely after terminal closure.
-- **Windows Console Window Popup Suppression**: Added `windowsHide: true` to all child process invocations (`spawn`, `spawnSync`, `execSync`) across Windows service management (`net session`, `sc.exe`, `tasklist`, `taskkill`), memory monitoring, web dashboard, and test harnesses, completely eliminating Command Prompt window flashes.
-- **Cross-Platform Terminal Hangup (SIGHUP) Resilience**: Added explicit `SIGHUP` signal handling in background supervisor and persistent daemon processes on POSIX (Linux/macOS) and Windows, preventing unexpected process death on terminal exit or SSH disconnect.
-- **Watchdog Supervisor Child Detachment**: Configured child processes spawned by `watchdog-agent` with detached process groups, hidden window flags, and unreferenced handles.
-- **Process Cleanup Hardening**: Enhanced background process termination on Windows with process tree termination (`taskkill /T`).
+- **Windows Non-Admin Process Detachment**: Decoupled background services and the watchdog supervisor from the calling terminal console by using `FreeConsole()` via Win32 FFI (`bun:ffi` / `kernel32.dll`) on startup, adding `windowsHide: true`, and propagating unreferenced process handles (`child.unref()`). Services now persist indefinitely after terminal or console closure without administrator privileges.
+- **Windows Console Window Popup Suppression**: Added `windowsHide: true` to all child process invocations (`spawn`, `spawnSync`, `execSync`) across Windows service management (`net session`, `sc.exe`, `tasklist`, `taskkill`), watchdog memory monitoring, web dashboard, and test harnesses, completely eliminating Command Prompt window flashes.
+- **Cross-Platform Terminal Hangup (SIGHUP) Resilience**: Added explicit `SIGHUP` signal handling in background supervisor and persistent daemon processes on POSIX (Linux/macOS) and Windows, preventing unexpected process termination on terminal exit or SSH disconnect.
+- **Watchdog Supervisor Child Detachment**: Configured child processes spawned by `watchdog-agent` with detached process groups, hidden window flags, and unreferenced handles in both standard and time-tracked execution paths.
+- **Watchdog Custom Environment Resolution**: Watchdog supervisor now accepts `argv[3]` and `BS9_SERVICES_DIR` environment variables for correct service metadata storage and lookup when custom `BS9_HOME` directories are configured.
+- **Process Cleanup Hardening**: Enhanced background process termination on Windows with process tree termination (`taskkill /F /T`) to cleanly terminate supervisor and child worker process trees.
+- **Startup Wait Window**: Increased the background process PID polling window from 1 second to 3 seconds (30 attempts × 100ms) to accommodate slower storage and virtualized environments.
 - **UI & Output Normalization**: Removed remaining decorative emojis from CLI output logs to maintain professional, standard formatting.
+
+### Added
+
+- `tests/non-admin-detach.test.ts`: Dedicated test suite verifying `FreeConsole()` Win32 FFI availability and end-to-end background service persistence across CLI execution on Windows without administrative elevation.
+
+### Verification
+
+- 293 tests passing, 0 failing across 45 test files
+- TypeScript type-check (`tsc --noEmit`) passing with zero diagnostics
+- Ephemeral High-Availability verification passing (100% availability, 0% error rate under rolling reload and violent termination)
+- End-to-end native platform lifecycle test passing under isolated environment (`BS9_NATIVE_E2E=1`)
+
 
 ## [1.6.7] - 2026-09-18
 
