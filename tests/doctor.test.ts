@@ -48,7 +48,7 @@ describe("Doctor Diagnostics and Health Checks", () => {
     const platformInfo = getPlatformInfo();
     const res = health.checkServiceManager(platformInfo);
     expect(res.name).toBe("Service Manager");
-    expect(res.status).toBe("✅ PASS");
+    expect(["✅ PASS", "⚠️ WARN"]).toContain(res.status);
   });
 
   it("runs full doctorCommand diagnostic suite without throwing", async () => {

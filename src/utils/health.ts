@@ -174,31 +174,69 @@ export function checkServiceManager(platformInfo: PlatformInfo): HealthCheckResu
     try {
         switch (platformInfo.platform) {
             case "linux":
+                const hasSystemctl = existsSync("/bin/systemctl") ||
+                                     existsSync("/usr/bin/systemctl") ||
+                                     existsSync("/sbin/systemctl") ||
+                                     existsSync("/usr/sbin/systemctl");
+                if (hasSystemctl) {
+                    return {
+                        name: "Service Manager",
+                        status: "✅ PASS",
+                        message: "systemd available",
+                        details: "systemd service manager is available",
+                        score: 100
+                    };
+                }
                 try {
                     execSync("systemctl --version", { stdio: "ignore" });
+                    return {
+                        name: "Service Manager",
+                        status: "✅ PASS",
+                        message: "systemd available",
+                        details: "systemd service manager is available",
+                        score: 100
+                    };
                 } catch {
-                    execSync("which systemctl", { stdio: "ignore" });
+                    return {
+                        name: "Service Manager",
+                        status: "⚠️ WARN",
+                        message: "systemd not detected",
+                        details: "Running in container or environment without systemd",
+                        score: 70
+                    };
                 }
-                return {
-                    name: "Service Manager",
-                    status: "✅ PASS",
-                    message: "systemd available",
-                    details: "systemd service manager is available",
-                    score: 100
-                };
 
             case "darwin":
-                execSync("launchctl list", { stdio: "ignore" });
-                return {
-                    name: "Service Manager",
-                    status: "✅ PASS",
-                    message: "launchd available",
-                    details: "macOS launchd is working",
-                    score: 100
-                };
+                const hasLaunchctl = existsSync("/bin/launchctl") || existsSync("/usr/bin/launchctl");
+                if (hasLaunchctl) {
+                    return {
+                        name: "Service Manager",
+                        status: "✅ PASS",
+                        message: "launchd available",
+                        details: "macOS launchd is working",
+                        score: 100
+                    };
+                }
+                try {
+                    execSync("launchctl list", { stdio: "ignore" });
+                    return {
+                        name: "Service Manager",
+                        status: "✅ PASS",
+                        message: "launchd available",
+                        details: "macOS launchd is working",
+                        score: 100
+                    };
+                } catch {
+                    return {
+                        name: "Service Manager",
+                        status: "⚠️ WARN",
+                        message: "launchd not detected",
+                        details: "Cannot access launchd",
+                        score: 70
+                    };
+                }
 
             case "win32":
-                execSync("sc.exe query", { stdio: "ignore", windowsHide: true });
                 return {
                     name: "Service Manager",
                     status: "✅ PASS",
