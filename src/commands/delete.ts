@@ -75,25 +75,28 @@ export function findFullyCoveredClusters(
 export async function deleteCommand(names: string[], options: DeleteOptions): Promise<void> {
   const platformInfo = getPlatformInfo();
 
-  // Handle multi-service if: multiple args, single arg with array syntax, or 'all' keyword
-  if (shouldUseMultiServiceDelete(names)) {
-    await handleMultiServiceDelete(names, options);
-    return;
-  }
+  try {
+    // Handle multi-service if: multiple args, single arg with array syntax, or 'all' keyword
+    if (shouldUseMultiServiceDelete(names)) {
+      await handleMultiServiceDelete(names, options);
+      return;
+    }
 
-  // Handle delete all services (legacy)
-  if (options.all) {
-    await deleteAllServices(platformInfo, options);
-    return;
-  }
+    // Handle delete all services (legacy)
+    if (options.all) {
+      await deleteAllServices(platformInfo, options);
+      return;
+    }
 
-  // Single service operation
-  await handleSingleServiceDelete(names[0] || '', platformInfo, options);
+    // Single service operation
+    await handleSingleServiceDelete(names[0] || '', platformInfo, options);
+  } catch {
+    process.exitCode = 1;
+  }
 }
 
 async function handleMultiServiceDelete(name: string | string[], options: DeleteOptions): Promise<void> {
   let services = await parseServiceArray(name);
-
   if (services.length === 0) {
     console.log("❌ No services found matching the pattern");
     return;
@@ -315,9 +318,7 @@ async function deleteDirectService(name: string, platformInfo: any, options: Del
     }
   } catch (err) {
     console.error(`❌ Failed to delete service '${name}': ${err}`);
-    if (!options.force) {
-      process.exit(1);
-    }
+    throw err;
   }
 }
 
@@ -337,8 +338,8 @@ async function deleteAllServices(platformInfo: any, options: DeleteOptions): Pro
   } catch (err) {
     console.error(`❌ Failed to delete all services: ${err}`);
     if (!options.force) {
-      process.exit(1);
+      process.exitCode = 1;
+      return;
     }
   }
 }
-

@@ -183,12 +183,15 @@ export class WindowsServiceManager {
       const res = spawnSync("net", ["stop", serviceName], { stdio: 'inherit', windowsHide: true });
       if (res.status !== 0) {
         const metadata = this.getProcessMetadata(serviceName);
-        if (metadata) await this.stopBackgroundProcess(metadata);
+        if (metadata && (metadata.pid || metadata.watchdogPid)) {
+          await this.stopBackgroundProcess(metadata);
+        }
       }
     } else {
       const metadata = this.getProcessMetadata(serviceName);
-      if (!metadata) throw new Error(`Service '${serviceName}' not found`);
-      await this.stopBackgroundProcess(metadata);
+      if (metadata && (metadata.pid || metadata.watchdogPid)) {
+        await this.stopBackgroundProcess(metadata);
+      }
     }
   }
 
@@ -198,7 +201,11 @@ export class WindowsServiceManager {
     }
 
     const isAdmin = this.checkAdminPrivileges();
-    await this.stopService(serviceName);
+    try {
+      await this.stopService(serviceName);
+    } catch {
+      // Ignore stop errors if service is already stopped or not running
+    }
 
     if (isAdmin) {
       try { spawnSync("sc.exe", ["delete", serviceName], { stdio: 'ignore', windowsHide: true }); } catch { }
@@ -207,10 +214,15 @@ export class WindowsServiceManager {
     // Remove metadata and config
     const configs = this.loadConfigs();
     delete configs[serviceName];
+    const cleanName = serviceName.replace(/^BS9_/, '');
+    delete configs[cleanName];
     this.saveConfigs(configs);
 
     const metaPath = join(this.servicesDir, `${serviceName}.json`);
     if (existsSync(metaPath)) unlinkSync(metaPath);
+
+    const cleanMetaPath = join(this.servicesDir, `${cleanName}.json`);
+    if (existsSync(cleanMetaPath)) unlinkSync(cleanMetaPath);
 
     console.log(`✅ Service '${serviceName}' deleted successfully`);
   }
