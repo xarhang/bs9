@@ -19,7 +19,15 @@ export interface HealthCheckResult {
 
 export function checkBunInstallation(): HealthCheckResult {
     try {
-        const version = execSync("bun --version", { encoding: "utf-8", windowsHide: true }).trim();
+        let version = "";
+        if (typeof Bun !== "undefined" && Bun.version) {
+            version = Bun.version;
+        } else if (process.versions?.bun) {
+            version = process.versions.bun;
+        } else {
+            const bunBin = process.execPath || "bun";
+            version = execSync(`"${bunBin}" --version`, { encoding: "utf-8", windowsHide: true }).trim();
+        }
         return {
             name: "Bun Installation",
             status: "✅ PASS",
@@ -166,12 +174,16 @@ export function checkServiceManager(platformInfo: PlatformInfo): HealthCheckResu
     try {
         switch (platformInfo.platform) {
             case "linux":
-                execSync("systemctl --user --version", { stdio: "ignore" });
+                try {
+                    execSync("systemctl --version", { stdio: "ignore" });
+                } catch {
+                    execSync("which systemctl", { stdio: "ignore" });
+                }
                 return {
                     name: "Service Manager",
                     status: "✅ PASS",
-                    message: "systemd user services available",
-                    details: "systemd user mode is working",
+                    message: "systemd available",
+                    details: "systemd service manager is available",
                     score: 100
                 };
 
