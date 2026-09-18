@@ -58,7 +58,8 @@ const program = new Command();
 program
   .name("bs9")
   .description("Self-healing process manager for Bun with zero-downtime clustering, real-time dashboards, TypeScript build support, and durable same-host state.")
-  .version(version, "-v, --version");
+  .version(version, "-V, --version")
+  .option("-v", "output the version number");
 
 program
   .command("start")
@@ -453,8 +454,14 @@ program
   .option("-f, --foreground", "Run daemon in foreground (for systemd/launchd supervision)", false)
   .action(daemonCommand);
 
+const rawArgs = process.argv.slice(2);
+if (rawArgs.length === 1 && rawArgs[0] === "-v") {
+  console.log(version);
+  process.exit(0);
+}
+
 // Explicitly handle no arguments case
-if (!process.argv.slice(2).length) {
+if (!rawArgs.length) {
   program.outputHelp();
   process.exit(0);
 }
