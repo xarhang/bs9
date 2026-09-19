@@ -465,7 +465,7 @@ Get BS9 configuration.
 **Response:**
 ```json
 {
-  "version": "1.6.12",
+  "version": "1.6.13",
   "environment": "production",
   "logLevel": "info",
   "metrics": {
@@ -514,7 +514,7 @@ Get system health status.
 {
   "status": "healthy",
   "timestamp": "2024-01-01T12:00:00Z",
-  "version": "1.6.12",
+  "version": "1.6.13",
   "uptime": 86400,
   "checks": {
     "database": "healthy",
@@ -771,5 +771,5 @@ https://github.com/xarhang/bs9/blob/main/docs/postman-collection.json
 
 ---
 
-*Last Updated: September 17, 2026*
-*BS9 Version: 1.6.12*
+*Last Updated: September 20, 2026*
+*BS9 Version: 1.6.13*
