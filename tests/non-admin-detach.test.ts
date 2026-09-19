@@ -32,16 +32,20 @@ describe("Non-Admin Detached Background Process", () => {
 
   it("safely invokes FreeConsole on Windows without throwing", async () => {
     if (process.platform === "win32") {
-      const { dlopen, FFIType } = await import("bun:ffi");
-      const kernel32 = dlopen("kernel32.dll", {
-        FreeConsole: {
-          args: [],
-          returns: FFIType.bool,
-        },
-      });
-      expect(typeof kernel32.symbols.FreeConsole).toBe("function");
-      const result = kernel32.symbols.FreeConsole();
-      expect(typeof result).toBe("boolean");
+      const { spawnSync } = await import("node:child_process");
+      const res = spawnSync(process.execPath, [
+        "-e",
+        `
+        const { dlopen, FFIType } = await import("bun:ffi");
+        const kernel32 = dlopen("kernel32.dll", {
+          FreeConsole: { args: [], returns: FFIType.bool },
+        });
+        if (typeof kernel32.symbols.FreeConsole !== "function") process.exit(1);
+        const result = kernel32.symbols.FreeConsole();
+        process.exit(typeof result === "boolean" ? 0 : 1);
+        `,
+      ], { windowsHide: true });
+      expect(res.status).toBe(0);
     } else {
       expect(true).toBe(true);
     }

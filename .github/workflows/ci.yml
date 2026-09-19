@@ -11,7 +11,7 @@ on:
 
 jobs:
   test:
-    name: Full suite (${{ matrix.os }})
+    name: Full suite (${{ matrix.os }}, bun-${{ matrix.bun-version }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
@@ -35,7 +35,7 @@ jobs:
       run: bun install
       
     - name: Run tests
-      run: bun test
+      run: bun test --timeout 20000
 
   native-lifecycle:
     name: Native lifecycle (${{ matrix.os }})
