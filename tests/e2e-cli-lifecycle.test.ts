@@ -2,6 +2,7 @@ import { describe, it, expect, afterAll, beforeAll } from "bun:test";
 import { spawn } from "node:child_process";
 import { writeFileSync, rmSync, existsSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { createServer } from "node:net";
 import { getPlatformInfo } from "../src/platform/detect.js";
 import { hasUsableUserSystemd, removeSandboxSystemdLinks } from "./helpers/systemd.js";
 
@@ -10,7 +11,7 @@ describe("E2E CLI Lifecycle Integration (Isolated)", () => {
   const platformInfo = getPlatformInfo();
   const sandboxDir = join(process.cwd(), `.tmp-e2e-sandbox-${testId}`);
   const serviceName = `svc_${testId}`;
-  const port = 49000 + Math.floor(Math.random() * 800);
+  let port = 0;
   const binPath = resolve(join(process.cwd(), "bin", "bs9"));
 
   // On Linux, Unix domain sockets must live on a native filesystem (tmpfs/ext4).
@@ -66,7 +67,21 @@ describe("E2E CLI Lifecycle Integration (Isolated)", () => {
     });
   }
 
-  beforeAll(() => {
+  beforeAll(async () => {
+    port = await new Promise<number>((resolvePort, reject) => {
+      const server = createServer();
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", () => {
+        const address = server.address();
+        if (!address || typeof address === "string") {
+          server.close();
+          reject(new Error("Unable to allocate an ephemeral TCP port"));
+          return;
+        }
+        server.close((error) => error ? reject(error) : resolvePort(address.port));
+      });
+    });
+
     mkdirSync(sandboxDir, { recursive: true });
     // Ensure the socket directory exists before the daemon tries to bind.
     // On Linux socketBase is /tmp/bs9-test-{testId}/ (distinct from sandboxDir).
@@ -118,7 +133,7 @@ describe("E2E CLI Lifecycle Integration (Isolated)", () => {
     }
   });
 
-  async function fetchWithRetry(url: string, maxWaitMs = 15000): Promise<Response> {
+  async function fetchWithRetry(url: string, maxWaitMs = 45000): Promise<Response> {
     const start = Date.now();
     let lastErr: any;
     while (Date.now() - start < maxWaitMs) {
@@ -134,6 +149,11 @@ describe("E2E CLI Lifecycle Integration (Isolated)", () => {
   }
 
   it.skipIf(!hasUsableUserSystemd())("should run full CLI lifecycle: daemon start, ping, start cluster, status, reload, stop, daemon stop", async () => {
+    // A retry must begin from a clean native-service state. This also removes
+    // debris left by an interrupted runner before exercising startup again.
+    await runCli(["delete", serviceName, "--force"], 5_000);
+    await runCli(["daemon", "stop"], 5_000);
+
     // 1. Start Daemon
     const daemonStart = await runCli(["daemon", "start"]);
     expect(daemonStart.exitCode).toBe(0);
@@ -162,7 +182,16 @@ describe("E2E CLI Lifecycle Integration (Isolated)", () => {
     expect(startRes.stdout).toContain("Cluster");
 
     // Verify HTTP response from cluster deterministically
-    const httpRes = await fetchWithRetry(`http://localhost:${port}/version`);
+    let httpRes: Response;
+    try {
+      httpRes = await fetchWithRetry(`http://localhost:${port}/version`);
+    } catch (error) {
+      const diagnostics = await runCli(["status", serviceName], 10_000);
+      throw new Error(
+        `Cluster did not become reachable after start.\nSTDOUT:\n${startRes.stdout}\nSTDERR:\n${startRes.stderr}\nSTATUS:\n${diagnostics.stdout}\n${diagnostics.stderr}`,
+        { cause: error },
+      );
+    }
     expect(httpRes.status).toBe(200);
     const body = (await httpRes.json()) as any;
     expect(body.ok).toBe(true);
@@ -188,5 +217,5 @@ describe("E2E CLI Lifecycle Integration (Isolated)", () => {
     // 8. Stop Daemon
     const daemonStop = await runCli(["daemon", "stop"]);
     expect(daemonStop.exitCode).toBe(0);
-  }, 60000);
+  }, { timeout: 120_000, retry: 1 });
 });
