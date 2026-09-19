@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.13] - 2026-09-20
+
+### Fixed
+
+- **CI Test Suite Isolation**:
+  - Isolated Windows `FreeConsole` FFI test in `tests/non-admin-detach.test.ts` into a separate child process, preventing the main test runner from detaching from Windows console handles.
+- **CI Matrix & Timeout Hardening**:
+  - Configured 20,000ms timeout on full suite test runners to accommodate virtualized Windows runner disk I/O.
+  - Disambiguated matrix job identifiers across Bun versions (`Full suite (${{ matrix.os }}, bun-${{ matrix.bun-version }})`).
+
+### Security
+
+- **Vulnerability Hardening**:
+  - Verified and locked security remediations for Host header spoofing in Load Balancer, Web Dashboard stored XSS and CSWSH, State Hub directory traversal, Windows unquoted service path (CWE-428), and SQL injection defenses.
+
 ## [1.6.12] - 2026-09-20
 
 ### Fixed

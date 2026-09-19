@@ -1,16 +1,16 @@
 # BS9 (Bun Sentinel 9)
 
 [![License: AGPL v3+](https://img.shields.io/badge/License-AGPL_v3%2B-blue.svg)](https://www.gnu.org/licenses/agpl-3.0.html)
-[![Version](https://img.shields.io/badge/version-1.6.12-blue.svg)](https://github.com/xarhang/bs9)
+[![Version](https://img.shields.io/badge/version-1.6.13-blue.svg)](https://github.com/xarhang/bs9)
 [![Security](https://img.shields.io/badge/security-hardened-green.svg)](SECURITY.md)
-[![Tests](https://img.shields.io/badge/tests-2%2C357%20passing-brightgreen.svg)](https://github.com/xarhang/bs9/actions)
+[![Tests](https://img.shields.io/badge/tests-2%2C358%20passing-brightgreen.svg)](https://github.com/xarhang/bs9/actions)
 [![Cross-Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](https://github.com/xarhang/bs9)
 
 **Self-healing process manager for Bun with zero-downtime clustering, real-time dashboards, TypeScript build support, and durable same-host state.**
 
 Works on Windows, macOS, and Linux.
 
-Every release is gated by 2,357 automated tests plus GitHub-hosted native and packaged qualification across Linux, Windows, and macOS. The compatibility matrix also exercises major Linux distributions in containers, including Debian, CentOS Stream, Red Hat UBI, Rocky Linux, AlmaLinux, Fedora, openSUSE, Arch Linux, Alpine Linux, and Linux Mint. See [Testing and release qualification](docs/TESTING.md).
+Every release is gated by 2,358 automated tests plus GitHub-hosted native and packaged qualification across Linux, Windows, and macOS. The compatibility matrix also exercises major Linux distributions in containers, including Debian, CentOS Stream, Red Hat UBI, Rocky Linux, AlmaLinux, Fedora, openSUSE, Arch Linux, Alpine Linux, and Linux Mint. See [Testing and release qualification](docs/TESTING.md).
 
 ---
 
@@ -30,7 +30,7 @@ npm install -g bs9
 
 ```bash
 # Verified installer (installs Bun + BS9)
-curl -fsSLO https://github.com/xarhang/bs9/releases/download/v1.6.12/setup.sh
+curl -fsSLO https://github.com/xarhang/bs9/releases/download/v1.6.13/setup.sh
 sha256sum setup.sh && bash setup.sh
 
 # Or manual install from source

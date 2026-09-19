@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from "bun:test";
 import { spawn } from "node:child_process";
+import { createServer } from "node:net";
 import { writeFileSync, unlinkSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -30,7 +31,19 @@ describe("Preload Two-Phase Drain & Preserved Asynchronous App Cleanup", () => {
     await controller.start();
     const { tokenFilePath } = controller.registerClusterToken(clusterName);
 
-    const port = 49100 + Math.floor(Math.random() * 500);
+    const port = await new Promise<number>((resolvePort, reject) => {
+      const server = createServer();
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", () => {
+        const address = server.address();
+        if (!address || typeof address === "string") {
+          server.close();
+          reject(new Error("Unable to allocate an ephemeral TCP port"));
+          return;
+        }
+        server.close((error) => (error ? reject(error) : resolvePort(address.port)));
+      });
+    });
     const workerScript = join(tmpdir(), `bs9-drain-worker-${testId}.ts`);
     const cleanupFile = join(tmpdir(), `bs9-drain-cleanup-${testId}.txt`);
 
@@ -140,5 +153,5 @@ describe("Preload Two-Phase Drain & Preserved Asynchronous App Cleanup", () => {
     // Cleanup temp files
     try { unlinkSync(workerScript); } catch {}
     try { unlinkSync(cleanupFile); } catch {}
-  });
+  }, 15_000);
 });
