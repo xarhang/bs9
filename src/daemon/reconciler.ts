@@ -17,16 +17,19 @@ import { type ClusterManifestData } from "../hub/protocol.js";
 
 export interface ReconcilerOptions {
   intervalMs?: number;
+  missingGraceMs?: number;
   onResurrectSlot?: (manifest: ClusterManifestData, slot: number, nextGen: number) => Promise<void>;
 }
 
 export class ClusterReconciler extends EventEmitter {
   private controller: ClusterController;
   private intervalMs: number;
+  private missingGraceMs: number;
   private timer: any = null;
   private isRunning = false;
   private isReconciling = false;
   private inFlightResurrections: Map<string, { nextGen: number; timestamp: number }> = new Map();
+  private missingSince: Map<string, number> = new Map();
   private onResurrectSlot?: (manifest: ClusterManifestData, slot: number, nextGen: number) => Promise<void>;
   private boundOnWorkerReady: (worker: any) => void;
   private boundOnWorkerConnected: (worker: any) => void;
@@ -35,17 +38,23 @@ export class ClusterReconciler extends EventEmitter {
     super();
     this.controller = controller;
     this.intervalMs = options.intervalMs || 2000;
+    // Native supervisors (launchd/systemd/Windows SCM) may restart the same
+    // physical unit after a crash. Give that unit time to reconnect before
+    // creating a new generation, otherwise both can become active.
+    this.missingGraceMs = options.missingGraceMs ?? Math.max(3000, this.intervalMs * 2);
     this.onResurrectSlot = options.onResurrectSlot;
 
     // Listen to worker ready/connected events to clear in-flight status
     this.boundOnWorkerReady = (worker: any) => {
       if (worker && worker.clusterName !== undefined && worker.slot !== undefined) {
         this.inFlightResurrections.delete(`${worker.clusterName}:${worker.slot}`);
+        this.missingSince.delete(`${worker.clusterName}:${worker.slot}`);
       }
     };
     this.boundOnWorkerConnected = (worker: any) => {
       if (worker && worker.clusterName !== undefined && worker.slot !== undefined) {
         this.inFlightResurrections.delete(`${worker.clusterName}:${worker.slot}`);
+        this.missingSince.delete(`${worker.clusterName}:${worker.slot}`);
       }
     };
 
@@ -87,6 +96,7 @@ export class ClusterReconciler extends EventEmitter {
     this.controller.off("worker:ready", this.boundOnWorkerReady);
     this.controller.off("worker:connected", this.boundOnWorkerConnected);
     this.inFlightResurrections.clear();
+    this.missingSince.clear();
     this.emit("stopped");
   }
 
@@ -144,7 +154,23 @@ export class ClusterReconciler extends EventEmitter {
             (w) => w.status === "ready" || w.status === "connected" || w.status === "draining"
           );
 
+          if (hasAliveWorker) {
+            this.missingSince.delete(slotKey);
+            continue;
+          }
+
+          const firstMissingAt = this.missingSince.get(slotKey);
+          if (firstMissingAt === undefined) {
+            this.missingSince.set(slotKey, Date.now());
+            continue;
+          }
+
+          if (Date.now() - firstMissingAt < this.missingGraceMs) {
+            continue;
+          }
+
           if (!hasAliveWorker) {
+            this.missingSince.delete(slotKey);
             // Identify highest seen generation across manifest, slot workers, and in-flight tracking
             const knownGens = [
               manifest.currentGeneration ?? 1,
