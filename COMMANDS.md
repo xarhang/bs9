@@ -401,11 +401,17 @@ bs9 monit --refresh 5
 Launches a dark glassmorphism web dashboard with WebSocket live streaming and Bearer authentication.
 
 ```bash
-# Start web dashboard on port 8080
+# Start web dashboard on port 8080 (foreground - Ctrl+C to stop)
 bs9 web
 
 # Custom port and detached background mode
 bs9 web --port 9000 --detach
+
+# Check status of detached background dashboard
+bs9 web status
+
+# Stop detached background dashboard
+bs9 web stop
 ```
 
 ---
@@ -779,4 +785,4 @@ bs9 consul register --name api-service --address 127.0.0.1 --port 3000 --health-
 ---
 
 *Last Updated: September 20, 2026*  
-*BS9 Version: 1.6.13*
+*BS9 Version: 1.6.14*
