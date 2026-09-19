@@ -183,14 +183,19 @@ describe.skipIf(!enabled)("Native HA load and chaos gate", () => {
     const logsBeforeFlush = await runCli(["logs", clusterName, "--lines", "20"], 30_000);
     record("logs-before-flush", logsBeforeFlush);
     expect(logsBeforeFlush.exitCode, `${logsBeforeFlush.stdout}\n${logsBeforeFlush.stderr}`).toBe(0);
-    const clusterLogFiles = readdirSync(platformInfo.logDir)
-      .filter(file => file.includes(clusterName) && file.endsWith(".out.log"));
-    expect(clusterLogFiles.length).toBeGreaterThanOrEqual(2);
-    const combinedWorkerLogs = clusterLogFiles
-      .map(file => readFileSync(join(platformInfo.logDir, file), "utf8"))
-      .join("\n");
-    expect(combinedWorkerLogs).toContain('"event":"request"');
-    expect(clusterLogFiles.some(file => statSync(join(platformInfo.logDir, file)).size > 0)).toBe(true);
+    if (process.platform === "linux") {
+      // Native Linux services write to journald rather than per-worker files.
+      expect(logsBeforeFlush.stdout).toContain('"event":"request"');
+    } else {
+      const clusterLogFiles = readdirSync(platformInfo.logDir)
+        .filter(file => file.includes(clusterName) && file.endsWith(".out.log"));
+      expect(clusterLogFiles.length).toBeGreaterThanOrEqual(2);
+      const combinedWorkerLogs = clusterLogFiles
+        .map(file => readFileSync(join(platformInfo.logDir, file), "utf8"))
+        .join("\n");
+      expect(combinedWorkerLogs).toContain('"event":"request"');
+      expect(clusterLogFiles.some(file => statSync(join(platformInfo.logDir, file)).size > 0)).toBe(true);
+    }
 
     const flush = await runCli(["flush", clusterName], 30_000);
     record("flush", flush);

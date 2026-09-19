@@ -16,7 +16,7 @@ bun --version
 # Work from the copied checkout, not the read-only host mount.
 bun install --frozen-lockfile
 bun run build
-bunx tsc --noEmit
+bun x tsc --noEmit
 
 # Cross-distro contracts plus filesystem and persistence behavior that is valid
 # inside containers and on the GitHub-hosted runner environments.

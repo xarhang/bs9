@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 
@@ -32,16 +32,21 @@ try {
 
   const packageBin = resolve(installDir, "node_modules", "bs9", "bin", "bs9");
   if (!existsSync(packageBin)) throw new Error(`Packaged bin entry is missing: ${packageBin}`);
+  const packageEnv = {
+    BS9_HOME: bs9Home,
+    PATH: `${resolve(installDir, "node_modules", ".bin")}${delimiter}${process.env.PATH || ""}`,
+  };
 
-  run(process.execPath, [packageBin, "-V"], { cwd: installDir, env: { BS9_HOME: bs9Home } });
-  run(process.execPath, [packageBin, "--help"], { cwd: installDir, env: { BS9_HOME: bs9Home } });
-  run(process.execPath, [packageBin, "doctor"], { cwd: installDir, env: { BS9_HOME: bs9Home } });
+  run(process.execPath, [packageBin, "-V"], { cwd: installDir, env: packageEnv });
+  run(process.execPath, [packageBin, "--help"], { cwd: installDir, env: packageEnv });
+  run(process.execPath, [packageBin, "doctor"], { cwd: installDir, env: packageEnv });
 
   run("bun", ["test", "tests/e2e-native-ha-load.test.ts"], {
     env: {
       BS9_NATIVE_HA_E2E: "1",
       BS9_WINDOWS_BACKGROUND: "1",
       BS9_HOME: bs9Home,
+      PATH: packageEnv.PATH,
       BS9_TEST_BIN_PATH: packageBin,
       BS9_HA_CONCURRENCY: process.env.BS9_HA_CONCURRENCY || "25",
       BS9_HA_SOAK_SECONDS: process.env.BS9_HA_SOAK_SECONDS || "10",

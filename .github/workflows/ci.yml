@@ -175,16 +175,16 @@ jobs:
             prepare: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y bash curl unzip ca-certificates git
           - name: CentOS Stream 9
             image: quay.io/centos/centos:stream9
-            prepare: dnf install -y bash curl unzip ca-certificates git findutils
+            prepare: dnf install -y bash unzip ca-certificates git findutils
           - name: Red Hat UBI 9
             image: registry.access.redhat.com/ubi9/ubi:latest
-            prepare: dnf install -y bash curl unzip ca-certificates git findutils
+            prepare: dnf install -y bash unzip ca-certificates git findutils
           - name: Rocky Linux 9
             image: rockylinux:9
-            prepare: dnf install -y bash curl unzip ca-certificates git findutils
+            prepare: dnf install -y bash unzip ca-certificates git findutils
           - name: AlmaLinux 9
             image: almalinux:9
-            prepare: dnf install -y bash curl unzip ca-certificates git findutils
+            prepare: dnf install -y bash unzip ca-certificates git findutils
           - name: Fedora
             image: fedora:latest
             prepare: dnf install -y bash curl unzip ca-certificates git findutils
