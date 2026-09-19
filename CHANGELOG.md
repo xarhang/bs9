@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.14] - 2026-09-20
+
+### Added
+
+- **`bs9 web stop` / `bs9 web status` subcommands**:
+  - `bs9 web --detach` now saves the dashboard process PID to `~/.bs9/web.pid`.
+  - `bs9 web stop` (or `bs9 web --stop`) terminates the background web dashboard using `taskkill /T /F` on Windows and `SIGTERM` on POSIX; removes the PID file.
+  - `bs9 web status` (or `bs9 web --status`) reports whether the background dashboard is running, including PID and port.
+  - Auto-detects and cleans up stale PID files when the process is no longer alive.
+  - Windows console detachment via `FreeConsole` FFI when `BS9_DASHBOARD_DETACH=1` is set.
+
+### Testing
+
+- Added `tests/web-command.test.ts` with 13 unit tests covering port validation, PID file operations, process liveness, active process termination, and `webCommand` dispatch.
+
 ## [1.6.13] - 2026-09-20
 
 ### Fixed

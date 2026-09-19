@@ -19,8 +19,22 @@
 import { serve } from "bun";
 import { listServices, ServiceMetrics as UnifiedMetrics } from "../utils/service-discovery.js";
 import { spawn } from "node:child_process";
-import { resolve } from "node:path";
+import { resolve, join } from "node:path";
 import { randomBytes, timingSafeEqual, createHash } from "node:crypto";
+import { appendFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+
+
+// Detach from console on Windows if running in background
+if (process.platform === "win32" && process.env.BS9_DASHBOARD_DETACH) {
+  try {
+    const { dlopen, FFIType } = await import("bun:ffi");
+    const kernel32 = dlopen("kernel32.dll", {
+      FreeConsole: { args: [], returns: FFIType.bool },
+    });
+    kernel32.symbols.FreeConsole();
+  } catch {}
+}
 
 let generatedToken = "";
 if (!process.env.WEB_SESSION_TOKEN) {
@@ -556,6 +570,14 @@ export function startDashboardServer() {
   startPushLoop();
   console.log(`🌐 BS9 Dashboard → http://${HOST}:${PORT} (WebSocket live push enabled)`);
   if (SESSION_TOKEN) console.log(`🔑 Session authentication active`);
+
+  if (process.env.BS9_DASHBOARD_DETACH) {
+    try {
+      const pidFile = join(homedir(), '.bs9', 'web.pid');
+      writeFileSync(pidFile, JSON.stringify({ pid: process.pid, port: PORT, startedAt: Date.now() }), 'utf8');
+    } catch {}
+  }
+
   return server;
 }
 

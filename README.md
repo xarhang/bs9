@@ -1,7 +1,7 @@
 # BS9 (Bun Sentinel 9)
 
 [![License: AGPL v3+](https://img.shields.io/badge/License-AGPL_v3%2B-blue.svg)](https://www.gnu.org/licenses/agpl-3.0.html)
-[![Version](https://img.shields.io/badge/version-1.6.13-blue.svg)](https://github.com/xarhang/bs9)
+[![Version](https://img.shields.io/badge/version-1.6.14-blue.svg)](https://github.com/xarhang/bs9)
 [![Security](https://img.shields.io/badge/security-hardened-green.svg)](SECURITY.md)
 [![Tests](https://img.shields.io/badge/tests-2%2C358%20passing-brightgreen.svg)](https://github.com/xarhang/bs9/actions)
 [![Cross-Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](https://github.com/xarhang/bs9)
@@ -30,7 +30,7 @@ npm install -g bs9
 
 ```bash
 # Verified installer (installs Bun + BS9)
-curl -fsSLO https://github.com/xarhang/bs9/releases/download/v1.6.13/setup.sh
+curl -fsSLO https://github.com/xarhang/bs9/releases/download/v1.6.14/setup.sh
 sha256sum setup.sh && bash setup.sh
 
 # Or manual install from source
@@ -340,7 +340,9 @@ bs9 monit --refresh 5              # Custom refresh interval
 
 # Web-based dashboard
 bs9 web --port 8080               # Start web dashboard
-bs9 web --detach --port 8080       # Run in background
+bs9 web --detach --port 8080       # Run in background (saves PID to ~/.bs9/web.pid)
+bs9 web stop                       # Stop background dashboard
+bs9 web status                     # Show live/dead status of background dashboard
 
 # Advanced monitoring
 bs9 advanced --port 8090
@@ -490,6 +492,9 @@ webapp               failed/failed    ❌ FAIL    -         -          -        
 - **Metrics Charts**: CPU, Memory, Uptime graphs
 - **Historical Data**: View trends over time
 - **Alert Status**: Current alert configuration
+- **Background Mode**: `bs9 web --detach` runs dashboard in background, saving PID to `~/.bs9/web.pid`
+- **`bs9 web stop`**: Terminates the background dashboard (`taskkill /T /F` on Windows, `SIGTERM` on POSIX)
+- **`bs9 web status`**: Reports live/dead status of background dashboard including PID and port
 
 ---
 

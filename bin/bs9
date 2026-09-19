@@ -208,11 +208,13 @@ program
   .action(monitCommand);
 
 program
-  .command("web")
-  .description("Start web-based monitoring dashboard")
+  .command("web [action]")
+  .description("Start, stop, or check status of web-based monitoring dashboard")
   .option("-p, --port <port>", "Port for web dashboard", "8080")
   .option("-d, --detach", "Run in background")
-  .action(webCommand);
+  .option("--stop", "Stop background web dashboard")
+  .option("--status", "Check status of background web dashboard")
+  .action((action, options) => webCommand(action, options));
 
 program
   .command("alert")
