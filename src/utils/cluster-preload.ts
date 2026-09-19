@@ -18,7 +18,6 @@ import { initExpressSessionAdapter } from "../runtime/adapters/express-session.j
 // Active server references and in-flight tracking
 let activeServer: any = null;
 let inFlightRequests = 0;
-let isDraining = false;
 let lifecycleClient: LifecycleClient | null = null;
 
 const drainTimeoutMs = parseInt(process.env.BS9_DRAIN_TIMEOUT_MS || "10000", 10);
@@ -27,8 +26,6 @@ const drainTimeoutMs = parseInt(process.env.BS9_DRAIN_TIMEOUT_MS || "10000", 10)
  * Perform server drain: stop accepting new connections and await active requests.
  */
 async function performDrain(timeoutMs: number): Promise<{ inFlightRemaining: number }> {
-  isDraining = true;
-
   if (activeServer && typeof activeServer.stop === "function") {
     try {
       // server.stop(false) closes listener without violently dropping active connections
@@ -84,11 +81,9 @@ if (typeof Bun !== "undefined" && typeof Bun.serve === "function") {
       const originalFetch = options.fetch;
       if (typeof originalFetch === "function") {
         options.fetch = function (...args: any[]) {
-          if (isDraining) {
-            // Optional: return 503 if received during drain
-            return new Response("Service Draining", { status: 503, headers: { Connection: "close" } });
-          }
-
+          // performDrain closes the listener. Requests already accepted by the
+          // kernel must still complete normally; returning 503 here creates a
+          // visible outage during an otherwise replace-first rolling reload.
           inFlightRequests++;
           try {
             const result = originalFetch.apply(this, args);
