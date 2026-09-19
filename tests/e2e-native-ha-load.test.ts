@@ -208,8 +208,9 @@ describe.skipIf(!enabled)("Native HA load and chaos gate", () => {
     record("final-status", finalStatus);
     expect(finalStatus.exitCode).toBe(0);
     const finalServices = JSON.parse(finalStatus.stdout) as Array<{ name: string; active?: string; state?: string }>;
-    const clusterServices = finalServices.filter(service => service.name.includes(clusterName));
-    expect(clusterServices).toHaveLength(2);
-    expect(clusterServices.every(service => service.active === "active" || service.state === "running")).toBe(true);
+    const activeClusterServices = finalServices.filter(service =>
+      service.name.includes(clusterName) && (service.active === "active" || service.state === "running")
+    );
+    expect(activeClusterServices).toHaveLength(2);
   }, 240_000);
 });

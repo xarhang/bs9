@@ -42,6 +42,7 @@ export async function logsCommand(name?: string, options: LogsOptions = {}): Pro
 
   let targetName = name;
   const clean = name.replace(/^(BS9_|bs9\.)/, "");
+  let journalTargets: string[] = [];
 
   try {
     const allServices = await listServices();
@@ -52,6 +53,7 @@ export async function logsCommand(name?: string, options: LogsOptions = {}): Pro
 
     if (exact) {
       targetName = exact.name.replace(/^(BS9_|bs9\.)/, "");
+      journalTargets = [targetName];
     } else {
       // Logical slot match: e.g. "api-0" matching "api-0-g1", "api-0-g2"
       const slotWorkers = allServices.filter(s => {
@@ -62,6 +64,20 @@ export async function logsCommand(name?: string, options: LogsOptions = {}): Pro
         const active = slotWorkers.find(s => s.active === "active") ||
           slotWorkers.sort((a, b) => (b.generation || 0) - (a.generation || 0))[0];
         targetName = active.name.replace(/^(BS9_|bs9\.)/, "");
+        journalTargets = [targetName];
+      } else {
+        // A logical cluster name (for example "api") maps to physical units
+        // such as api-0-g2 and api-1-g3. Query every active generation so
+        // `bs9 logs api` reflects the whole live cluster on journald systems.
+        const escapedClean = clean.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const clusterWorkers = allServices.filter(s => {
+          const serviceName = s.name.replace(/^(BS9_|bs9\.)/, "");
+          return new RegExp(`^${escapedClean}-\\d+-g\\d+$`).test(serviceName) && s.active === "active";
+        });
+        if (clusterWorkers.length > 0) {
+          journalTargets = clusterWorkers.map(s => s.name.replace(/^(BS9_|bs9\.)/, ""));
+          targetName = journalTargets[0];
+        }
       }
     }
   } catch {}
@@ -70,13 +86,15 @@ export async function logsCommand(name?: string, options: LogsOptions = {}): Pro
   let fullName = targetName;
   if (platformInfo.isWindows && !targetName.startsWith('BS9_')) fullName = `BS9_${targetName}`;
   if (platformInfo.isMacOS && !targetName.startsWith('bs9.')) fullName = `bs9.${targetName}`;
+  if (journalTargets.length === 0) journalTargets = [targetName];
 
   const linesCount = options.lines ? Math.max(1, parseInt(options.lines, 10) || 50) : 50;
 
   try {
     if (platformInfo.isLinux) {
       try {
-        const args = ["--user", "--no-pager", "-n", String(linesCount), "-u", `${fullName}.service`];
+        const args = ["--user", "--no-pager", "-n", String(linesCount)];
+        for (const unit of journalTargets) args.push("-u", `${unit}.service`);
         if (options.follow) {
           args.push("-f");
           const child = spawn("journalctl", args, { stdio: "inherit" });
