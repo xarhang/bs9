@@ -97,6 +97,15 @@ export function getDefaultHubSocketPath(): string {
   return join(platformInfo.runtimeDir, "hub.sock");
 }
 
+export function isValidNamespace(namespace: string): boolean {
+  return typeof namespace === "string" &&
+    /^[a-zA-Z0-9._-]+$/.test(namespace) &&
+    namespace.length <= 128 &&
+    !namespace.includes("..") &&
+    !namespace.includes("/") &&
+    !namespace.includes("\\");
+}
+
 export class HubServer extends EventEmitter {
   private server: Server | null = null;
   private socketPath: string;
@@ -118,8 +127,8 @@ export class HubServer extends EventEmitter {
 
   constructor(options: HubServerOptions = {}) {
     super();
-    this.socketPath = options.socketPath || process.env.BS9_HUB_SOCKET || getDefaultHubSocketPath();
-    this.handshakeTimeoutMs = options.handshakeTimeoutMs || 5000;
+    this.socketPath = options.socketPath || getDefaultHubSocketPath();
+    this.handshakeTimeoutMs = options.handshakeTimeoutMs ?? 5000;
     this.allowAnonymous = options.allowAnonymous ?? false;
     this.autoRecover = options.autoRecover ?? true;
     this.defaultAuthToken = options.authToken || process.env.BS9_AUTH_TOKEN;
@@ -135,6 +144,10 @@ export class HubServer extends EventEmitter {
    * Registers or updates an auth token for a specific namespace.
    */
   public registerNamespaceToken(namespace: string, explicitToken?: string): { token: string; tokenFilePath: string } {
+    if (!isValidNamespace(namespace)) {
+      throw new Error(`Security: Invalid namespace identifier: ${namespace}`);
+    }
+
     const platformInfo = getPlatformInfo();
     const token = explicitToken || this.namespaceTokens.get(namespace) || generateToken();
     this.namespaceTokens.set(namespace, token);
@@ -157,6 +170,10 @@ export class HubServer extends EventEmitter {
    * Resolves token for a given namespace.
    */
   public getNamespaceToken(namespace: string): string | null {
+    if (!isValidNamespace(namespace)) {
+      return null;
+    }
+
     if (this.namespaceTokens.has(namespace)) {
       return this.namespaceTokens.get(namespace)!;
     }

@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.12] - 2026-09-20
+
+### Fixed
+
+- **CLI update command**:
+  - Corrected inverted version comparison logic in `bs9 update` that previously triggered downgrades to fallback versions when local versions were newer.
+  - Removed hardcoded `1.3.4` fallback version on registry fetch failures; the updater now safely reports registry connection errors instead of attempting destructive rollbacks.
+  - Added multi-tiered registry version lookup: direct HTTPS registry query with timeout, falling back to `bun pm view bs9 version`, and `npm view bs9 version`.
+  - Fixed Windows path resolution in `getCurrentVersion()` by using `fileURLToPath` rather than `new URL().pathname`.
+  - Saved backup manifests (`current-backup.json`) during updates to ensure `bs9 update --rollback` restores successfully.
+- **Security & Hardening**:
+  - Bound load balancer metrics and control endpoints to loopback connections or bearer token authentication.
+  - Sanitized namespace and cluster identifiers against directory traversal across Hub and Cluster controller.
+  - Implemented timing-safe comparisons and origins verification in the dashboard server.
+  - Parameterized and sanitized dynamic query statements across database pool integrations.
+- **TypeScript build**:
+  - Added explicit typing to HTTP load balancer server initializer to resolve circular inference errors.
+
+### Testing and Documentation
+
+- Added comprehensive test suite `tests/update.test.ts` validating SemVer parsing, version comparisons, and downgrade prevention.
+- Added regression tests in `tests/vulnerability-fixes.test.ts` covering load balancer, auth, path traversal, Windows service quoting, and SQL defense.
+- Updated documentation, installation scripts, and version metadata to v1.6.12.
+
 ## [1.6.11] - 2026-09-19
 
 ### Fixed

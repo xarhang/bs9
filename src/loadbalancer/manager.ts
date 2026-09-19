@@ -117,7 +117,7 @@ interface LoadBalancerStats {
   }>;
 }
 
-class LoadBalancer {
+export class LoadBalancer {
   private config: LoadBalancerConfig;
   private currentIndex = 0;
   private stats: LoadBalancerStats = {
@@ -250,7 +250,7 @@ class LoadBalancer {
     return backends[0];
   }
 
-  public async handleRequest(request: Request): Promise<Response> {
+  public async handleRequest(request: Request, clientIp = "127.0.0.1"): Promise<Response> {
     const backend = this.selectBackend();
 
     if (!backend) {
@@ -280,7 +280,7 @@ class LoadBalancer {
       const url = new URL(request.url);
       const backendUrl = `http://${backend.host}:${backend.port}${url.pathname}${url.search}`;
 
-      const outboundHeaders = buildOutboundHeaders(request.headers, backend);
+      const outboundHeaders = buildOutboundHeaders(request.headers, backend, clientIp);
 
       const response = await fetch(backendUrl, {
         method: request.method,
@@ -335,6 +335,37 @@ class LoadBalancer {
   }
 
   public updateConfig(newConfig: Partial<LoadBalancerConfig>): void {
+    if (newConfig.port !== undefined && !isValidPort(newConfig.port)) {
+      throw new Error(`❌ Security: Invalid load balancer port: ${newConfig.port}`);
+    }
+
+    if (newConfig.healthCheck?.path !== undefined && !isValidPath(newConfig.healthCheck.path)) {
+      throw new Error(`❌ Security: Invalid health check path: ${newConfig.healthCheck.path}`);
+    }
+
+    if (newConfig.backends !== undefined) {
+      if (!Array.isArray(newConfig.backends) || newConfig.backends.length === 0) {
+        throw new Error(`❌ Security: At least one backend is required`);
+      }
+      for (const backend of newConfig.backends) {
+        if (!isValidHost(backend.host)) {
+          throw new Error(`❌ Security: Invalid backend host: ${backend.host}`);
+        }
+
+        if (!isValidPort(backend.port)) {
+          throw new Error(`❌ Security: Invalid backend port: ${backend.port}`);
+        }
+
+        if (!/^[a-zA-Z0-9._:-]+$/.test(backend.id) || backend.id.length > 64) {
+          throw new Error(`❌ Security: Invalid backend ID: ${backend.id}`);
+        }
+      }
+    }
+
+    if (newConfig.algorithm !== undefined && !['round-robin', 'least-connections', 'weighted-round-robin'].includes(newConfig.algorithm)) {
+      throw new Error(`❌ Security: Invalid load balancing algorithm: ${newConfig.algorithm}`);
+    }
+
     this.config = { ...this.config, ...newConfig };
 
     // Update backend stats if backends changed
@@ -394,15 +425,19 @@ async function startLoadBalancer(options?: any): Promise<void> {
   }
 
   // Start load balancer server
-  const server = serve({
+  const server: any = serve({
     port: config.port,
-    fetch: async (request) => {
+    fetch: async (request: Request, srv: any): Promise<Response> => {
       const url = new URL(request.url);
-      // Security: Protect management API endpoints
-      const isLocalhost = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '::1';
+      // Security: Protect management API endpoints by verifying real connection IP, not spoofable Host header
+      const reqIp: any = srv?.requestIP ? srv.requestIP(request) : null;
+      const clientIp: string | undefined = reqIp?.address;
+      const isLoopback = clientIp
+        ? (clientIp === '127.0.0.1' || clientIp === '::1' || clientIp === '::ffff:127.0.0.1')
+        : (url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '::1');
       const authHeader = request.headers.get('Authorization');
       const lbSecret = process.env.LB_ADMIN_SECRET || '';
-      const isAuthorized = isLocalhost || (Boolean(lbSecret) && authHeader === `Bearer ${lbSecret}`);
+      const isAuthorized = isLoopback || (Boolean(lbSecret) && authHeader === `Bearer ${lbSecret}`);
 
       if (url.pathname === '/lb-stats') {
         if (!isAuthorized) {
@@ -437,7 +472,7 @@ async function startLoadBalancer(options?: any): Promise<void> {
       }
 
       // Forward all other requests
-      return loadBalancer.handleRequest(request);
+      return loadBalancer.handleRequest(request, clientIp || '127.0.0.1');
     },
   });
 

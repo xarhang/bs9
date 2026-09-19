@@ -367,7 +367,7 @@ export class WindowsServiceManager {
     return existsSync(path) ? JSON.parse(readFileSync(path, 'utf-8')) : null;
   }
 
-  private generateServiceScript(config: WindowsServiceConfig): string {
+  public generateServiceScript(config: WindowsServiceConfig): string {
     const escapePsString = (str: string) => str.replace(/`/g, '``').replace(/"/g, '`"').replace(/\$/g, '`$');
     const envVars = Object.entries(config.environment || {})
       .map(([key, value]) => {
@@ -376,8 +376,9 @@ export class WindowsServiceManager {
       })
       .filter(Boolean)
       .join('\n');
+    const quotedExe = `\\"${escapePsString(config.executable)}\\"`;
     const args = (config.arguments || []).map(arg => `\\"${escapePsString(arg)}\\"`).join(' ');
-    const binPath = `${config.executable} ${args}`.trim();
+    const binPath = (args.length > 0 ? `${quotedExe} ${args}` : quotedExe).trim();
     return `${envVars}\nNew-Service -Name "${escapePsString(config.name)}" -DisplayName "${escapePsString(config.displayName || config.name)}" -BinaryPathName "${binPath}" -StartupType Automatic\n`;
   }
 }

@@ -30,26 +30,37 @@ function isValidUsername(username: string): boolean {
   return /^[a-zA-Z0-9_-]+$/.test(username) && username.length <= 32;
 }
 
-function sanitizeSQL(sql: string): string {
-  // Basic SQL injection prevention
+export function sanitizeSQL(sql: string): string {
+  if (typeof sql !== "string") {
+    throw new Error(`❌ Security: Dangerous SQL pattern detected`);
+  }
+
+  // Basic SQL injection and destructive command prevention
   const dangerousPatterns = [
     /drop\s+table/i,
+    /drop\s+database/i,
     /delete\s+from/i,
     /truncate\s+table/i,
+    /alter\s+table/i,
     /exec\s*\(/i,
+    /execute\s*\(/i,
     /xp_cmdshell/i,
     /sp_executesql/i,
     /union\s+select/i,
+    /union\s+all\s+select/i,
     /insert\s+into/i,
-    /update\s+set/i
+    /update\s+set/i,
+    /grant\s+all/i,
+    /revoke\s+all/i,
+    /;\s*shutdown/i,
   ];
-  
+
   for (const pattern of dangerousPatterns) {
     if (pattern.test(sql)) {
       throw new Error(`❌ Security: Dangerous SQL pattern detected`);
     }
   }
-  
+
   return sql.trim();
 }
 

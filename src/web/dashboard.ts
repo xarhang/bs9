@@ -20,8 +20,16 @@ import { serve } from "bun";
 import { listServices, ServiceMetrics as UnifiedMetrics } from "../utils/service-discovery.js";
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
+import { randomBytes, timingSafeEqual, createHash } from "node:crypto";
 
-const SESSION_TOKEN = process.env.WEB_SESSION_TOKEN || "";
+let generatedToken = "";
+if (!process.env.WEB_SESSION_TOKEN) {
+  generatedToken = randomBytes(32).toString("hex");
+  if (import.meta.main) {
+    console.log(`🔑 Generated secure session token: ${generatedToken}`);
+  }
+}
+const SESSION_TOKEN = process.env.WEB_SESSION_TOKEN || generatedToken;
 const PORT = Number(process.env.WEB_DASHBOARD_PORT) || 8080;
 const HOST = process.env.WEB_DASHBOARD_HOST || "127.0.0.1";
 
@@ -48,10 +56,15 @@ const getMetrics = async (): Promise<UnifiedMetrics[]> => {
         const portMatch = service.description.match(/port[=:]?\s*(\d+)/i);
         const port = portMatch?.[1];
         if (port) {
-          try {
-            const h = await fetch(`http://localhost:${port}/healthz`, { signal: AbortSignal.timeout(1000) });
-            service.health = h.status === 200 ? "healthy" : "unhealthy";
-          } catch { service.health = "unhealthy"; }
+          const portNum = Number(port);
+          if (portNum >= 1024 && portNum <= 65535) {
+            try {
+              const h = await fetch(`http://127.0.0.1:${portNum}/healthz`, { signal: AbortSignal.timeout(1000) });
+              service.health = h.status === 200 ? "healthy" : "unhealthy";
+            } catch { service.health = "unhealthy"; }
+          } else {
+            service.health = "restricted_port";
+          }
         } else {
           service.health = "no_port";
         }
@@ -112,19 +125,58 @@ function parseCookies(cookieHeader: string | null): Record<string, string> {
   return cookies;
 }
 
-const isAuthorized = (req: Request): boolean => {
-  if (!SESSION_TOKEN) return true; // No token configured = open
+export function escapeHtml(str: unknown): string {
+  if (str === null || str === undefined) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+export function isOriginAllowed(originHeader: string | null, hostHeader: string | null): boolean {
+  if (!originHeader) return true;
+  try {
+    const originUrl = new URL(originHeader);
+    const host = hostHeader || "";
+    const hostName = host.split(":")[0];
+    return (
+      originUrl.host === host ||
+      originUrl.hostname === hostName ||
+      originUrl.hostname === "localhost" ||
+      originUrl.hostname === "127.0.0.1" ||
+      originUrl.hostname === "::1"
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function safeCompare(a: string, b: string): boolean {
+  if (typeof a !== "string" || typeof b !== "string") return false;
+  const hashA = createHash("sha256").update(a).digest();
+  const hashB = createHash("sha256").update(b).digest();
+  return timingSafeEqual(hashA, hashB);
+}
+
+export const isAuthorized = (req: Request): boolean => {
+  if (!SESSION_TOKEN) return false; // Fail closed if empty
   const authHeader = req.headers.get("Authorization");
   if (authHeader?.startsWith("Bearer ")) {
-    return authHeader.slice(7) === SESSION_TOKEN;
+    return safeCompare(authHeader.slice(7), SESSION_TOKEN);
   }
   const cookies = parseCookies(req.headers.get("Cookie"));
-  if (cookies["bs9_session"] === SESSION_TOKEN) {
+  if (cookies["bs9_session"] && safeCompare(cookies["bs9_session"], SESSION_TOKEN)) {
     return true;
   }
   // Allow token as query param for WebSocket handshake
   const url = new URL(req.url);
-  return url.searchParams.get("token") === SESSION_TOKEN;
+  const queryToken = url.searchParams.get("token");
+  if (queryToken && safeCompare(queryToken, SESSION_TOKEN)) {
+    return true;
+  }
+  return false;
 };
 
 // --- WebSocket push loop ---
@@ -300,33 +352,53 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
 const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws';
 let ws;
 
+function escapeHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function healthBadge(h) {
+  const safeH = escapeHtml(h);
   if (h === 'healthy')   return '<span class="badge badge-green">Healthy</span>';
   if (h === 'unhealthy') return '<span class="badge badge-red">Unhealthy</span>';
-  return '<span class="badge badge-yellow">' + h + '</span>';
+  return '<span class="badge badge-yellow">' + safeH + '</span>';
 }
 
 function render(data) {
-  document.getElementById('last-update').innerHTML = '<span class="ws-dot" id="ws-dot"></span>' + data.lastUpdate;
+  document.getElementById('last-update').innerHTML = '<span class="ws-dot" id="ws-dot"></span>' + escapeHtml(data.lastUpdate);
   document.getElementById('stats').innerHTML = 
-    '<div class="card"><div class="card-val">' + data.total + '</div><div class="card-lbl">Total Services</div></div>' +
-    '<div class="card"><div class="card-val">' + data.running + '</div><div class="card-lbl">Running</div></div>' +
-    '<div class="card"><div class="card-val">' + data.totalMemory + '</div><div class="card-lbl">Total Memory</div></div>';
-  document.getElementById('tbody').innerHTML = data.services.map(s => 
-    '<tr>' +
-      '<td><strong>' + s.name + '</strong></td>' +
-      '<td>' + s.state + '</td>' +
+    '<div class="card"><div class="card-val">' + escapeHtml(data.total) + '</div><div class="card-lbl">Total Services</div></div>' +
+    '<div class="card"><div class="card-val">' + escapeHtml(data.running) + '</div><div class="card-lbl">Running</div></div>' +
+    '<div class="card"><div class="card-val">' + escapeHtml(data.totalMemory) + '</div><div class="card-lbl">Total Memory</div></div>';
+  document.getElementById('tbody').innerHTML = data.services.map(s => {
+    const safeName = escapeHtml(s.name);
+    return '<tr>' +
+      '<td><strong>' + safeName + '</strong></td>' +
+      '<td>' + escapeHtml(s.state) + '</td>' +
       '<td>' + healthBadge(s.health) + '</td>' +
-      '<td>' + s.cpu + '</td>' +
-      '<td>' + s.memory + '</td>' +
-      '<td>' + s.uptime + '</td>' +
+      '<td>' + escapeHtml(s.cpu) + '</td>' +
+      '<td>' + escapeHtml(s.memory) + '</td>' +
+      '<td>' + escapeHtml(s.uptime) + '</td>' +
       '<td>' +
-        '<button class="btn btn-restart" onclick="action(\\'' + s.name + '\\',\\'restart\\')">↺ Restart</button> ' +
-        '<button class="btn btn-stop"    onclick="action(\\'' + s.name + '\\',\\'stop\\')">■ Stop</button>' +
+        '<button class="btn btn-restart" data-name="' + safeName + '" data-cmd="restart">↺ Restart</button> ' +
+        '<button class="btn btn-stop"    data-name="' + safeName + '" data-cmd="stop">■ Stop</button>' +
       '</td>' +
-    '</tr>'
-  ).join('');
+    '</tr>';
+  }).join('');
 }
+
+document.getElementById('tbody').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-name]');
+  if (!btn) return;
+  const name = btn.getAttribute('data-name');
+  const cmd = btn.getAttribute('data-cmd');
+  if (name && cmd) action(name, cmd);
+});
 
 async function action(name, cmd) {
   if (!confirm(cmd + ' \\'' + name + '\\'?')) return;
@@ -353,17 +425,18 @@ connect();
 </body>
 </html>`;
 
-serve({
-  hostname: HOST,
-  port: PORT,
-  async fetch(req, server) {
-    const url = new URL(req.url);
+export function startDashboardServer() {
+  const server = serve({
+    hostname: HOST,
+    port: PORT,
+    async fetch(req, server) {
+      const url = new URL(req.url);
 
     // --- Authentication: Login ---
     if (url.pathname === "/api/login" && req.method === "POST") {
       try {
         const body = await req.json() as { token?: string };
-        if (SESSION_TOKEN && body.token === SESSION_TOKEN) {
+        if (body.token && safeCompare(body.token, SESSION_TOKEN)) {
           const isHttps = url.protocol === "https:";
           const cookieVal = `bs9_session=${encodeURIComponent(SESSION_TOKEN)}; HttpOnly; SameSite=Strict; Path=/${isHttps ? "; Secure" : ""}; Max-Age=86400`;
           return new Response(JSON.stringify({ ok: true }), {
@@ -394,6 +467,11 @@ serve({
 
     // --- WebSocket upgrade ---
     if (url.pathname === "/ws") {
+      const origin = req.headers.get("origin");
+      const host = req.headers.get("host");
+      if (origin && !isOriginAllowed(origin, host)) {
+        return new Response("Forbidden: Cross-origin WebSocket connection denied", { status: 403 });
+      }
       if (!isAuthorized(req)) return new Response("Unauthorized", { status: 401 });
       const upgraded = server.upgrade(req);
       if (upgraded) return undefined;
@@ -475,6 +553,12 @@ serve({
   },
 });
 
-startPushLoop();
-console.log(`🌐 BS9 Dashboard → http://${HOST}:${PORT} (WebSocket live push enabled)`);
-if (SESSION_TOKEN) console.log(`🔑 Session authentication active`);
+  startPushLoop();
+  console.log(`🌐 BS9 Dashboard → http://${HOST}:${PORT} (WebSocket live push enabled)`);
+  if (SESSION_TOKEN) console.log(`🔑 Session authentication active`);
+  return server;
+}
+
+if (import.meta.main) {
+  startDashboardServer();
+}

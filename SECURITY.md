@@ -263,5 +263,5 @@ BS9 tracks security metrics:
 - [Changelog](https://github.com/xarhang/bs9/blob/main/CHANGELOG.md)
 
 **Last Updated**: September 10, 2026
-**Security Version**: 1.6.11
+**Security Version**: 1.6.12
 **Next Review**: December 10, 2026

@@ -88,6 +88,15 @@ export interface ControllerOptions {
   adminToken?: string;
 }
 
+export function isValidClusterName(clusterName: string): boolean {
+  return typeof clusterName === "string" &&
+    /^[a-zA-Z0-9._-]+$/.test(clusterName) &&
+    clusterName.length <= 128 &&
+    !clusterName.includes("..") &&
+    !clusterName.includes("/") &&
+    !clusterName.includes("\\");
+}
+
 export class ClusterController extends EventEmitter {
   private server: Server | null = null;
   private socketPath: string;
@@ -184,6 +193,10 @@ export class ClusterController extends EventEmitter {
    * Registers or generates an auth token for a cluster and persists it to disk.
    */
   public registerClusterToken(clusterName: string, explicitToken?: string): { token: string; tokenFilePath: string } {
+    if (!isValidClusterName(clusterName)) {
+      throw new Error(`Security: Invalid cluster name identifier: ${clusterName}`);
+    }
+
     const platformInfo = getPlatformInfo();
     const tokensDir = join(platformInfo.runtimeDir, "tokens");
     if (!existsSync(tokensDir)) {
@@ -226,6 +239,10 @@ export class ClusterController extends EventEmitter {
    * Reads or retrieves the token for a cluster.
    */
   public getClusterToken(clusterName: string): string | null {
+    if (!isValidClusterName(clusterName)) {
+      return null;
+    }
+
     if (this.clusterTokens.has(clusterName)) {
       return this.clusterTokens.get(clusterName)!;
     }
