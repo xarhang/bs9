@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, rmSync, writeFileSync, appendFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync, appendFileSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { getPlatformInfo } from "../src/platform/detect.js";
 import { hasUsableUserSystemd, removeSandboxSystemdLinks } from "./helpers/systemd.js";
@@ -14,7 +14,9 @@ describe.skipIf(!enabled)("Native HA load and chaos gate", () => {
   const clusterName = `bs9-ci-ha-${testId}`;
   const port = 54000 + Math.floor(Math.random() * 900);
   const appFile = join(fixtureDir, "app.ts");
-  const binPath = resolve(process.cwd(), "bin", "bs9");
+  // CI's packaged qualification points this at the bin entry extracted from
+  // the npm tarball. Normal native tests continue to exercise the checkout.
+  const binPath = process.env.BS9_TEST_BIN_PATH || resolve(process.cwd(), "bin", "bs9");
   const reportDir = resolve(process.cwd(), "test-results", "native-ha");
   const reportPath = join(reportDir, `${process.platform}.log`);
   const platformInfo = getPlatformInfo();
@@ -101,6 +103,7 @@ describe.skipIf(!enabled)("Native HA load and chaos gate", () => {
         hostname: process.env.HOST || "127.0.0.1",
         reusePort: process.env.BS9_REUSE_PORT === "true",
         fetch() {
+          console.log(JSON.stringify({ event: "request", pid: process.pid, at: Date.now() }));
           return Response.json({
             ok: true,
             pid: process.pid,
@@ -169,5 +172,39 @@ describe.skipIf(!enabled)("Native HA load and chaos gate", () => {
     expect(scaleDown.exitCode, `${scaleDown.stdout}\n${scaleDown.stderr}`).toBe(0);
     await waitForWorkerCount(2);
     expect((await fetchWithRetry()).status).toBe(200);
+
+    // Exercise real log files created by native workers, including growth,
+    // discovery through the CLI, truncation, and post-flush recovery.
+    for (let i = 0; i < 100; i++) {
+      const response = await fetch(`http://127.0.0.1:${port}/`);
+      expect(response.status).toBe(200);
+    }
+    await Bun.sleep(500);
+    const logsBeforeFlush = await runCli(["logs", clusterName, "--lines", "20"], 30_000);
+    record("logs-before-flush", logsBeforeFlush);
+    expect(logsBeforeFlush.exitCode, `${logsBeforeFlush.stdout}\n${logsBeforeFlush.stderr}`).toBe(0);
+    const clusterLogFiles = readdirSync(platformInfo.logDir)
+      .filter(file => file.includes(clusterName) && file.endsWith(".out.log"));
+    expect(clusterLogFiles.length).toBeGreaterThanOrEqual(2);
+    const combinedWorkerLogs = clusterLogFiles
+      .map(file => readFileSync(join(platformInfo.logDir, file), "utf8"))
+      .join("\n");
+    expect(combinedWorkerLogs).toContain('"event":"request"');
+    expect(clusterLogFiles.some(file => statSync(join(platformInfo.logDir, file)).size > 0)).toBe(true);
+
+    const flush = await runCli(["flush", clusterName], 30_000);
+    record("flush", flush);
+    expect(flush.exitCode, `${flush.stdout}\n${flush.stderr}`).toBe(0);
+    expect((await fetchWithRetry()).status).toBe(200);
+
+    // The process manager must remain responsive after every destructive
+    // lifecycle transition and expose exactly the requested worker count.
+    const finalStatus = await runCli(["status", clusterName, "--raw"], 30_000);
+    record("final-status", finalStatus);
+    expect(finalStatus.exitCode).toBe(0);
+    const finalServices = JSON.parse(finalStatus.stdout) as Array<{ name: string; active?: string; state?: string }>;
+    const clusterServices = finalServices.filter(service => service.name.includes(clusterName));
+    expect(clusterServices).toHaveLength(2);
+    expect(clusterServices.every(service => service.active === "active" || service.state === "running")).toBe(true);
   }, 240_000);
 });

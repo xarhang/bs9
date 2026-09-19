@@ -113,10 +113,111 @@ jobs:
       if: always()
       run: bun scripts/cleanup-native-e2e.ts
 
+  packaged-qualification:
+    name: Packaged production qualification (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, windows-2022, windows-2025, macos-14, macos-15, macos-26]
+    env:
+      BS9_WINDOWS_BACKGROUND: "1"
+      BS9_HA_CONCURRENCY: "25"
+      BS9_HA_SOAK_SECONDS: "10"
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v1
+      with:
+        bun-version: latest
+
+    - name: Install dependencies
+      run: bun install --frozen-lockfile
+
+    - name: Pack, install, and qualify the npm artifact
+      run: bun run test:package
+
+    - name: Upload packaged qualification reports
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: packaged-qualification-${{ matrix.os }}
+        path: test-results/native-ha/
+        if-no-files-found: warn
+
+    - name: Clean up native qualification services
+      if: always()
+      run: bun scripts/cleanup-native-e2e.ts
+
+  linux-distro-compatibility:
+    name: Linux distro (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ubuntu 22.04
+            image: ubuntu:22.04
+            prepare: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y bash curl unzip ca-certificates git
+          - name: Ubuntu 24.04
+            image: ubuntu:24.04
+            prepare: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y bash curl unzip ca-certificates git
+          - name: Debian 12
+            image: debian:12
+            prepare: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y bash curl unzip ca-certificates git
+          - name: Debian 13
+            image: debian:13
+            prepare: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y bash curl unzip ca-certificates git
+          - name: CentOS Stream 9
+            image: quay.io/centos/centos:stream9
+            prepare: dnf install -y bash curl unzip ca-certificates git findutils
+          - name: Red Hat UBI 9
+            image: registry.access.redhat.com/ubi9/ubi:latest
+            prepare: dnf install -y bash curl unzip ca-certificates git findutils
+          - name: Rocky Linux 9
+            image: rockylinux:9
+            prepare: dnf install -y bash curl unzip ca-certificates git findutils
+          - name: AlmaLinux 9
+            image: almalinux:9
+            prepare: dnf install -y bash curl unzip ca-certificates git findutils
+          - name: Fedora
+            image: fedora:latest
+            prepare: dnf install -y bash curl unzip ca-certificates git findutils
+          - name: openSUSE Leap 15.6
+            image: opensuse/leap:15.6
+            prepare: zypper --non-interactive install bash curl unzip ca-certificates git findutils
+          - name: Arch Linux
+            image: archlinux:latest
+            prepare: pacman -Syu --noconfirm bash curl unzip ca-certificates git findutils
+          - name: Alpine Linux 3.21
+            image: alpine:3.21
+            prepare: apk add --no-cache bash curl unzip ca-certificates git findutils libstdc++
+          - name: Linux Mint 21.3
+            image: linuxmintd/mint21.3-amd64:latest
+            prepare: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y bash curl unzip ca-certificates git
+    env:
+      DISTRO_IMAGE: ${{ matrix.image }}
+      DISTRO_PREPARE: ${{ matrix.prepare }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    - name: Run qualification inside distribution image
+      shell: bash
+      run: |
+        docker run --rm \
+          -v "$GITHUB_WORKSPACE:/src:ro" \
+          "$DISTRO_IMAGE" \
+          sh -lc "$DISTRO_PREPARE && cp -R /src /work && cd /work && bash scripts/linux-distro-qualification.sh"
+
   release-gate:
     name: Cross-platform release gate
     runs-on: ubuntu-latest
-    needs: [test, native-lifecycle, native-ha-load]
+    needs: [test, native-lifecycle, native-ha-load, packaged-qualification, linux-distro-compatibility]
     steps:
     - name: Confirm all validation layers passed
       run: echo "All Linux, macOS, and Windows validation gates passed."
