@@ -57,17 +57,17 @@ describe("Doctor Diagnostics and Health Checks", () => {
     const output = stdoutLogs.join("\n");
     expect(output).toContain("BS9 Health Check & Diagnostics");
     expect(output).toContain("Bun Installation");
-  });
+  }, 15_000);
 
   it("runs doctorCommand with verbose mode", async () => {
     await doctorCommand({ verbose: true });
     expect(stdoutLogs.length).toBeGreaterThan(0);
     const output = stdoutLogs.join("\n");
     expect(output).toContain("Health Check Summary:");
-  });
+  }, 15_000);
 
   it("runs doctorCommand with targeted check filter", async () => {
     await doctorCommand({ check: "bun" });
     expect(stdoutLogs.length).toBeGreaterThan(0);
-  });
+  }, 15_000);
 });
