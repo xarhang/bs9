@@ -1,6 +1,6 @@
 {
   "name": "bs9",
-  "version": "1.6.10",
+  "version": "1.6.11",
   "description": "Self-healing process manager for Bun with zero-downtime clustering, real-time dashboards, TypeScript build support, and durable same-host state.",
   "type": "module",
   "main": "src/index.ts",

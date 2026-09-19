@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.11] - 2026-09-19
+
+### Fixed
+
+- **Zero-downtime draining**: Preserved requests already accepted by the kernel during rolling reload instead of returning transient 503 responses.
+- **Linux cluster logs**: Aggregated active worker journals when `bs9 logs <cluster>` targets a logical cluster name.
+- **Native crash recovery**: Added a supervisor reconnect grace window so launchd, systemd, or Windows service recovery cannot race the reconciler and create duplicate worker generations.
+- **Cross-platform CI stability**: Removed random native-test port collisions and allowed diagnostics enough time under cross-version CI load.
+
+### Testing and release qualification
+
+- Added 2,000 deterministic cross-platform contract cases and realistic log growth, rotation, truncation, WAL corruption, crash, reload, scaling, and recovery coverage.
+- Added black-box npm tarball qualification on GitHub-hosted Ubuntu 22.04/24.04/26.04, Windows Server 2022/2025, and macOS 14/15/26 runners.
+- Added container qualification for Debian, CentOS Stream, Red Hat UBI, Rocky Linux, AlmaLinux, Fedora, openSUSE, Arch Linux, Alpine Linux, and Linux Mint.
+- Verified 2,334 local tests with zero failures and a 35-job GitHub Actions release gate.
+
+### Installation
+
+- Simplified `setup.sh` to install the exact release from npm without cloning and building the repository first.
+- Updated README installation, version, and test qualification information for v1.6.11.
+
 ## [1.6.10] - 2026-09-19
 
 ### Fixed

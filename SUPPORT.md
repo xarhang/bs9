@@ -153,5 +153,5 @@ Other approaches you've thought about
 ---
 
 *Last Updated: September 17, 2026*
-*BS9 Version: 1.6.10*
+*BS9 Version: 1.6.11*
 *Maintained by: [@xarhang](https://github.com/xarhang)*

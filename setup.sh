@@ -7,6 +7,8 @@ set -euo pipefail
 
 echo "Installing BS9 (Bun Sentinel 9)..."
 
+BS9_VERSION="${BS9_VERSION:-1.6.11}"
+
 # 1. PATH Injection for current process
 export PATH="$HOME/.bun/bin:$PATH"
 
@@ -90,44 +92,14 @@ else
   echo "✅ Bun already installed: $(bun --version)"
 fi
 
-# Clone or download BS9 (only if bs9 not already installed)
-if ! command -v bs9 >/dev/null 2>&1; then
-  # Create temporary directory for BS9
-  TEMP_DIR=$(mktemp -d)
-  echo "📁 Working in: $TEMP_DIR"
-
-  # Clone or download BS9
-  if command -v git >/dev/null 2>&1; then
-    echo "📥 Cloning BS9 repository..."
-    git clone https://github.com/xarhang/bs9.git "$TEMP_DIR"
-  else
-    echo "📥 Downloading BS9..."
-    curl -L https://github.com/xarhang/bs9/archive/main.tar.gz | tar -xz -C "$TEMP_DIR" --strip-components=1
-  fi
-
-  cd "$TEMP_DIR"
-
-  # Install dependencies and build (only if installing from source)
-  if command -v bun >/dev/null 2>&1; then
-    echo "📦 Installing BS9 dependencies..."
-    bun install
-    
-    echo "🔨 Building BS9..."
-    bun run build
-  fi
-else
-  echo "✅ BS9 already installed, skipping download..."
-  TEMP_DIR=""
-fi
-
 # Install BS9 CLI
 echo "🔧 Installing BS9 CLI globally..."
 if command -v bun >/dev/null 2>&1; then
   echo "📦 Installing via bun (recommended)..."
-  bun add -g bs9@latest
+  bun add -g "bs9@$BS9_VERSION"
 elif command -v npm >/dev/null 2>&1; then
   echo "📦 Installing via npm..."
-  npm install -g bs9@latest
+  npm install -g "bs9@$BS9_VERSION"
 else
   echo "❌ Neither bun nor npm found. Please install one first."
   echo "    Install Bun: curl -fsSL https://bun.sh/install | bash"
@@ -137,7 +109,12 @@ fi
 
 # 2. UPDATED: Verify installation with fallback instructions
 if command -v bs9 >/dev/null 2>&1; then
-  echo "✅ BS9 installed successfully: $(bs9 --version 2>/dev/null || echo 'v1.6.10')"
+  INSTALLED_VERSION=$(bs9 --version 2>/dev/null)
+  if [[ "$INSTALLED_VERSION" != "$BS9_VERSION" ]]; then
+    echo "❌ Expected BS9 $BS9_VERSION but found $INSTALLED_VERSION"
+    exit 1
+  fi
+  echo "✅ BS9 installed successfully: $INSTALLED_VERSION"
 else
   # Detect Shell for the fix message
   SHELL_NAME=$(basename "$SHELL")
@@ -225,13 +202,6 @@ max_size = "10MB"
 EOF
 
 echo "✅ BS9 configuration created at $CONFIG_DIR/config.toml"
-
-# Cleanup
-if [[ -n "$TEMP_DIR" && -d "$TEMP_DIR" ]]; then
-  cd /
-  rm -rf "$TEMP_DIR"
-  echo "🧹 Cleaned up temporary files"
-fi
 
 echo ""
 echo "🎉 BS9 installation complete!"

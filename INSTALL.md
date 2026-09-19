@@ -6,7 +6,7 @@
 
 ```bash
 # Download pinned release installer
-curl -fsSLO https://github.com/xarhang/bs9/releases/download/v1.6.10/setup.sh
+curl -fsSLO https://github.com/xarhang/bs9/releases/download/v1.6.11/setup.sh
 
 # Verify checksum and inspect before execution
 sha256sum setup.sh   # on macOS: shasum -a 256 setup.sh
