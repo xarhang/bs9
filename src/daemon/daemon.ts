@@ -27,8 +27,9 @@ import { resolveRuntime } from "../utils/runtime-resolver.js";
 import { generateSystemdUnit, startUserSystemdUnit } from "../utils/systemd.js";
 import type { ClusterManifestData } from "../hub/protocol.js";
 
-// Detach completely from console on Windows so terminal closure does not terminate daemon
-if (process.platform === "win32") {
+async function detachWindowsConsole(): Promise<void> {
+  if (process.platform !== "win32") return;
+
   try {
     const { dlopen, FFIType } = await import("bun:ffi");
     const kernel32 = dlopen("kernel32.dll", {
@@ -214,6 +215,11 @@ export class Bs9Daemon {
 
 // Auto-run if executed as main script
 if (import.meta.main) {
+  // Only the standalone background daemon should detach. This module is also
+  // imported by the CLI, where detaching would hide all command output on
+  // interactive Windows consoles.
+  await detachWindowsConsole();
+
   const daemon = new Bs9Daemon();
 
   const handleSignal = async (signal: string) => {

@@ -124,7 +124,7 @@ fi
 echo "🔧 Installing BS9 CLI globally..."
 if command -v bun >/dev/null 2>&1; then
   echo "📦 Installing via bun (recommended)..."
-  bun add -g bs9
+  bun add -g bs9@latest
 elif command -v npm >/dev/null 2>&1; then
   echo "📦 Installing via npm..."
   npm install -g bs9@latest
@@ -137,7 +137,7 @@ fi
 
 # 2. UPDATED: Verify installation with fallback instructions
 if command -v bs9 >/dev/null 2>&1; then
-  echo "✅ BS9 installed successfully: $(bs9 --version 2>/dev/null || echo 'v1.6.9')"
+  echo "✅ BS9 installed successfully: $(bs9 --version 2>/dev/null || echo 'v1.6.10')"
 else
   # Detect Shell for the fix message
   SHELL_NAME=$(basename "$SHELL")

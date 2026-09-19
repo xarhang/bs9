@@ -1,7 +1,7 @@
 # BS9 (Bun Sentinel 9)
 
 [![License: AGPL v3+](https://img.shields.io/badge/License-AGPL_v3%2B-blue.svg)](https://www.gnu.org/licenses/agpl-3.0.html)
-[![Version](https://img.shields.io/badge/version-1.6.9-blue.svg)](https://github.com/xarhang/bs9)
+[![Version](https://img.shields.io/badge/version-1.6.10-blue.svg)](https://github.com/xarhang/bs9)
 [![Security](https://img.shields.io/badge/security-hardened-green.svg)](SECURITY.md)
 [![Tests](https://img.shields.io/badge/tests-328%20passing-brightgreen.svg)](https://github.com/xarhang/bs9/actions)
 [![Cross-Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](https://github.com/xarhang/bs9)
@@ -28,7 +28,7 @@ npm install -g bs9
 
 ```bash
 # Verified installer (installs Bun + BS9)
-curl -fsSLO https://github.com/xarhang/bs9/releases/download/v1.6.9/setup.sh
+curl -fsSLO https://github.com/xarhang/bs9/releases/download/v1.6.10/setup.sh
 sha256sum setup.sh && bash setup.sh
 
 # Or manual install from source

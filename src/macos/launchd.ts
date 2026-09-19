@@ -443,7 +443,7 @@ export async function launchdCommand(action: string, options: any): Promise<void
       case 'save':
         if (options.name) {
           const platformInfo = getPlatformInfo();
-          const plistFile = join(manager.launchAgentsDir, `${options.name}.plist`);
+          const plistFile = join(platformInfo.serviceDir, `${options.name}.plist`);
           if (existsSync(plistFile)) {
             const plistContent = readFileSync(plistFile, 'utf-8');
             const backupFile = join(platformInfo.backupDir, `${options.name}.plist`);
@@ -462,7 +462,7 @@ export async function launchdCommand(action: string, options: any): Promise<void
           const backupFile = join(platformInfo.backupDir, `${options.name}.plist`);
           if (existsSync(backupFile)) {
             const plistContent = readFileSync(backupFile, 'utf-8');
-            const plistFile = join(manager.launchAgentsDir, `${options.name}.plist`);
+            const plistFile = join(platformInfo.serviceDir, `${options.name}.plist`);
             writeFileSync(plistFile, plistContent);
             await manager.startService(options.name);
             console.log(`✅ Service '${options.name}' resurrected from backup`);

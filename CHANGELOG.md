@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.10] - 2026-09-19
+
+### Fixed
+
+- **Windows CLI output**: Prevented the daemon module from calling `FreeConsole()` when imported by the main CLI. Commands such as `bs9 -V`, `bs9 --help`, and `bs9 doctor` now remain attached to interactive Command Prompt and PowerShell sessions.
+- **Daemon isolation**: Restricted Windows console detachment to the standalone background daemon entrypoint, preserving daemon persistence without affecting normal CLI output.
+- **macOS type safety**: Fixed launchd save/resurrect path access so the release passes strict TypeScript checks.
+
+### Documentation and installation
+
+- Updated README, installation URLs, version metadata, and `setup.sh` for v1.6.10.
+- Made the Bun installer path explicitly install `bs9@latest`.
+
 ## [1.6.9] - 2026-09-18
 
 ### Fixed
