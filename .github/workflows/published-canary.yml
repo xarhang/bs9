@@ -1,0 +1,38 @@
+name: Published package canary
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: SemVer to verify (without v prefix)
+        required: true
+
+jobs:
+  npm-canary:
+    name: npm canary (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+      - name: Resolve release version
+        id: release
+        shell: bash
+        run: echo "version=${{ github.event.inputs.version || github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+      - name: Verify published package and CLI output
+        run: bun scripts/verify-published-canary.ts "${{ steps.release.outputs.version }}"
+
+  canary-gate:
+    name: Published canary gate
+    runs-on: ubuntu-latest
+    needs: npm-canary
+    steps:
+      - run: echo "Published package passed Linux, Windows, and macOS canaries."

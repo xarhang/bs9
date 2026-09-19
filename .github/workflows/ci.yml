@@ -18,6 +18,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
+        bun-version: ["1.4.1", latest]
     env:
       BS9_WINDOWS_BACKGROUND: "1"
 
@@ -28,7 +29,7 @@ jobs:
     - name: Setup Bun
       uses: oven-sh/setup-bun@v1
       with:
-        bun-version: latest
+        bun-version: ${{ matrix.bun-version }}
         
     - name: Install dependencies
       run: bun install
