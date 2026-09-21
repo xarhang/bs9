@@ -146,6 +146,8 @@ describe.skipIf(!enabled)("Native HA load and chaos gate", () => {
     expect((await fetchWithRetry()).status).toBe(200);
     await waitForWorkerCount(2);
 
+    const soakSeconds = parseInt(process.env.BS9_HA_SOAK_SECONDS || "5", 10);
+    const verifyTimeout = (soakSeconds + 60) * 1000; // soak duration + 60s buffer
     const verification = await runCli([
       "verify-ha", clusterName,
       "--live",
@@ -153,9 +155,9 @@ describe.skipIf(!enabled)("Native HA load and chaos gate", () => {
       "--concurrency", process.env.BS9_HA_CONCURRENCY || "20",
       "--ready-timeout", "20000",
       "--drain-timeout", "8000",
-      "--duration", process.env.BS9_HA_SOAK_SECONDS || "5",
+      "--duration", String(soakSeconds),
       "--json",
-    ], 120_000);
+    ], verifyTimeout);
     record("verify-live-ha", verification);
     expect(verification.exitCode, `${verification.stdout}\n${verification.stderr}`).toBe(0);
     expect(verification.stdout).toContain('"passed": true');
