@@ -7,7 +7,7 @@ set -euo pipefail
 
 echo "Installing BS9 (Bun Sentinel 9)..."
 
-BS9_VERSION="${BS9_VERSION:-1.6.14}"
+BS9_VERSION="${BS9_VERSION:-1.6.15}"
 
 # 1. PATH Injection for current process
 export PATH="$HOME/.bun/bin:$PATH"

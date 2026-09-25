@@ -214,5 +214,7 @@ describe.skipIf(!enabled)("Native HA load and chaos gate", () => {
       service.name.includes(clusterName) && (service.active === "active" || service.state === "running")
     );
     expect(activeClusterServices).toHaveLength(2);
-  }, 240_000);
+  // The scheduled CI soak is five minutes; leave room for setup, verification,
+  // lifecycle checks, and cleanup inside the test's overall deadline.
+  }, 480_000);
 });
