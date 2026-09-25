@@ -147,7 +147,9 @@ describe.skipIf(!enabled)("Native HA load and chaos gate", () => {
     await waitForWorkerCount(2);
 
     const soakSeconds = parseInt(process.env.BS9_HA_SOAK_SECONDS || "5", 10);
-    const verifyTimeout = (soakSeconds + 60) * 1000; // soak duration + 60s buffer
+    // verify-ha also performs a rolling reload and worker recovery around the
+    // soak; allow three minutes beyond the requested traffic duration.
+    const verifyTimeout = (soakSeconds + 180) * 1000;
     const verification = await runCli([
       "verify-ha", clusterName,
       "--live",
@@ -214,7 +216,7 @@ describe.skipIf(!enabled)("Native HA load and chaos gate", () => {
       service.name.includes(clusterName) && (service.active === "active" || service.state === "running")
     );
     expect(activeClusterServices).toHaveLength(2);
-  // The scheduled CI soak is five minutes; leave room for setup, verification,
-  // lifecycle checks, and cleanup inside the test's overall deadline.
-  }, 480_000);
+  // The five-minute soak and verify-ha recovery work need room for setup and
+  // the post-verification lifecycle checks on slower hosted runners.
+  }, 600_000);
 });

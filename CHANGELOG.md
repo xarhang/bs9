@@ -9,7 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Increased the native HA test's overall timeout to accommodate the five-minute scheduled soak and its follow-up lifecycle checks.
+- Increased both the `verify-ha` subprocess timeout and the native HA test deadline to accommodate the five-minute soak, recovery work, and follow-up lifecycle checks.
+
+### Improved
+
+- Added a manual CI dispatch option to run either the quick native HA check or the full five-minute soak.
 
 ## [1.6.14] - 2026-09-20
 
