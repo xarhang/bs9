@@ -85,7 +85,7 @@ export class HubClient extends EventEmitter {
     this.socketPath = options.socketPath || process.env.BS9_HUB_SOCKET || getDefaultHubSocketPath();
     this.namespace = options.namespace || "default";
     this.authToken = options.authToken || process.env.BS9_AUTH_TOKEN || "";
-    this.requestTimeoutMs = options.requestTimeoutMs || 5000;
+    this.requestTimeoutMs = options.requestTimeoutMs ?? 15000;
     this.connectTimeoutMs = options.connectTimeoutMs || 5000;
   }
 

@@ -109,7 +109,7 @@ Bun.serve({
       while (sending) {
         const batch = Array.from({ length: 5 }, async () => {
           try {
-            const res = await fetch(`http://localhost:${testPort}`);
+            const res = await fetch(`http://127.0.0.1:${testPort}`);
             statuses.push(res.status);
             if (res.status === 200) {
               const body = await res.json();
@@ -191,7 +191,7 @@ Bun.serve({
     expect(controller.isSlotReady(clusterName, 1, 2)).toBe(true);
 
     // Verify HTTP requests still succeed
-    const res = await fetch(`http://localhost:${testPort}`);
+    const res = await fetch(`http://127.0.0.1:${testPort}`);
     expect(res.status).toBe(200);
   });
 

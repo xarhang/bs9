@@ -270,7 +270,7 @@ export class RuntimeBackend {
       socketPath,
       namespace,
       authToken,
-      requestTimeoutMs: this.config.requestTimeoutMs ?? 5000,
+      requestTimeoutMs: this.config.requestTimeoutMs ?? 15000,
       connectTimeoutMs: this.config.connectTimeoutMs ?? 1000,
     });
 
