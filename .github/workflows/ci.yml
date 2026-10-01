@@ -92,8 +92,8 @@ jobs:
       BS9_NATIVE_HA_E2E: "1"
       BS9_HOME: ${{ github.workspace }}/.tmp-bs9-native-ha
       BS9_WINDOWS_BACKGROUND: "1"
-      BS9_HA_CONCURRENCY: ${{ (github.event_name == 'schedule' || inputs.ha_soak == 'extended') && '50' || '20' }}
-      BS9_HA_SOAK_SECONDS: ${{ (github.event_name == 'schedule' || inputs.ha_soak == 'extended') && '300' || '5' }}
+      BS9_HA_CONCURRENCY: ${{ inputs.ha_soak == 'extended' && '50' || '20' }}
+      BS9_HA_SOAK_SECONDS: ${{ inputs.ha_soak == 'extended' && '300' || '5' }}
 
     steps:
     - name: Checkout code

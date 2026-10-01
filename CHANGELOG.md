@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Increased both the `verify-ha` subprocess timeout and the native HA test deadline to accommodate the five-minute soak, recovery work, and follow-up lifecycle checks.
+- Defaulted scheduled native HA runs to the quick check and kept the five-minute soak available through the manual extended dispatch option.
 - Raised the default State Hub request timeout to 15 seconds to tolerate slower CI and disk I/O conditions.
 - Used an explicit IPv4 loopback address in the graceful reload test to avoid platform-dependent `localhost` resolution.
 
