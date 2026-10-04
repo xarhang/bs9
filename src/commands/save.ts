@@ -11,8 +11,9 @@
 
 import { execSync } from "node:child_process";
 import { join, resolve } from "node:path";
-import { existsSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { getPlatformInfo, initializePlatformDirectories } from "../platform/detect.js";
+import { ensurePrivateDirectory, securePrivateFile, writePrivateFile } from "../utils/private-files.js";
 
 interface SaveOptions {
   all?: boolean;
@@ -64,6 +65,8 @@ export async function saveCommand(name: string, options: SaveOptions): Promise<v
         return;
       }
 
+      ensurePrivateDirectory(platformInfo.serviceDir);
+      securePrivateFile(serviceFile);
       // Read service configuration
       const serviceConfig = readFileSync(serviceFile, 'utf8');
 
@@ -86,7 +89,8 @@ export async function saveCommand(name: string, options: SaveOptions): Promise<v
         platform: platformInfo.platform
       };
 
-      writeFileSync(backupFile, JSON.stringify(backupData, null, 2));
+      ensurePrivateDirectory(platformInfo.backupDir);
+      writePrivateFile(backupFile, JSON.stringify(backupData, null, 2));
 
       console.log(`💾 Service '${name}' configuration saved to: ${backupFile}`);
 
@@ -94,7 +98,7 @@ export async function saveCommand(name: string, options: SaveOptions): Promise<v
         // Create additional backup with timestamp
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
         const timestampedBackup = join(platformInfo.backupDir, `${escapedName}-${timestamp}.json`);
-        writeFileSync(timestampedBackup, JSON.stringify(backupData, null, 2));
+        writePrivateFile(timestampedBackup, JSON.stringify(backupData, null, 2));
         console.log(`📦 Additional backup created: ${timestampedBackup}`);
       }
 
@@ -157,6 +161,8 @@ async function saveAllServices(platformInfo: any, options: SaveOptions): Promise
           const serviceFile = join(platformInfo.serviceDir, `${serviceName}.service`);
 
           if (existsSync(serviceFile)) {
+            ensurePrivateDirectory(platformInfo.serviceDir);
+            securePrivateFile(serviceFile);
             const serviceConfig = readFileSync(serviceFile, 'utf8');
             const statusOutput = execSync(`systemctl --user show "${serviceName}"`, { encoding: "utf-8", windowsHide: true });
             const config = parseServiceConfig(serviceConfig, statusOutput);
@@ -176,7 +182,8 @@ async function saveAllServices(platformInfo: any, options: SaveOptions): Promise
               platform: platformInfo.platform
             };
 
-            writeFileSync(backupFile, JSON.stringify(backupData, null, 2));
+            ensurePrivateDirectory(platformInfo.backupDir);
+            writePrivateFile(backupFile, JSON.stringify(backupData, null, 2));
             console.log(`  💾 Saved service: ${serviceName}`);
           }
         } catch (error) {

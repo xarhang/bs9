@@ -10,8 +10,9 @@
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { homedir } from "node:os";
+import { ensurePrivateDirectory, securePrivateFile, writePrivateFile } from "../utils/private-files.js";
 
 export function isValidWebhookUrl(rawUrl: string): boolean {
   try {
@@ -20,6 +21,10 @@ export function isValidWebhookUrl(rawUrl: string): boolean {
   } catch {
     return false;
   }
+}
+
+export function formatWebhookForDisplay(webhookUrl?: string): string {
+  return webhookUrl ? "[configured; value redacted]" : "[not configured]";
 }
 
 interface AlertConfig {
@@ -45,8 +50,8 @@ class AlertManager {
   private config: AlertConfig;
   private lastAlerts: Map<string, number> = new Map();
   
-  constructor() {
-    this.configPath = join(homedir(), ".config", "bs9", "alerts.json");
+  constructor(configPath = join(homedir(), ".config", "bs9", "alerts.json")) {
+    this.configPath = configPath;
     this.config = this.loadConfig();
   }
   
@@ -65,6 +70,8 @@ class AlertManager {
     
     if (existsSync(this.configPath)) {
       try {
+        this.secureConfigDirectory();
+        this.secureExistingConfig();
         const content = readFileSync(this.configPath, 'utf-8');
         const parsed = JSON.parse(content);
         // Deep merge: preserve defaultConfig nested objects when partial config is loaded
@@ -86,19 +93,39 @@ class AlertManager {
   
   private saveConfig(config: AlertConfig): void {
     try {
-      const configDir = join(homedir(), ".config", "bs9");
-      if (!existsSync(configDir)) {
-        mkdirSync(configDir, { recursive: true });
+      const configDir = dirname(this.configPath);
+      this.secureConfigDirectory();
+      if (process.platform === "linux" || process.platform === "darwin") {
+        writePrivateFile(this.configPath, JSON.stringify(config, null, 2));
+      } else {
+        // Preserve the existing Windows profile DACL and its inheritance.
+        mkdirSync(configDir, { recursive: true, mode: 0o700 });
+        writeFileSync(this.configPath, JSON.stringify(config, null, 2), { encoding: "utf-8", mode: 0o600 });
       }
-      writeFileSync(this.configPath, JSON.stringify(config, null, 2));
     } catch (error) {
       console.error('Failed to save alert config:', error);
+      throw error;
+    }
+  }
+
+  private secureConfigDirectory(): void {
+    const configDir = dirname(this.configPath);
+    if (process.platform === "linux" || process.platform === "darwin") {
+      ensurePrivateDirectory(configDir);
+    } else if (!existsSync(configDir)) {
+      mkdirSync(configDir, { recursive: true, mode: 0o700 });
+    }
+  }
+
+  private secureExistingConfig(): void {
+    if (existsSync(this.configPath) && (process.platform === "linux" || process.platform === "darwin")) {
+      securePrivateFile(this.configPath);
     }
   }
   
   updateConfig(updates: Partial<AlertConfig>): void {
     if (updates.webhookUrl !== undefined && updates.webhookUrl !== '' && !isValidWebhookUrl(updates.webhookUrl)) {
-      throw new Error(`Security: Invalid webhook URL: '${updates.webhookUrl}'. Only http and https protocols are allowed.`);
+      throw new Error("Security: Invalid webhook URL. Only http and https protocols are allowed.");
     }
     this.config = { ...this.config, ...updates };
     this.saveConfig(this.config);
@@ -188,8 +215,9 @@ class AlertManager {
         if (!response.ok) {
           console.error(`Failed to send webhook alert: ${response.statusText}`);
         }
-      } catch (error) {
-        console.error('Failed to send webhook alert:', error);
+      } catch {
+        // Fetch errors may embed the request URL, which carries the webhook token.
+        console.error('Failed to send webhook alert');
       }
     }
   }

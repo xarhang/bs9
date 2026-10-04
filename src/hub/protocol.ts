@@ -370,6 +370,7 @@ export interface AdminGetManifestResponsePayload {
 
 export interface AdminDeleteManifestPayload {
   clusterName: string;
+  lockToken?: string;
 }
 
 export interface AdminDeleteManifestResponsePayload {

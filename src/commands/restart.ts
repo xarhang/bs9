@@ -10,7 +10,10 @@
  */
 
 import { execSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { getPlatformInfo } from "../platform/detect.js";
+import { ensurePrivateDirectory, securePrivateFile } from "../utils/private-files.js";
 import { parseServiceArray, confirmAction, displayBatchResults } from "../utils/array-parser.js";
 
 interface RestartOptions {
@@ -81,6 +84,11 @@ async function handleSingleServiceRestart(name: string): Promise<void> {
   try {
     if (platformInfo.isLinux) {
       const escapedName = name.replace(/[^a-zA-Z0-9._-]/g, '');
+      const unitPath = join(platformInfo.serviceDir, `${escapedName}.service`);
+      if (existsSync(unitPath)) {
+        ensurePrivateDirectory(platformInfo.serviceDir);
+        securePrivateFile(unitPath);
+      }
       execSync(`systemctl --user restart "${escapedName}"`, { stdio: "inherit" });
       console.log(`🔄 User service '${name}' restarted`);
     } else if (platformInfo.isMacOS) {

@@ -204,7 +204,7 @@ describe("E2E CLI Lifecycle Integration (Isolated)", () => {
 
     // 6. Reload Cluster
     const reloadRes = await runCli(["reload", serviceName], 30000);
-    expect(reloadRes.exitCode).toBe(0);
+    expect(reloadRes.exitCode, `reload stdout:\n${reloadRes.stdout}\nreload stderr:\n${reloadRes.stderr}`).toBe(0);
 
     // Verify HTTP response is still 200 after reload
     const afterReloadRes = await fetchWithRetry(`http://localhost:${port}/version`);

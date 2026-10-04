@@ -9,11 +9,14 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { execSync, spawnSync } from "node:child_process";
-import { existsSync, writeFileSync, unlinkSync, mkdirSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync, unlinkSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { homedir, userInfo } from "node:os";
 import { getPlatformInfo } from "../platform/detect.js";
+import { ensurePrivateDirectory, writePrivateFile } from "../utils/private-files.js";
+import { formatSystemdExecStart } from "../utils/systemd.js";
+import { escapePlistXmlText } from "../macos/launchd.js";
 
 function getBs9BinaryInfo(): { execPath: string; scriptArgs: string[] } {
   const currentScript = process.argv[1] ? resolve(process.argv[1]) : "";
@@ -60,14 +63,41 @@ export async function startupCommand(): Promise<void> {
 
       // 2. Write systemd unit for resurrect
       const unitDir = join(homedir(), ".config", "systemd", "user");
-      if (!existsSync(unitDir)) mkdirSync(unitDir, { recursive: true });
+      ensurePrivateDirectory(unitDir);
 
-      const execStartLine = scriptArgs.length > 0
-        ? `${execPath} "${scriptArgs[0]}" resurrect --all`
-        : `${execPath} resurrect --all`;
+      const execStartLine = formatSystemdExecStart(execPath, [...scriptArgs, "resurrect", "--all"]);
 
       const unitPath = join(unitDir, "bs9-resurrect.service");
-      const unitContent = `[Unit]
+      const unitContent = generateResurrectSystemdUnit(execStartLine);
+
+      writePrivateFile(unitPath, unitContent);
+      execFileSync("systemctl", ["--user", "daemon-reload"], { stdio: "ignore" });
+      execFileSync("systemctl", ["--user", "enable", "bs9-resurrect.service"], { stdio: "ignore" });
+
+      console.log(`✅ Created and enabled systemd user service 'bs9-resurrect.service'.`);
+      console.log(`💡 Your BS9 services will automatically resurrect on system boot.`);
+    } catch (err: any) {
+      console.error(`❌ Failed to configure Linux startup: ${err.message}`);
+      throw err;
+    }
+  } else if (platformInfo.isMacOS) {
+    try {
+      const launchDir = join(homedir(), "Library", "LaunchAgents");
+      ensurePrivateDirectory(launchDir);
+
+      const plistPath = join(launchDir, "com.bs9.resurrect.plist");
+      const plistContent = generateResurrectLaunchdPlist(execPath, scriptArgs);
+      writePrivateFile(plistPath, plistContent);
+      spawnSync("launchctl", ["load", plistPath], { stdio: "ignore" });
+      console.log(`✅ Created and loaded macOS LaunchAgent: ${plistPath}`);
+    } catch (err: any) {
+      console.error(`❌ Failed to configure macOS startup: ${err.message}`);
+    }
+  }
+}
+
+export function generateResurrectSystemdUnit(execStartLine: string): string {
+  return `[Unit]
 Description=BS9 Process Manager Auto Resurrect
 After=network.target
 Documentation=https://github.com/xarhang/bs9
@@ -80,26 +110,14 @@ RemainAfterExit=yes
 [Install]
 WantedBy=default.target
 `;
-      writeFileSync(unitPath, unitContent);
-      execSync(`systemctl --user daemon-reload`, { stdio: "ignore" });
-      execSync(`systemctl --user enable bs9-resurrect.service`, { stdio: "ignore" });
+}
 
-      console.log(`✅ Created and enabled systemd user service 'bs9-resurrect.service'.`);
-      console.log(`💡 Your BS9 services will automatically resurrect on system boot.`);
-    } catch (err: any) {
-      console.error(`❌ Failed to configure Linux startup: ${err.message}`);
-    }
-  } else if (platformInfo.isMacOS) {
-    try {
-      const launchDir = join(homedir(), "Library", "LaunchAgents");
-      if (!existsSync(launchDir)) mkdirSync(launchDir, { recursive: true });
+export function generateResurrectLaunchdPlist(execPath: string, scriptArgs: string[]): string {
+  const programArgs = [execPath, ...scriptArgs, "resurrect", "--all"]
+    .map((arg) => `        <string>${escapePlistXmlText(arg)}</string>`)
+    .join("\n");
 
-      const programArgs = scriptArgs.length > 0
-        ? `<string>${execPath}</string>\n        <string>${scriptArgs[0]}</string>`
-        : `<string>${execPath}</string>`;
-
-      const plistPath = join(launchDir, "com.bs9.resurrect.plist");
-      const plistContent = `<?xml version="1.0" encoding="UTF-8"?>
+  return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -107,21 +125,12 @@ WantedBy=default.target
     <string>com.bs9.resurrect</string>
     <key>ProgramArguments</key>
     <array>
-        ${programArgs}
-        <string>resurrect</string>
-        <string>--all</string>
+${programArgs}
     </array>
     <key>RunAtLoad</key>
     <true/>
 </dict>
 </plist>`;
-      writeFileSync(plistPath, plistContent);
-      spawnSync("launchctl", ["load", plistPath], { stdio: "ignore" });
-      console.log(`✅ Created and loaded macOS LaunchAgent: ${plistPath}`);
-    } catch (err: any) {
-      console.error(`❌ Failed to configure macOS startup: ${err.message}`);
-    }
-  }
 }
 
 export async function unstartupCommand(): Promise<void> {

@@ -11,6 +11,84 @@
 
 import { serve } from "bun";
 import { setTimeout } from "node:timers/promises";
+import { createHash, timingSafeEqual } from "node:crypto";
+
+function safeCompare(a: string, b: string): boolean {
+  const hashA = createHash("sha256").update(a).digest();
+  const hashB = createHash("sha256").update(b).digest();
+  return timingSafeEqual(hashA, hashB);
+}
+
+function parseOrigin(value: string): string | null {
+  try {
+    const url = new URL(value);
+    if ((url.protocol !== "http:" && url.protocol !== "https:") ||
+        url.username || url.password || url.pathname !== "/" || url.search || url.hash) {
+      return null;
+    }
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+function hasBrowserRequestHeaders(request: Request): boolean {
+  return request.headers.has("Origin") ||
+    request.headers.has("Sec-Fetch-Site") ||
+    request.headers.has("Sec-Fetch-Mode") ||
+    request.headers.has("Sec-Fetch-Dest");
+}
+
+function normalizedHostHeader(hostHeader: string | null): string | null {
+  if (!hostHeader) return null;
+  try {
+    const parsed = new URL(`http://${hostHeader}`);
+    if (parsed.username || parsed.password || parsed.pathname !== "/" || parsed.search || parsed.hash) return null;
+    return parsed.host.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+export function isAllowedAdminOrigin(request: Request, allowSameOriginBrowserGetWithoutOrigin = false): boolean {
+  const origin = request.headers.get("Origin");
+  if (origin === null && !hasBrowserRequestHeaders(request)) return true;
+
+  const configuredOrigin = process.env.LB_PUBLIC_ORIGIN;
+  if (!configuredOrigin) return false;
+  const expectedOrigin = parseOrigin(configuredOrigin);
+  if (expectedOrigin === null) return false;
+
+  if (origin === null) {
+    // Fetch omits Origin on many same-origin GET requests. Permit that browser
+    // shape only for authenticated, safe GET handlers and only when both the
+    // Fetch Metadata site and the request Host match the configured origin.
+    return allowSameOriginBrowserGetWithoutOrigin &&
+      request.method === "GET" &&
+      request.headers.get("Sec-Fetch-Site") === "same-origin" &&
+      normalizedHostHeader(request.headers.get("Host")) === new URL(expectedOrigin).host.toLowerCase();
+  }
+
+  const requestOrigin = parseOrigin(origin);
+  if (expectedOrigin === null || requestOrigin === null || requestOrigin !== expectedOrigin) return false;
+  const fetchSite = request.headers.get("Sec-Fetch-Site");
+  return fetchSite === null || fetchSite === "same-origin";
+}
+
+function isLoopbackPeer(address: string | undefined): boolean {
+  return address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
+}
+
+function loopbackRequestAuthorized(request: Request, peerAddress: string | undefined): boolean {
+  return isLoopbackPeer(peerAddress) && !hasBrowserRequestHeaders(request);
+}
+
+function adminBearerAuthorized(request: Request, secret: string | undefined): boolean {
+  if (!secret) return false;
+  const authorization = request.headers.get("Authorization");
+  const token = authorization?.match(/^Bearer[ \t]+([^\s]+)$/i)?.[1];
+  return token !== undefined && safeCompare(token, secret);
+}
 
 // Security: Input validation functions
 function isValidHost(host: string): boolean {
@@ -49,6 +127,15 @@ export function buildOutboundHeaders(inboundHeaders: Headers, backend: BackendSe
   inboundHeaders.forEach((value, key) => {
     const lower = key.toLowerCase();
     if (hopByHop.has(lower) || clientSuppliedForwarded.has(lower) || lower === 'host') {
+      return;
+    }
+    // The LB control-plane credential is not an upstream application token.
+    const configuredAdminSecret = process.env.LB_ADMIN_SECRET;
+    const bearerToken = lower === 'authorization'
+      ? value.match(/^Bearer[ \t]+([^\s]+)$/i)?.[1]
+      : undefined;
+    if (bearerToken !== undefined && configuredAdminSecret &&
+        safeCompare(bearerToken, configuredAdminSecret)) {
       return;
     }
     // Clean CRLF to prevent HTTP response splitting / header injection
@@ -429,19 +516,24 @@ async function startLoadBalancer(options?: any): Promise<void> {
     port: config.port,
     fetch: async (request: Request, srv: any): Promise<Response> => {
       const url = new URL(request.url);
-      // Security: Protect management API endpoints by verifying real connection IP, not spoofable Host header
+      // Use the transport peer address only for forwarded client metadata. Admin
+      // authorization is independent of loopback status and request Host.
       const reqIp: any = srv?.requestIP ? srv.requestIP(request) : null;
       const clientIp: string | undefined = reqIp?.address;
-      const isLoopback = clientIp
-        ? (clientIp === '127.0.0.1' || clientIp === '::1' || clientIp === '::ffff:127.0.0.1')
-        : (url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '::1');
-      const authHeader = request.headers.get('Authorization');
-      const lbSecret = process.env.LB_ADMIN_SECRET || '';
-      const isAuthorized = isLoopback || (Boolean(lbSecret) && authHeader === `Bearer ${lbSecret}`);
+      const lbSecret = process.env.LB_ADMIN_SECRET;
+      const isAuthorized = lbSecret
+        ? adminBearerAuthorized(request, lbSecret)
+        : loopbackRequestAuthorized(request, clientIp);
 
       if (url.pathname === '/lb-stats') {
+        if (!isAllowedAdminOrigin(request, request.method === 'GET' && isAuthorized && Boolean(lbSecret))) {
+          return new Response(JSON.stringify({ error: 'Forbidden: invalid or missing browser Origin' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
+        }
         if (!isAuthorized) {
           return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (request.method !== 'GET') {
+          return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405, headers: { 'Content-Type': 'application/json', 'Allow': 'GET' } });
         }
         return new Response(JSON.stringify(loadBalancer.getStats()), {
           headers: { 'Content-Type': 'application/json' }
@@ -449,6 +541,9 @@ async function startLoadBalancer(options?: any): Promise<void> {
       }
 
       if (url.pathname === '/lb-config') {
+        if (!isAllowedAdminOrigin(request, request.method === 'GET' && isAuthorized && Boolean(lbSecret))) {
+          return new Response(JSON.stringify({ error: 'Forbidden: invalid or missing browser Origin' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
+        }
         if (!isAuthorized) {
           return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
         }
@@ -472,13 +567,17 @@ async function startLoadBalancer(options?: any): Promise<void> {
       }
 
       // Forward all other requests
-      return loadBalancer.handleRequest(request, clientIp || '127.0.0.1');
+      return loadBalancer.handleRequest(request, clientIp || 'unknown');
     },
   });
 
   console.log(`✅ Load balancer running on http://localhost:${config.port}`);
-  console.log(`📊 Stats: http://localhost:${config.port}/lb-stats`);
-  console.log(`⚙️  Config: http://localhost:${config.port}/lb-config`);
+  if (process.env.LB_ADMIN_SECRET) {
+    console.log(`📊 Stats: http://localhost:${config.port}/lb-stats (Bearer LB_ADMIN_SECRET required)`);
+    console.log(`⚙️  Config: http://localhost:${config.port}/lb-config (Bearer LB_ADMIN_SECRET required)`);
+  } else {
+    console.log(`🔒 Management endpoints accept loopback CLI requests only; set LB_ADMIN_SECRET to enable token-authenticated access`);
+  }
 
   // Graceful shutdown
   process.on('SIGINT', () => {
@@ -492,7 +591,7 @@ async function showLoadBalancerStatus(options?: any): Promise<void> {
   const port = options?.port || 8080;
 
   try {
-    const response = await fetch(`http://localhost:${port}/lb-stats`);
+    const response = await fetch(`http://localhost:${port}/lb-stats`, { headers: adminHeaders() });
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
@@ -530,7 +629,8 @@ async function configureLoadBalancer(options?: any): Promise<void> {
   }
 
   try {
-    const configResponse = await fetch(`http://localhost:${port}/lb-config`);
+    const headers = adminHeaders();
+    const configResponse = await fetch(`http://localhost:${port}/lb-config`, { headers });
     if (!configResponse.ok) {
       throw new Error(`HTTP ${configResponse.status}`);
     }
@@ -550,7 +650,7 @@ async function configureLoadBalancer(options?: any): Promise<void> {
     // Apply configuration dynamically via POST /lb-config
     const updateResponse = await fetch(`http://localhost:${port}/lb-config`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...headers, 'Content-Type': 'application/json' },
       body: JSON.stringify(newConfig)
     });
 
@@ -565,6 +665,11 @@ async function configureLoadBalancer(options?: any): Promise<void> {
     console.error(`❌ Failed to configure load balancer: ${error}`);
     process.exit(1);
   }
+}
+
+function adminHeaders(): Record<string, string> {
+  const secret = process.env.LB_ADMIN_SECRET;
+  return secret ? { Authorization: `Bearer ${secret}` } : {};
 }
 
 function parseBackends(backendsStr: string): BackendServer[] {

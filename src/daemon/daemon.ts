@@ -24,6 +24,7 @@ import { ClusterController } from "../cluster/controller.js";
 import { ClusterReconciler } from "./reconciler.js";
 import { getPlatformInfo } from "../platform/detect.js";
 import { resolveRuntime } from "../utils/runtime-resolver.js";
+import { ensurePrivateDirectory, writePrivateFile } from "../utils/private-files.js";
 import { generateSystemdUnit, startUserSystemdUnit } from "../utils/systemd.js";
 import type { ClusterManifestData } from "../hub/protocol.js";
 
@@ -137,6 +138,10 @@ export class Bs9Daemon {
     if (platformInfo.isWindows) {
       const { WindowsServiceManager } = await import("../windows/service.js");
       const manager = new WindowsServiceManager();
+      const serviceAccount = manifest.options?.windowsServiceAccount || "LocalSystem";
+      if (!manifest.options?.windowsServiceAccount) {
+        console.warn(`[Security] Legacy cluster '${clusterName}' has no Windows service account recorded. Keeping LocalSystem for compatibility; recreate it with --windows-service-account LocalService after validating profile access and ACLs to migrate.`);
+      }
       await manager.createService({
         name: `BS9_${physicalName}`,
         displayName: `BS9 Service: ${physicalName}`,
@@ -146,6 +151,7 @@ export class Bs9Daemon {
         workingDirectory: resolve(dirname(manifest.appFile)),
         environment: envVars,
         scriptFile: manifest.appFile,
+        serviceAccount,
         watch: manifest.options?.watch,
         maxMemoryRestart: manifest.options?.maxMemoryRestart,
       });
@@ -160,7 +166,8 @@ export class Bs9Daemon {
         env: envVars,
         restartSec: 2,
       });
-      writeFileSync(unitPath, unitContent, "utf-8");
+      ensurePrivateDirectory(platformInfo.serviceDir);
+      writePrivateFile(unitPath, unitContent);
       startUserSystemdUnit(unitPath, `${physicalName}.service`);
     } else if (platformInfo.isMacOS) {
       const { launchdCommand } = await import("../macos/launchd.js");

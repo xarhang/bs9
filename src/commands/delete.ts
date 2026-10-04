@@ -15,12 +15,18 @@ import { join } from "node:path";
 import { getPlatformInfo } from "../platform/detect.js";
 import { parseServiceArray, confirmAction, displayBatchResults, escapeRegExp } from "../utils/array-parser.js";
 import { listServices, parseWorkerSlot, type ServiceMetrics } from "../utils/service-discovery.js";
+import { acquireManifestLock } from "../utils/manifest-lock.js";
 
 interface DeleteOptions {
   all?: boolean;
   force?: boolean;
   remove?: boolean;
   timeout?: string;
+}
+
+interface ClusterRetirement {
+  clusterNames: string[];
+  releaseLocks: Array<() => Promise<void>>;
 }
 
 // Security: Service name validation
@@ -118,12 +124,14 @@ async function handleMultiServiceDelete(name: string | string[], options: Delete
 
   const platformInfo = getPlatformInfo();
   const discoveredServices = await listServices();
-  const retiredClusters = await retireFullyCoveredClusterManifests(
+  const retirement = await retireFullyCoveredClusterManifests(
     services,
     discoveredServices,
     platformInfo,
   );
+  const retiredClusters = retirement.clusterNames;
 
+  try {
   // A reconciliation may already have been in flight when its manifest was
   // retired. Re-discover once and include every physical generation belonging
   // to a retired cluster so no orphan worker can survive the delete.
@@ -151,6 +159,9 @@ async function handleMultiServiceDelete(name: string | string[], options: Delete
   await deleteResidualRetiredClusterWorkers(retiredClusters, platformInfo, options);
 
   displayBatchResults(results, 'delete');
+  } finally {
+    await releaseClusterRetirementLocks(retirement);
+  }
 }
 
 async function handleSingleServiceDelete(name: string, platformInfo: any, options: DeleteOptions): Promise<void> {
@@ -168,11 +179,13 @@ async function handleSingleServiceDelete(name: string, platformInfo: any, option
     // Fall back to a direct delete when service discovery is unavailable.
   }
 
-  const retiredClusters = await retireFullyCoveredClusterManifests(
+  const retirement = await retireFullyCoveredClusterManifests(
     [clean],
     allServices,
     platformInfo,
   );
+  const retiredClusters = retirement.clusterNames;
+  try {
   if (retiredClusters.length > 0) {
     allServices = await listServices();
   }
@@ -207,6 +220,9 @@ async function handleSingleServiceDelete(name: string, platformInfo: any, option
   }
 
   await deleteDirectService(name, platformInfo, options);
+  } finally {
+    await releaseClusterRetirementLocks(retirement);
+  }
 }
 
 async function deleteResidualRetiredClusterWorkers(
@@ -237,61 +253,84 @@ async function retireFullyCoveredClusterManifests(
   targets: string[],
   services: ServiceMetrics[],
   platformInfo: any,
-): Promise<string[]> {
+): Promise<ClusterRetirement> {
   const candidates = findFullyCoveredClusters(targets, services);
-  const retired: string[] = [];
-
-  for (const clusterName of candidates) {
-    if (await retireClusterManifest(clusterName, platformInfo)) {
-      retired.push(clusterName);
-    }
-  }
-
-  return retired;
-}
-
-async function retireClusterManifest(clusterName: string, platformInfo: any): Promise<boolean> {
-  if (!isValidServiceName(clusterName)) return false;
-
-  const manifestPath = join(platformInfo.clusterDir, `${clusterName}.manifest.json`);
-  let found = existsSync(manifestPath);
-  let client: import("../cluster/admin-client.js").ControllerAdminClient | null = null;
-  let connected = false;
+  const retirement: ClusterRetirement = { clusterNames: [], releaseLocks: [] };
 
   try {
-    const { ControllerAdminClient } = await import("../cluster/admin-client.js");
-    client = new ControllerAdminClient();
-    connected = await client.connect(1000);
-    if (connected) {
-      const manifest = await client.getManifest(clusterName);
-      if (manifest) {
-        found = true;
-        if (!await client.deleteManifest(clusterName)) {
-          throw new Error(`Daemon refused to retire desired-state manifest for '${clusterName}'`);
+    const plans: Array<{
+      clusterName: string;
+      manifestPath: string;
+      client?: import("../cluster/admin-client.js").ControllerAdminClient;
+      lockSession?: import("../cluster/admin-client.js").ClusterLockSession;
+    }> = [];
+
+    // Acquire every lifecycle/file lock before retiring any desired state.
+    // A later contention must not leave an earlier cluster partially retired.
+    for (const clusterName of [...candidates].sort()) {
+      if (!isValidServiceName(clusterName)) continue;
+      const manifestPath = join(platformInfo.clusterDir, `${clusterName}.manifest.json`);
+      const { ControllerAdminClient } = await import("../cluster/admin-client.js");
+      const client = new ControllerAdminClient();
+      let retained = false;
+      try {
+        const connected = await client.connect(1000);
+        if (connected) {
+          const lockSession = await client.acquireLockSession(clusterName, "manual", 300_000, `delete:${clusterName}`, {
+            renewIntervalMs: 60_000,
+            extendMs: 300_000,
+            onLost: (error) => console.error(`[ClusterLock] ${error.message}`),
+          });
+          if (!lockSession) {
+            throw new Error(`Cannot delete cluster '${clusterName}' while another cluster operation holds its lifecycle lock`);
+          }
+          plans.push({ clusterName, manifestPath, client, lockSession });
+          retirement.releaseLocks.push(async () => {
+            try { await lockSession.release(); }
+            finally { client.disconnect(); }
+          });
+          retained = true;
+        } else {
+          client.disconnect();
+          if (client.lastConnectFailure !== "stopped") {
+            throw new Error(`Cannot safely delete cluster '${clusterName}': controller connection or authentication failed ambiguously`);
+          }
+          const releaseFileLock = acquireManifestLock(manifestPath);
+          plans.push({ clusterName, manifestPath });
+          retirement.releaseLocks.push(async () => releaseFileLock());
+          retained = true;
         }
+      } finally {
+        if (!retained) client.disconnect();
       }
     }
-  } catch (error) {
-    if (connected) throw error;
-    // The daemon may be stopped. Removing the persisted manifest below is
-    // still required so a future daemon start cannot resurrect the cluster.
-  } finally {
-    client?.disconnect();
-  }
 
-  if (existsSync(manifestPath)) {
-    try {
-      unlinkSync(manifestPath);
-      found = true;
-    } catch (error) {
-      throw new Error(`Failed to remove desired-state manifest for '${clusterName}': ${error}`);
+    for (const plan of plans) {
+      if (plan.lockSession) {
+        await plan.lockSession.assertActive();
+        const manifest = await plan.client!.getManifest(plan.clusterName);
+        if (manifest || existsSync(plan.manifestPath)) {
+          if (!await plan.client!.deleteManifest(plan.clusterName, plan.lockSession.lockToken)) {
+            throw new Error(`Daemon refused to retire desired-state manifest for '${plan.clusterName}'`);
+          }
+        }
+      } else if (existsSync(plan.manifestPath)) {
+        unlinkSync(plan.manifestPath);
+      }
+      retirement.clusterNames.push(plan.clusterName);
     }
+  } catch (error) {
+    await releaseClusterRetirementLocks(retirement);
+    throw error;
   }
 
-  if (found) {
-    console.log(`🧹 Retired desired-state manifest for cluster '${clusterName}'`);
+  return retirement;
+}
+
+async function releaseClusterRetirementLocks(retirement: ClusterRetirement): Promise<void> {
+  for (const release of retirement.releaseLocks.reverse()) {
+    try { await release(); } catch {}
   }
-  return found;
 }
 
 async function deleteDirectService(name: string, platformInfo: any, options: DeleteOptions): Promise<void> {

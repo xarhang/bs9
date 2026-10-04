@@ -17,6 +17,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { escapeRegExp } from "../utils/array-parser.js";
 import { startUserSystemdUnit } from "../utils/systemd.js";
+import { ensurePrivateDirectory, securePrivateFile, writePrivateFile } from "../utils/private-files.js";
 
 export function cloneSystemdWorkerUnit(
   baseContent: string,
@@ -193,6 +194,8 @@ export async function scaleCommand(name: string, countStr: string): Promise<void
         throw new Error(`Base systemd unit '${baseClean}.service' not found`);
       }
 
+      ensurePrivateDirectory(userUnitDir);
+      securePrivateFile(baseUnitPath);
       const baseContent = readFileSync(baseUnitPath, "utf-8");
 
       for (let i = currentCount; i < targetCount; i++) {
@@ -207,7 +210,7 @@ export async function scaleCommand(name: string, countStr: string): Promise<void
           targetCount,
         );
 
-        writeFileSync(newUnitPath, newContent);
+        writePrivateFile(newUnitPath, newContent);
         await lockSession.assertActive();
         startUserSystemdUnit(newUnitPath, `${workerName}.service`);
         await lockSession.assertActive();

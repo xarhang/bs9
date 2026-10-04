@@ -3,7 +3,7 @@ import { WalManager } from "../src/hub/wal.js";
 import { KvEngine } from "../src/hub/engine.js";
 import { LeaseManager } from "../src/hub/leases.js";
 import { QueueManager } from "../src/hub/queues.js";
-import { existsSync, rmSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, rmSync, mkdirSync, readFileSync, writeFileSync, statSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -104,7 +104,7 @@ describe("State Hub WAL Chaos & Corruption Recovery QA Suite", () => {
     freshWal.close();
   });
 
-  it("handles completely invalid snapshot json gracefully", () => {
+  it("fails closed on invalid snapshot without replaying or changing the WAL", () => {
     const snapPath = wal.getSnapshotPath(ns);
     const dir = wal.getNamespaceDir(ns);
     mkdirSync(dir, { recursive: true });
@@ -112,14 +112,55 @@ describe("State Hub WAL Chaos & Corruption Recovery QA Suite", () => {
 
     wal.append(ns, { seq: 1, op: "set", key: "survivor", value: "ok", timestamp: Date.now() });
     wal.close();
+    const walPath = join(dir, "wal.log");
+    const originalWal = readFileSync(walPath);
 
     const freshWal = new WalManager({ stateDir: testStateDir });
     const freshEngine = new KvEngine();
-    const res = freshWal.recover(ns, freshEngine);
+    expect(() => freshWal.recover(ns, freshEngine)).toThrow("SNAPSHOT_INVALID");
 
-    expect(res.snapshotLoaded).toBe(false);
-    expect(res.replayedWalRecords).toBe(1);
-    expect(freshEngine.get(ns, "survivor")).toBe("ok");
+    expect(freshEngine.get(ns, "survivor")).toBeNull();
+    expect(readFileSync(walPath)).toEqual(originalWal);
     freshWal.close();
+  });
+
+  it("retries short snapshot writes and truncates the WAL only after the full snapshot is durable", () => {
+    engine.set(ns, "short-write-key", "snapshot-value");
+    wal.append(ns, { seq: 1, op: "set", key: "short-write-key", value: "snapshot-value", timestamp: Date.now() });
+    const walPath = wal.getWalPath(ns);
+    const originalWriteAll = (wal as any).writeAll.bind(wal);
+    let writeCalls = 0;
+    (wal as any).writeAll = (fd: number, data: Buffer) => originalWriteAll(
+      fd,
+      data,
+      (writeFd: number, buffer: Buffer, offset: number, length: number, position: number) => {
+        writeCalls++;
+        const chunkLength = Math.min(7, length);
+        return writeSync(writeFd, buffer, offset, chunkLength, position);
+      }
+    );
+
+    const snapshotPath = wal.createSnapshot(ns, engine, leases, queues);
+
+    expect(writeCalls).toBeGreaterThan(1);
+    expect(JSON.parse(readFileSync(snapshotPath, "utf-8")).lastWalSeq).toBe(1);
+    expect(statSync(walPath).size).toBe(0);
+  });
+
+  it("preserves the WAL if a snapshot writer makes no progress", () => {
+    engine.set(ns, "snapshot-failure", "still-in-wal");
+    wal.append(ns, { seq: 1, op: "set", key: "snapshot-failure", value: "still-in-wal", timestamp: Date.now() });
+    const walPath = wal.getWalPath(ns);
+    const originalWal = readFileSync(walPath);
+    const originalWriteAll = (wal as any).writeAll.bind(wal);
+    (wal as any).writeAll = (fd: number, data: Buffer) => originalWriteAll(
+      fd,
+      data,
+      () => 0
+    );
+
+    expect(() => wal.createSnapshot(ns, engine, leases, queues)).toThrow("no progress");
+    expect(readFileSync(walPath)).toEqual(originalWal);
+    expect(existsSync(wal.getSnapshotPath(ns))).toBe(false);
   });
 });

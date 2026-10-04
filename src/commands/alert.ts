@@ -9,7 +9,7 @@
  * https://github.com/xarhang/bs9
  */
 
-import { AlertManager } from "../alerting/config.js";
+import { AlertManager, formatWebhookForDisplay } from "../alerting/config.js";
 
 interface AlertOptions {
   enable?: boolean;
@@ -34,7 +34,7 @@ export async function alertCommand(options: AlertOptions): Promise<void> {
     console.log('='.repeat(40));
     console.log(`Enabled: ${config.enabled}`);
     if (config.webhookUrl) {
-      console.log(`Webhook: ${config.webhookUrl}`);
+      console.log(`Webhook: ${formatWebhookForDisplay(config.webhookUrl)}`);
     }
     console.log('');
     console.log('Thresholds:');

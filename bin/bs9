@@ -81,6 +81,7 @@ program
   .option("--time", "Prefix stdout and stderr logs with timestamps")
   .option("--cron <pattern>", "Cron pattern to force restart application")
   .option("--interpreter <bin>", "Custom interpreter (e.g. python3, go, node, none for binary)")
+  .option("--windows-service-account <account>", "Windows native service identity: LocalService by default; choose LocalSystem only for legacy permission requirements")
   .action(startCommand);
 
 program
@@ -332,6 +333,9 @@ program
   .option("--database <name>", "Database name", "testdb")
   .option("--username <user>", "Database username", "user")
   .option("--password <pass>", "Database password", "password")
+  .option("--ssl", "Use TLS and verify the PostgreSQL server certificate")
+  .option("--ssl-ca <path>", "PEM CA certificate file for private PostgreSQL certificates")
+  .option("--ssl-server-name <name>", "Expected certificate name when it differs from the database host")
   .option("--max-connections <num>", "Maximum connections", "10")
   .option("--min-connections <num>", "Minimum connections", "2")
   .option("--concurrency <num>", "Test concurrency", "10")
@@ -371,11 +375,12 @@ program
 program
   .command("windows")
   .description("Windows service management")
-  .argument("<action>", "Action to perform (create|start|stop|restart|delete|status)")
+  .argument("<action>", "Action to perform (create|start|stop|restart|delete|account|status)")
   .option("-n, --name <name>", "Service name")
   .option("-f, --file <file>", "Application file path")
   .option("--display-name <name>", "Service display name")
   .option("--description <text>", "Service description")
+  .option("--service-account <account>", "Native service identity (LocalService by default; LocalSystem is a compatibility opt-in)")
   .action(windowsCommand);
 
 program

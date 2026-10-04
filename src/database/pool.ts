@@ -1,5 +1,7 @@
 #!/usr/bin/env bun
 
+import { readFileSync } from "node:fs";
+
 /**
  * BS9 - Bun Sentinel 9
  * High-performance, non-root process manager for Bun
@@ -85,6 +87,10 @@ export interface DatabaseConfig {
   username: string;
   password: string;
   ssl?: boolean;
+  /** PEM-encoded CA certificate(s) used to validate the PostgreSQL server. */
+  sslCa?: string;
+  /** Expected server certificate name when it differs from `host`. */
+  sslServerName?: string;
   mock?: boolean;
   maxConnections?: number;
   minConnections?: number;
@@ -129,6 +135,10 @@ export class DatabasePool {
     if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
       throw new Error(`❌ Security: Invalid port number: ${config.port}`);
     }
+
+    if (!config.ssl && (config.sslCa || config.sslServerName)) {
+      throw new Error("❌ Security: PostgreSQL TLS options require ssl: true");
+    }
     
     this.config = {
       maxConnections: 10,
@@ -156,7 +166,13 @@ export class DatabasePool {
           database: this.config.database,
           user: this.config.username,
           password: this.config.password,
-          ssl: this.config.ssl ? { rejectUnauthorized: false } : undefined,
+          ssl: this.config.ssl
+            ? {
+                rejectUnauthorized: true,
+                ...(this.config.sslCa ? { ca: this.config.sslCa } : {}),
+                ...(this.config.sslServerName ? { servername: this.config.sslServerName } : {}),
+              }
+            : undefined,
           connectionTimeoutMillis: this.config.acquireTimeoutMillis || 5000,
         });
 
@@ -339,12 +355,19 @@ export async function dbpoolCommand(action: string, options: any): Promise<void>
   console.log('🗄️  BS9 Database Connection Pool Management');
   console.log('='.repeat(80));
   
+  if (!options.ssl && (options.sslCa || options.sslServerName)) {
+    throw new Error("PostgreSQL TLS CA/server-name options require --ssl");
+  }
+
   const config: DatabaseConfig = {
     host: options.host || 'localhost',
     port: parseInt(options.port) || 5432,
     database: options.database || 'testdb',
     username: options.username || 'user',
     password: options.password || 'password',
+    ssl: Boolean(options.ssl),
+    sslCa: options.sslCa ? readFileSync(options.sslCa, "utf-8") : undefined,
+    sslServerName: options.sslServerName || undefined,
     maxConnections: parseInt(options.maxConnections) || 10,
     minConnections: parseInt(options.minConnections) || 2,
   };

@@ -12,6 +12,7 @@
 import { platform, homedir } from "node:os";
 import { join } from "node:path";
 import { mkdirSync } from "node:fs";
+import { ensurePrivateDirectory } from "../utils/private-files.js";
 
 export type Platform = 'linux' | 'darwin' | 'win32';
 
@@ -190,6 +191,15 @@ export function initializePlatformDirectories(): void {
     mkdirSync(platformInfo.runtimeDir, { recursive: true });
     mkdirSync(platformInfo.stateDir, { recursive: true });
     mkdirSync(platformInfo.clusterDir, { recursive: true });
+
+    if (platformInfo.isLinux) {
+      // These BS9-owned paths may contain WAL data, cluster environment values,
+      // or systemd Environment= directives. Repair permissions on upgrades too.
+      ensurePrivateDirectory(platformInfo.stateDir);
+      ensurePrivateDirectory(platformInfo.clusterDir);
+      ensurePrivateDirectory(platformInfo.serviceDir);
+      ensurePrivateDirectory(platformInfo.backupDir);
+    }
   } catch (error) {
     console.warn(`⚠️  Warning: Could not create platform directories: ${error}`);
   }

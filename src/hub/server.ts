@@ -17,6 +17,7 @@ import { existsSync, unlinkSync, chmodSync, readFileSync, writeFileSync, mkdirSy
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
 import { timingSafeEqual } from "node:crypto";
+import { ensurePrivateDirectory, securePrivateFile, writePrivateFile } from "../utils/private-files.js";
 import {
   encodeFrame,
   StreamingFrameDecoder,
@@ -57,10 +58,12 @@ import {
   type QueueNackPayload,
   type QueueNackResponsePayload,
   type ReservedMessage,
+  MAX_NAMESPACE_MEMORY,
+  MAX_VALUE_SIZE,
 } from "./protocol.js";
 import { getPlatformInfo } from "../platform/detect.js";
-import { KvEngine, type KvEngineOptions, type CasResult } from "./engine.js";
-import { WalManager, type WalManagerOptions, type RecoveryResult } from "./wal.js";
+import { KvEngine, type KvEngineOptions, type CasResult, estimateValueSize, isDeepEqual, validateSafeData } from "./engine.js";
+import { WalManager, type WalManagerOptions, type RecoveryResult, type WalRecord } from "./wal.js";
 import {
   LeaseManager,
   type LeaseAcquireResult,
@@ -106,6 +109,18 @@ export function isValidNamespace(namespace: string): boolean {
     !namespace.includes("\\");
 }
 
+function assertFiniteDuration(value: number | undefined, field: string): void {
+  if (value !== undefined && (typeof value !== "number" || !Number.isFinite(value))) {
+    throw new Error(`${field} must be a finite number`);
+  }
+}
+
+function assertRequiredFiniteDuration(value: number, field: string): void {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error(`${field} must be a finite number`);
+  }
+}
+
 export class HubServer extends EventEmitter {
   private server: Server | null = null;
   private socketPath: string;
@@ -117,8 +132,11 @@ export class HubServer extends EventEmitter {
   private activeSockets: Set<Socket> = new Set();
   private sessions: Map<Socket, AuthenticatedSession> = new Map();
   private recoveredNamespaces: Set<string> = new Set();
+  private recoveryFailures: Map<string, Error> = new Map();
   private autoRecover: boolean;
   private isWalRecovered = false;
+  private maxValueSize: number;
+  private maxNamespaceMemory: number;
 
   public readonly engine: KvEngine;
   public readonly wal: WalManager;
@@ -131,13 +149,18 @@ export class HubServer extends EventEmitter {
     this.handshakeTimeoutMs = options.handshakeTimeoutMs ?? 5000;
     this.allowAnonymous = options.allowAnonymous ?? false;
     this.autoRecover = options.autoRecover ?? true;
+    this.maxValueSize = options.maxValueSize ?? MAX_VALUE_SIZE;
+    this.maxNamespaceMemory = options.maxNamespaceMemory ?? MAX_NAMESPACE_MEMORY;
     this.defaultAuthToken = options.authToken || process.env.BS9_AUTH_TOKEN;
     this.authTokenFile = options.authTokenFile || process.env.BS9_AUTH_TOKEN_FILE;
 
     this.engine = new KvEngine(options);
     this.wal = new WalManager(options);
     this.leases = new LeaseManager();
-    this.queues = new QueueManager();
+    // Queue storage has an explicit budget alongside the engine's KV budget.
+    // The same configured per-namespace limit governs both components, while
+    // the legacy KV queue projection remains covered by the engine's own limit.
+    this.queues = new QueueManager(1000, options.maxNamespaceMemory);
   }
 
   /**
@@ -153,15 +176,21 @@ export class HubServer extends EventEmitter {
     this.namespaceTokens.set(namespace, token);
 
     const tokensDir = join(platformInfo.runtimeDir, "tokens");
-    if (!existsSync(tokensDir)) {
+    if (platformInfo.isLinux) {
+      ensurePrivateDirectory(platformInfo.runtimeDir);
+      ensurePrivateDirectory(tokensDir);
+    } else if (!existsSync(tokensDir)) {
       mkdirSync(tokensDir, { recursive: true });
     }
 
     const tokenFilePath = join(tokensDir, `${namespace}.token`);
-    writeFileSync(tokenFilePath, token, { encoding: "utf-8", mode: 0o600 });
-    try {
-      chmodSync(tokenFilePath, 0o600);
-    } catch {}
+    if (platformInfo.isLinux) writePrivateFile(tokenFilePath, token);
+    else {
+      writeFileSync(tokenFilePath, token, { encoding: "utf-8", mode: 0o600 });
+      try {
+        chmodSync(tokenFilePath, 0o600);
+      } catch {}
+    }
 
     return { token, tokenFilePath };
   }
@@ -181,9 +210,18 @@ export class HubServer extends EventEmitter {
     const platformInfo = getPlatformInfo();
 
     // Check cluster/runtime token file
+    if (platformInfo.isLinux) {
+      ensurePrivateDirectory(platformInfo.runtimeDir);
+      const tokensDir = join(platformInfo.runtimeDir, "tokens");
+      if (existsSync(tokensDir)) ensurePrivateDirectory(tokensDir);
+    }
     const tokenFilePath = join(platformInfo.runtimeDir, "tokens", `${namespace}.token`);
     if (existsSync(tokenFilePath)) {
       try {
+        if (platformInfo.isLinux) {
+          ensurePrivateDirectory(join(platformInfo.runtimeDir, "tokens"));
+          securePrivateFile(tokenFilePath);
+        }
         const token = readFileSync(tokenFilePath, "utf-8").trim();
         this.namespaceTokens.set(namespace, token);
         return token;
@@ -233,7 +271,12 @@ export class HubServer extends EventEmitter {
     if (this.autoRecover) {
       const diskNamespaces = this.wal.listNamespacesOnDisk();
       for (const ns of diskNamespaces) {
-        this.ensureRecovered(ns);
+        try {
+          this.ensureRecovered(ns);
+        } catch (err) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          console.error(`[HubServer] Namespace "${ns}" is unavailable after recovery failed: ${error.message}`);
+        }
       }
       this.isWalRecovered = true;
     } else {
@@ -333,10 +376,51 @@ export class HubServer extends EventEmitter {
         truncatedBytes: 0,
       };
     }
+    const previousFailure = this.recoveryFailures.get(namespace);
+    if (previousFailure) throw previousFailure;
 
-    const result = this.wal.recover(namespace, this.engine, this.leases, this.queues);
-    this.recoveredNamespaces.add(namespace);
-    return result;
+    try {
+      const result = this.wal.recover(namespace, this.engine, this.leases, this.queues);
+      this.reconcileCompatibilityProjections(namespace);
+      this.recoveredNamespaces.add(namespace);
+      return result;
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      this.recoveryFailures.set(namespace, error);
+      throw error;
+    }
+  }
+
+  private reconcileCompatibilityProjections(namespace: string): void {
+    const existingEntries = this.engine.exportState(namespace);
+    for (const key of Object.keys(existingEntries)) {
+      if (key.startsWith("__bs9_queue:") || key.startsWith("__bs9_lease:")) {
+        this.engine.delete(namespace, key);
+      }
+    }
+
+    for (const [queueName, messages] of Object.entries(this.queues.exportState(namespace))) {
+      if (messages.length === 0) continue;
+      const projection = this.queues.getQueueProjection(namespace, queueName);
+      if (!projection) continue;
+      try {
+        this.engine.set(namespace, `__bs9_queue:${queueName}`, projection);
+      } catch {
+        // The compatibility projection is optional; durable queue state is authoritative.
+      }
+    }
+
+    const now = Date.now();
+    for (const [leaseName, state] of Object.entries(this.leases.exportState(namespace))) {
+      const lease = state.record;
+      if (!lease || lease.expiresAt <= now) continue;
+      const ttlMs = Math.max(1, lease.expiresAt - now);
+      try {
+        this.engine.set(namespace, `__bs9_lease:${leaseName}`, String(lease.fencingToken), ttlMs);
+      } catch {
+        // The compatibility projection is optional; durable lease state is authoritative.
+      }
+    }
   }
 
   /**
@@ -347,44 +431,112 @@ export class HubServer extends EventEmitter {
     return this.engine.get(namespace, key);
   }
 
+  private appendWalRecord(
+    namespace: string,
+    record: Omit<WalRecord, "seq" | "timestamp"> & { timestamp?: number }
+  ): void {
+    const walRecord = {
+      ...record,
+      seq: this.wal.peekNextSeq(namespace),
+      timestamp: record.timestamp ?? Date.now(),
+    } as WalRecord;
+    this.wal.appendWithSnapshot(namespace, walRecord, {
+      engine: this.engine,
+      leases: this.leases,
+      queues: this.queues,
+    });
+  }
+
+  private canonicalizeValue(value: any): any {
+    validateSafeData(value);
+    if (value === undefined) return undefined;
+    let serialized: string | undefined;
+    try {
+      serialized = JSON.stringify(value);
+    } catch (error) {
+      throw new Error(`Value must be JSON serializable for durable Hub state: ${(error as Error).message}`);
+    }
+    if (typeof serialized !== "string") {
+      throw new Error("Value must be JSON serializable for durable Hub state");
+    }
+    return JSON.parse(serialized);
+  }
+
+  private preflightSet(namespace: string, key: string, value: any): any {
+    if (typeof key !== "string") throw new Error("KV key must be a string");
+    const canonicalValue = this.canonicalizeValue(value);
+    const valueSize = estimateValueSize(canonicalValue);
+    if (valueSize > this.maxValueSize) {
+      throw new Error(`Value size ${valueSize} exceeds maximum limit of ${this.maxValueSize} bytes`);
+    }
+
+    // Do not evict an expired entry before the WAL append. Expired entries are
+    // omitted from exportState, so this conservative preflight may count an
+    // expired target key twice, but if it passes KvEngine.set cannot exceed the
+    // same configured bound.
+    const entries = this.engine.exportState(namespace);
+    const oldSize = Object.prototype.hasOwnProperty.call(entries, key)
+      ? entries[key].sizeBytes
+      : 0;
+    const entrySize = Buffer.byteLength(key, "utf-8") + valueSize + 64;
+    const requested = this.engine.getNamespaceMemory(namespace) - oldSize + entrySize;
+    if (requested > this.maxNamespaceMemory) {
+      throw new Error(
+        `Namespace memory limit exceeded: requested ${requested} bytes, max allowed is ${this.maxNamespaceMemory} bytes`
+      );
+    }
+    return canonicalValue;
+  }
+
+  private getLogicalValue(namespace: string, key: string): any | null {
+    // exportState omits expired entries without changing memory, allowing a
+    // durable mutation to be appended before KvEngine performs lazy cleanup.
+    const entries = this.engine.exportState(namespace);
+    return Object.prototype.hasOwnProperty.call(entries, key) ? entries[key].value : null;
+  }
+
   public set(namespace: string, key: string, value: any, ttlMs?: number): boolean {
     this.ensureRecovered(namespace);
-    const seq = this.wal.getNextSeq(namespace);
-    this.wal.append(namespace, {
-      seq,
+    assertFiniteDuration(ttlMs, "TTL");
+    const durableValue = this.preflightSet(namespace, key, value);
+    this.appendWalRecord(namespace, {
       op: "set",
       key,
-      value,
+      value: durableValue,
       ttlMs,
-      timestamp: Date.now(),
     });
-    return this.engine.set(namespace, key, value, ttlMs);
+    return this.engine.set(namespace, key, durableValue, ttlMs);
   }
 
   public delete(namespace: string, key: string): boolean {
     this.ensureRecovered(namespace);
-    const seq = this.wal.getNextSeq(namespace);
-    this.wal.append(namespace, {
-      seq,
+    if (typeof key !== "string") throw new Error("KV key must be a string");
+    this.appendWalRecord(namespace, {
       op: "del",
       key,
-      timestamp: Date.now(),
     });
     return this.engine.delete(namespace, key);
   }
 
   public incr(namespace: string, key: string, delta: number = 1): number {
     this.ensureRecovered(namespace);
-    const newValue = this.engine.incr(namespace, key, delta);
-    const seq = this.wal.getNextSeq(namespace);
-    this.wal.append(namespace, {
-      seq,
+    if (typeof key !== "string") throw new Error("KV key must be a string");
+    if (typeof delta !== "number" || !Number.isFinite(delta)) {
+      throw new Error("Increment delta must be a finite number");
+    }
+    const current = this.getLogicalValue(namespace, key);
+    if (current !== null && current !== undefined && typeof current !== "number") {
+      throw new Error(`Cannot increment key "${key}": existing value is not a numeric value`);
+    }
+    const newValue = current === null || current === undefined ? delta : current + delta;
+    if (!Number.isFinite(newValue)) throw new Error("Increment result must be a finite number");
+    this.preflightSet(namespace, key, newValue);
+    this.appendWalRecord(namespace, {
       op: "incr",
       key,
       delta,
-      timestamp: Date.now(),
     });
-    return newValue;
+    return this.engine.incr(namespace, key, delta);
   }
 
   public cas(
@@ -395,20 +547,21 @@ export class HubServer extends EventEmitter {
     ttlMs?: number
   ): CasResult {
     this.ensureRecovered(namespace);
-    const result = this.engine.cas(namespace, key, expectedValue, newValue, ttlMs);
-    if (result.success) {
-      const seq = this.wal.getNextSeq(namespace);
-      this.wal.append(namespace, {
-        seq,
-        op: "cas",
-        key,
-        expectedValue,
-        newValue,
-        ttlMs,
-        timestamp: Date.now(),
-      });
-    }
-    return result;
+    assertFiniteDuration(ttlMs, "TTL");
+    if (typeof key !== "string") throw new Error("KV key must be a string");
+    const durableExpected = this.canonicalizeValue(expectedValue);
+    const durableNewValue = this.canonicalizeValue(newValue);
+    const currentValue = this.getLogicalValue(namespace, key);
+    if (!isDeepEqual(currentValue, durableExpected)) return { success: false, currentValue };
+    this.preflightSet(namespace, key, durableNewValue);
+    this.appendWalRecord(namespace, {
+      op: "cas",
+      key,
+      expectedValue: durableExpected,
+      newValue: durableNewValue,
+      ttlMs,
+    });
+    return this.engine.cas(namespace, key, durableExpected, durableNewValue, ttlMs);
   }
 
   // --- Direct Programmatic Lease Methods ---
@@ -420,22 +573,24 @@ export class HubServer extends EventEmitter {
     ownerId: string
   ): LeaseAcquireResult {
     this.ensureRecovered(namespace);
-    const result = this.leases.acquire(namespace, leaseName, ttlMs, ownerId);
-    if (result.acquired) {
-      const seq = this.wal.getNextSeq(namespace);
-      this.wal.append(namespace, {
-        seq,
-        op: "lease_acquire",
-        leaseName,
-        ownerId,
-        fencingToken: result.fencingToken,
-        expiresAt: result.expiresAt,
-        ttlMs,
-        timestamp: Date.now(),
-      });
-      this.engine.set(namespace, `__bs9_lease:${leaseName}`, String(result.fencingToken), ttlMs);
-    }
-    return result;
+    assertRequiredFiniteDuration(ttlMs, "Lease TTL");
+    const existing = this.leases.get(namespace, leaseName);
+    if (existing) return this.leases.acquire(namespace, leaseName, ttlMs, ownerId);
+    const timestamp = Date.now();
+    const fencingToken = this.leases.getCurrentFencingToken(namespace, leaseName) + 1;
+    const expiresAt = timestamp + ttlMs;
+    this.appendWalRecord(namespace, {
+      op: "lease_acquire",
+      leaseName,
+      ownerId,
+      fencingToken,
+      expiresAt,
+      ttlMs,
+      timestamp,
+    });
+    this.leases.applyAcquire(namespace, leaseName, ownerId, fencingToken, expiresAt, timestamp);
+    this.syncLeaseProjection(namespace, leaseName, fencingToken, ttlMs);
+    return { acquired: true, fencingToken, expiresAt, currentOwner: ownerId };
   }
 
   public leaseRenew(
@@ -445,21 +600,25 @@ export class HubServer extends EventEmitter {
     ttlMs: number
   ): LeaseRenewResult {
     this.ensureRecovered(namespace);
-    const result = this.leases.renew(namespace, leaseName, fencingToken, ttlMs);
-    if (result.renewed) {
-      const seq = this.wal.getNextSeq(namespace);
-      this.wal.append(namespace, {
-        seq,
-        op: "lease_renew",
-        leaseName,
-        fencingToken,
-        expiresAt: result.expiresAt,
-        ttlMs,
-        timestamp: Date.now(),
-      });
-      this.engine.set(namespace, `__bs9_lease:${leaseName}`, String(fencingToken), ttlMs);
+    assertRequiredFiniteDuration(ttlMs, "Lease TTL");
+    const existing = this.leases.exportState(namespace)[leaseName]?.record;
+    if (!existing || existing.fencingToken !== fencingToken) {
+      // A failed renew does not mutate LeaseManager; preserve its existing error text.
+      return this.leases.renew(namespace, leaseName, fencingToken, ttlMs);
     }
-    return result;
+    const timestamp = Date.now();
+    const expiresAt = timestamp + ttlMs;
+    this.appendWalRecord(namespace, {
+      op: "lease_renew",
+      leaseName,
+      fencingToken,
+      expiresAt,
+      ttlMs,
+      timestamp,
+    });
+    this.leases.applyRenew(namespace, leaseName, fencingToken, expiresAt);
+    this.syncLeaseProjection(namespace, leaseName, fencingToken, ttlMs);
+    return { renewed: true, expiresAt, fencingToken };
   }
 
   public leaseRelease(
@@ -468,19 +627,26 @@ export class HubServer extends EventEmitter {
     fencingToken: number
   ): LeaseReleaseResult {
     this.ensureRecovered(namespace);
-    const result = this.leases.release(namespace, leaseName, fencingToken);
-    if (result.released) {
-      const seq = this.wal.getNextSeq(namespace);
-      this.wal.append(namespace, {
-        seq,
-        op: "lease_release",
-        leaseName,
-        fencingToken,
-        timestamp: Date.now(),
-      });
-      this.engine.delete(namespace, `__bs9_lease:${leaseName}`);
+    const existing = this.leases.exportState(namespace)[leaseName]?.record;
+    if (!existing || existing.fencingToken !== fencingToken) return { released: false };
+    this.appendWalRecord(namespace, {
+      op: "lease_release",
+      leaseName,
+      fencingToken,
+    });
+    this.leases.applyRelease(namespace, leaseName, fencingToken);
+    this.engine.delete(namespace, `__bs9_lease:${leaseName}`);
+    return { released: true };
+  }
+
+  private syncLeaseProjection(namespace: string, leaseName: string, fencingToken: number, ttlMs: number): void {
+    const key = `__bs9_lease:${leaseName}`;
+    try {
+      this.engine.set(namespace, key, String(fencingToken), ttlMs);
+    } catch {
+      // Lease state is stored independently in the durable lease snapshot/WAL.
+      this.engine.delete(namespace, key);
     }
-    return result;
   }
 
   // --- Direct Programmatic Queue Methods ---
@@ -492,17 +658,19 @@ export class HubServer extends EventEmitter {
     options?: Record<string, any>
   ): { messageId: string } {
     this.ensureRecovered(namespace);
-    const result = this.queues.publish(namespace, queueName, payload, options);
-    const seq = this.wal.getNextSeq(namespace);
-    this.wal.append(namespace, {
+    const prepared = this.queues.preparePublish(namespace, queueName, payload, options);
+    const seq = this.wal.peekNextSeq(namespace);
+    this.wal.appendQueueRecord(namespace, {
       seq,
       op: "queue_publish",
       queueName,
-      messageId: result.messageId,
-      payload,
-      options,
+      messageId: prepared.message.id,
+      payload: prepared.message.payload,
+      options: prepared.message.options,
+      createdAt: prepared.message.createdAt,
       timestamp: Date.now(),
-    });
+    }, { engine: this.engine, leases: this.leases, queues: this.queues });
+    const result = this.queues.publishPrepared(namespace, queueName, prepared);
     this.syncQueueToEngine(namespace, queueName);
     return result;
   }
@@ -514,6 +682,7 @@ export class HubServer extends EventEmitter {
     maxMessages: number = 1
   ): ReservedMessage[] {
     this.ensureRecovered(namespace);
+    assertFiniteDuration(visibilityTimeoutMs, "Queue visibility timeout");
     return this.queues.reserve(namespace, queueName, visibilityTimeoutMs, maxMessages);
   }
 
@@ -523,18 +692,17 @@ export class HubServer extends EventEmitter {
     messageId: string
   ): boolean {
     this.ensureRecovered(namespace);
+    if (!this.queues.hasMessage(namespace, queueName, messageId)) return false;
+    const seq = this.wal.peekNextSeq(namespace);
+    this.wal.appendQueueRecord(namespace, {
+      seq,
+      op: "queue_ack",
+      queueName,
+      messageId,
+      timestamp: Date.now(),
+    }, { engine: this.engine, leases: this.leases, queues: this.queues });
     const acked = this.queues.ack(namespace, queueName, messageId);
-    if (acked) {
-      const seq = this.wal.getNextSeq(namespace);
-      this.wal.append(namespace, {
-        seq,
-        op: "queue_ack",
-        queueName,
-        messageId,
-        timestamp: Date.now(),
-      });
-      this.syncQueueToEngine(namespace, queueName);
-    }
+    if (acked) this.syncQueueToEngine(namespace, queueName);
     return acked;
   }
 
@@ -544,27 +712,33 @@ export class HubServer extends EventEmitter {
     messageId: string
   ): boolean {
     this.ensureRecovered(namespace);
-    const nacked = this.queues.nack(namespace, queueName, messageId);
-    if (nacked) {
-      const seq = this.wal.getNextSeq(namespace);
-      this.wal.append(namespace, {
-        seq,
-        op: "queue_nack",
-        queueName,
-        messageId,
-        timestamp: Date.now(),
-      });
-    }
-    return nacked;
+    if (!this.queues.hasMessage(namespace, queueName, messageId)) return false;
+    const seq = this.wal.peekNextSeq(namespace);
+    this.wal.appendQueueRecord(namespace, {
+      seq,
+      op: "queue_nack",
+      queueName,
+      messageId,
+      timestamp: Date.now(),
+    }, { engine: this.engine, leases: this.leases, queues: this.queues });
+    return this.queues.nack(namespace, queueName, messageId);
   }
 
   private syncQueueToEngine(namespace: string, queueName: string): void {
-    const msgs = this.queues.getMessages(namespace, queueName);
-    this.engine.set(
-      namespace,
-      `__bs9_queue:${queueName}`,
-      msgs.map((m) => ({ id: m.id, item: m.payload }))
-    );
+    const key = `__bs9_queue:${queueName}`;
+    const projection = this.queues.getQueueProjection(namespace, queueName);
+    if (!projection || projection.length === 0) {
+      this.engine.delete(namespace, key);
+      return;
+    }
+    try {
+      this.engine.set(namespace, key, projection);
+    } catch {
+      // This legacy KV projection has a 1 MiB per-value limit. The durable
+      // queue itself has its own namespace budget, so a larger queue must not
+      // be rejected or reported as failed after its WAL commit.
+      this.engine.delete(namespace, key);
+    }
   }
 
   public snapshot(namespace: string): string {
@@ -740,16 +914,7 @@ export class HubServer extends EventEmitter {
 
         case "KV_SET": {
           const payload = envelope.payload as KvSetPayload;
-          const seq = this.wal.getNextSeq(namespace);
-          this.wal.append(namespace, {
-            seq,
-            op: "set",
-            key: payload.key,
-            value: payload.value,
-            ttlMs: payload.ttlMs,
-            timestamp: Date.now(),
-          });
-          this.engine.set(namespace, payload.key, payload.value, payload.ttlMs);
+          this.set(namespace, payload.key, payload.value, payload.ttlMs);
           const resEnv = createEnvelope<KvSetResponsePayload>(
             "KV_SET_RESPONSE",
             namespace,
@@ -765,14 +930,7 @@ export class HubServer extends EventEmitter {
 
         case "KV_DELETE": {
           const payload = envelope.payload as KvDeletePayload;
-          const seq = this.wal.getNextSeq(namespace);
-          this.wal.append(namespace, {
-            seq,
-            op: "del",
-            key: payload.key,
-            timestamp: Date.now(),
-          });
-          const deleted = this.engine.delete(namespace, payload.key);
+          const deleted = this.delete(namespace, payload.key);
           const resEnv = createEnvelope<KvDeleteResponsePayload>(
             "KV_DELETE_RESPONSE",
             namespace,
@@ -789,15 +947,7 @@ export class HubServer extends EventEmitter {
         case "KV_INCR": {
           const payload = envelope.payload as KvIncrPayload;
           const delta = typeof payload.delta === "number" ? payload.delta : 1;
-          const newValue = this.engine.incr(namespace, payload.key, delta);
-          const seq = this.wal.getNextSeq(namespace);
-          this.wal.append(namespace, {
-            seq,
-            op: "incr",
-            key: payload.key,
-            delta,
-            timestamp: Date.now(),
-          });
+          const newValue = this.incr(namespace, payload.key, delta);
           const resEnv = createEnvelope<KvIncrResponsePayload>(
             "KV_INCR_RESPONSE",
             namespace,
@@ -814,26 +964,13 @@ export class HubServer extends EventEmitter {
 
         case "KV_CAS": {
           const payload = envelope.payload as KvCasPayload;
-          const casResult = this.engine.cas(
+          const casResult = this.cas(
             namespace,
             payload.key,
             payload.expectedValue,
             payload.newValue,
             payload.ttlMs
           );
-
-          if (casResult.success) {
-            const seq = this.wal.getNextSeq(namespace);
-            this.wal.append(namespace, {
-              seq,
-              op: "cas",
-              key: payload.key,
-              expectedValue: payload.expectedValue,
-              newValue: payload.newValue,
-              ttlMs: payload.ttlMs,
-              timestamp: Date.now(),
-            });
-          }
 
           const resEnv = createEnvelope<KvCasResponsePayload>(
             "KV_CAS_RESPONSE",
@@ -1030,7 +1167,7 @@ export class HubServer extends EventEmitter {
         namespace,
         {
           error: (err as Error).message,
-          code: "OPERATION_FAILED",
+          code: (err as Error & { code?: string }).code || "OPERATION_FAILED",
         },
         envelope.id
       );

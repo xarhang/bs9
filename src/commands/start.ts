@@ -13,13 +13,20 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, basename, resolve, dirname } from "node:path";
 import { execSync, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { writeFileSync, mkdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { homedir, cpus } from "node:os";
 import { getPlatformInfo } from "../platform/detect.js";
 import { parseServiceArray, getMultipleServiceInfo, confirmAction, displayBatchResults } from "../utils/array-parser.js";
 import { isEcosystemConfig, parseEcosystemConfig } from "../utils/ecosystem-config.js";
 import { resolveRuntime } from "../utils/runtime-resolver.js";
-import { startUserSystemdUnit } from "../utils/systemd.js";
+import {
+  escapeSystemdArg,
+  escapeSystemdEnv,
+  escapeSystemdValue,
+  formatSystemdExecStart,
+  startUserSystemdUnit,
+} from "../utils/systemd.js";
+import { ensurePrivateDirectory, securePrivateFile, writePrivateFile } from "../utils/private-files.js";
 
 // Security: Host validation function
 export function isValidHost(host: string): boolean {
@@ -70,6 +77,7 @@ export interface StartOptions {
   cron?: string;
   time?: boolean;
   interpreter?: string;
+  windowsServiceAccount?: "LocalService" | "LocalSystem";
 }
 
 /** Resolve "max" or numeric string to an integer instance count */
@@ -82,6 +90,11 @@ export function resolveInstances(raw: string | undefined): number {
 }
 
 export async function startCommand(files: string[], options: StartOptions): Promise<void> {
+  if (options.windowsServiceAccount !== undefined &&
+      options.windowsServiceAccount !== "LocalService" &&
+      options.windowsServiceAccount !== "LocalSystem") {
+    throw new Error("Invalid --windows-service-account. Use LocalService or LocalSystem.");
+  }
   const platformInfo = getPlatformInfo();
 
   // --- Feature: ecosystem.config.js / bs9.config.json detection ---
@@ -136,6 +149,7 @@ async function handleEcosystemStart(configFile: string, options: StartOptions): 
           build: app.build ?? options.build,
           instances: String(instanceCount),
           interpreter: app.interpreter ?? options.interpreter,
+          windowsServiceAccount: app.windowsServiceAccount ?? options.windowsServiceAccount,
         };
 
         if (instanceCount > 1) {
@@ -204,6 +218,9 @@ async function handleClusterStart(file: string, options: StartOptions, instanceC
         watch: options.watch,
         maxMemoryRestart: options.maxMemoryRestart,
         interpreter: options.interpreter,
+        ...(process.platform === "win32"
+          ? { windowsServiceAccount: options.windowsServiceAccount || "LocalService" }
+          : {}),
       },
       currentGeneration: 1,
       updatedAt: Date.now(),
@@ -467,7 +484,13 @@ async function checkServiceExists(serviceName: string, platformInfo: any): Promi
 async function startExistingService(serviceName: string, platformInfo: any): Promise<void> {
   try {
     if (platformInfo.isLinux) {
-      spawnSync("systemctl", ["--user", "start", serviceName], { stdio: "inherit" });
+      const unitPath = join(platformInfo.serviceDir, `${serviceName}.service`);
+      if (existsSync(unitPath)) {
+        ensurePrivateDirectory(platformInfo.serviceDir);
+        securePrivateFile(unitPath);
+      }
+      const result = spawnSync("systemctl", ["--user", "start", serviceName], { stdio: "inherit" });
+      assertSystemctlSuccess(result, `start ${serviceName}`);
     } else if (platformInfo.isMacOS) {
       const { launchdCommand } = await import("../macos/launchd.js");
       await launchdCommand('start', { name: `bs9.${serviceName}` });
@@ -478,6 +501,17 @@ async function startExistingService(serviceName: string, platformInfo: any): Pro
     console.log(`Service '${serviceName}' started successfully`);
   } catch (error) {
     throw error;
+  }
+}
+
+export function assertSystemctlSuccess(
+  result: { status: number | null; signal?: string | null; error?: Error },
+  action: string,
+): void {
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    const reason = result.signal ? `signal ${result.signal}` : `exit code ${result.status}`;
+    throw new Error(`systemctl ${action} failed with ${reason}`);
   }
 }
 
@@ -504,7 +538,7 @@ function findServiceFile(serviceName: string): string | null {
 
 async function createLinuxService(serviceName: string, execPath: string, host: string, port: string, protocol: string, options: StartOptions): Promise<void> {
   // Phase 1: Generate hardened systemd unit
-  const unitContent = generateSystemdUnit({
+  const unitContent = generateLinuxServiceUnit({
     serviceName,
     fullPath: execPath,
     host,
@@ -519,11 +553,11 @@ async function createLinuxService(serviceName: string, execPath: string, host: s
   const platformInfo = getPlatformInfo();
   const unitPath = join(platformInfo.serviceDir, `${serviceName}.service`);
 
-  // Create user systemd directory if it doesn't exist
-  if (!existsSync(platformInfo.serviceDir)) {
-    mkdirSync(platformInfo.serviceDir, { recursive: true });
-    console.log(`📁 Created user systemd directory: ${platformInfo.serviceDir}`);
-  }
+  // Unit files include user-supplied Environment= values. Keep the unit tree
+  // private and repair an existing unit before systemd can load it.
+  const serviceDirExisted = existsSync(platformInfo.serviceDir);
+  ensurePrivateDirectory(platformInfo.serviceDir);
+  if (!serviceDirExisted) console.log(`📁 Created user systemd directory: ${platformInfo.serviceDir}`);
 
   try {
     // Check if service already exists
@@ -531,11 +565,13 @@ async function createLinuxService(serviceName: string, execPath: string, host: s
 
     if (!serviceExists) {
       // First time: Create service file
-      writeFileSync(unitPath, unitContent);
+      writePrivateFile(unitPath, unitContent);
       console.log(`✅ Systemd user unit written to: ${unitPath}`);
-      spawnSync("systemctl", ["--user", "enable", serviceName]);
+      const enableResult = spawnSync("systemctl", ["--user", "enable", serviceName]);
+      assertSystemctlSuccess(enableResult, `enable ${serviceName}`);
       console.log(`🔧 Service '${serviceName}' created and enabled`);
     } else {
+      securePrivateFile(unitPath);
       console.log(`📋 Service '${serviceName}' already exists, starting...`);
     }
 
@@ -637,6 +673,7 @@ async function createWindowsService(serviceName: string, execPath: string, host:
       workingDir: resolve(dirname(execPath)),
       args: runtime.args,
       env: JSON.stringify(envVars),
+      serviceAccount: options.windowsServiceAccount,
       watch: options.watch,
       maxMemoryRestart: options.maxMemoryRestart,
       restartDelay: options.restartDelay ? parseInt(options.restartDelay, 10) : undefined,
@@ -720,14 +757,7 @@ interface SystemdUnitOptions {
   interpreter?: string;
 }
 
-function generateSystemdUnit(opts: SystemdUnitOptions): string {
-  // Security: Check for newline characters in env to prevent Systemd Unit directive injection
-  for (const envEntry of opts.env) {
-    if (/[\r\n]/.test(envEntry)) {
-      throw new Error(`Security: Environment variable contains illegal newline character: ${JSON.stringify(envEntry)}`);
-    }
-  }
-
+export function generateLinuxServiceUnit(opts: SystemdUnitOptions): string {
   const envVars = [
     `PORT=${opts.port}`,
     `HOST=${opts.host}`,
@@ -742,20 +772,26 @@ function generateSystemdUnit(opts: SystemdUnitOptions): string {
     envVars.push("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:4318/v1/traces");
   }
 
-  const envSection = envVars.map(e => `Environment=${e}`).join("\n");
-  const workingDir = dirname(opts.fullPath);
+  const envSection = envVars.map((entry) => {
+    const separator = entry.indexOf("=");
+    const key = separator > 0 ? entry.slice(0, separator) : "";
+    const value = separator > 0 ? entry.slice(separator + 1) : "";
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) || value.includes("\0") || /[\r\n]/.test(value)) {
+      throw new Error(`Invalid environment assignment for systemd: ${JSON.stringify(entry)}`);
+    }
+    return escapeSystemdEnv(key, value);
+  }).join("\n");
+  const workingDir = escapeSystemdArg(dirname(opts.fullPath));
 
   const isClusterWorker = opts.env.some(e => e.includes("BS9_REUSE_PORT=true"));
   const preloadPath = resolve(join(dirname(import.meta.path), '..', 'utils', 'cluster-preload.ts'));
-  const preloadFlag = isClusterWorker && existsSync(preloadPath) ? `--preload "${preloadPath}"` : "";
+  const preloadArgs = isClusterWorker && existsSync(preloadPath) ? ["--preload", preloadPath] : [];
 
-  const runtime = resolveRuntime(opts.fullPath, opts.interpreter, preloadFlag ? [preloadFlag] : []);
-  const execStart = runtime.isBinary
-    ? opts.fullPath
-    : `${runtime.executable} ${runtime.args.join(' ')}`;
+  const runtime = resolveRuntime(opts.fullPath, opts.interpreter, preloadArgs);
+  const execStart = formatSystemdExecStart(runtime.executable, runtime.args);
 
   return `[Unit]
-Description=BS9 Service: ${opts.serviceName}
+Description=${escapeSystemdValue(`BS9 Service: ${opts.serviceName}`)}
 After=network.target
 Documentation=https://github.com/xarhang/bs9
 

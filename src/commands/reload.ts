@@ -17,9 +17,10 @@ import { ControllerAdminClient, ClusterLockSession } from "../cluster/admin-clie
 import { ensureDaemonRunning } from "../daemon/ensure.js";
 import { getPlatformInfo } from "../platform/detect.js";
 import { join } from "node:path";
-import { existsSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { startUserSystemdUnit } from "../utils/systemd.js";
+import { ensurePrivateDirectory, securePrivateFile, writePrivateFile } from "../utils/private-files.js";
 
 
 export interface ReloadOptions {
@@ -183,6 +184,36 @@ async function reloadClusterApp(
     lockSession.start();
   }
 
+  let clusterWindowsServiceAccount: "LocalService" | "LocalSystem" | undefined;
+  if (process.platform === "win32") {
+    // An explicit account recorded in the cluster manifest is the cluster-wide
+    // migration choice. Prefer disk because `bs9 windows account` updates the
+    // manifest outside the daemon process that may hold an older cached copy.
+    const manifestPath = join(getPlatformInfo().clusterDir, `${appName}.manifest.json`);
+    try {
+      if (existsSync(manifestPath)) {
+        const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
+        const account = manifest?.options?.windowsServiceAccount;
+        if (account === "LocalService" || account === "LocalSystem") {
+          clusterWindowsServiceAccount = account;
+        }
+      }
+    } catch (error) {
+      console.warn(`[Security] Could not read Windows service account from '${manifestPath}'; preserving the current worker account: ${(error as Error).message}`);
+    }
+    if (!clusterWindowsServiceAccount && !existsSync(manifestPath)) {
+      try {
+        const manifest = options.controller?.getManifest(appName) || await adminClient?.getManifest(appName);
+        const account = manifest?.options?.windowsServiceAccount;
+        if (account === "LocalService" || account === "LocalSystem") {
+          clusterWindowsServiceAccount = account;
+        }
+      } catch {
+        // Keep the worker's recorded account as the compatibility fallback.
+      }
+    }
+  }
+
   try {
     for (const slot of sortedSlots) {
       if (lockSession) {
@@ -204,7 +235,16 @@ async function reloadClusterApp(
       console.log(`   ⏳ Slot ${slot}: Spawning replacement worker generation g${nextGen} (${nextPhysicalName})...`);
 
       // 1. Spawn replacement worker physical unit with generation g<nextGen>
-      await spawnReplacementWorker(appName, slot, currentGen, nextGen, currentWorker, options, options.controller);
+      await spawnReplacementWorker(
+        appName,
+        slot,
+        currentGen,
+        nextGen,
+        currentWorker,
+        options,
+        options.controller,
+        clusterWindowsServiceAccount
+      );
       await lockSession?.assertActive();
 
       // 2. Wait up to READY_TIMEOUT_MS (15s) for replacement to emit READY via lifecycle controller
@@ -370,7 +410,8 @@ async function spawnReplacementWorker(
   nextGen: number,
   currentWorker: ServiceMetrics | undefined,
   options: ReloadOptions,
-  controller?: ClusterController
+  controller?: ClusterController,
+  clusterWindowsServiceAccount?: "LocalService" | "LocalSystem"
 ): Promise<void> {
   const nextPhysicalName = `${appName}-${slot}-g${nextGen}`;
 
@@ -412,6 +453,16 @@ async function spawnReplacementWorker(
         displayName: `BS9 Service: ${nextPhysicalName}`,
         description: `BS9 managed service: ${nextPhysicalName} (gen ${nextGen})`,
         environment: newEnv,
+        // An explicit manifest choice applies to future generations across the
+        // cluster. Without one, older per-worker metadata keeps its original
+        // LocalSystem behavior until that worker is explicitly migrated.
+        // A manifest can declare the future SCM account even when this cluster
+        // was originally started without elevation and therefore runs through
+        // the same-user watchdog. Preserve that background-only mode on reload;
+        // the manifest account applies only to services registered with SCM.
+        serviceAccount: currentConfig.backgroundOnly
+          ? undefined
+          : clusterWindowsServiceAccount || currentConfig.serviceAccount || "LocalSystem",
         status: 'stopped',
         pid: undefined,
       };
@@ -422,6 +473,8 @@ async function spawnReplacementWorker(
   } else if (platformInfo.isLinux) {
     const serviceFile = join(platformInfo.serviceDir, `${currentPhysicalName}.service`);
     if (existsSync(serviceFile)) {
+      ensurePrivateDirectory(platformInfo.serviceDir);
+      securePrivateFile(serviceFile);
       let content = readFileSync(serviceFile, "utf-8");
       content = content.replace(new RegExp(currentPhysicalName, "g"), nextPhysicalName);
       content = content.replace(
@@ -429,7 +482,7 @@ async function spawnReplacementWorker(
         `BS9_CLUSTER_GENERATION=${nextGen}`
       );
       const newServiceFile = join(platformInfo.serviceDir, `${nextPhysicalName}.service`);
-      writeFileSync(newServiceFile, content, "utf-8");
+      writePrivateFile(newServiceFile, content);
       try { startUserSystemdUnit(newServiceFile, `${nextPhysicalName}.service`); } catch {}
 
     }

@@ -43,6 +43,7 @@ export interface PM2AppConfig {
   watch?: boolean | string[];
   max_memory_restart?: string;
   interpreter?: string;
+  windowsServiceAccount?: "LocalService" | "LocalSystem";
   [key: string]: unknown;
 }
 
@@ -64,6 +65,7 @@ export interface BS9AppEntry {
   https?: boolean;
   build?: boolean;
   interpreter?: string;
+  windowsServiceAccount?: "LocalService" | "LocalSystem";
 }
 
 // -------------------------------------------------------------------
@@ -173,6 +175,12 @@ async function loadJsConfig(absPath: string): Promise<PM2EcosystemConfig> {
 // -------------------------------------------------------------------
 
 function mapAppToBS9(app: PM2AppConfig, idx: number, configPath: string): BS9AppEntry {
+  if (app.windowsServiceAccount !== undefined &&
+      app.windowsServiceAccount !== "LocalService" &&
+      app.windowsServiceAccount !== "LocalSystem") {
+    throw new Error(`App at index ${idx} in '${configPath}' has invalid windowsServiceAccount; use LocalService or LocalSystem`);
+  }
+
   const scriptField = app.script ?? app.file;
   if (!scriptField) {
     throw new Error(
@@ -221,5 +229,6 @@ function mapAppToBS9(app: PM2AppConfig, idx: number, configPath: string): BS9App
     host,
     env: env.length > 0 ? env : undefined,
     interpreter: typeof app.interpreter === "string" ? app.interpreter : undefined,
+    windowsServiceAccount: app.windowsServiceAccount,
   };
 }

@@ -13,6 +13,7 @@ import { execSync } from "node:child_process";
 import { join } from "node:path";
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { getPlatformInfo, initializePlatformDirectories } from "../platform/detect.js";
+import { securePrivateFile } from "../utils/private-files.js";
 
 interface ResurrectOptions {
   all?: boolean;
@@ -64,6 +65,7 @@ export async function resurrectCommand(name: string, options: ResurrectOptions):
       }
 
       // Load backup configuration
+      securePrivateFile(backupFile);
       const backupConfig = JSON.parse(readFileSync(backupFile, 'utf8'));
 
       // Check if the file exists
@@ -143,6 +145,7 @@ async function resurrectAllServices(platformInfo: any, options: ResurrectOptions
         try {
           const serviceName = backupFile.replace('.json', '');
           const backupPath = join(platformInfo.backupDir, backupFile);
+          securePrivateFile(backupPath);
           const backupConfig = JSON.parse(readFileSync(backupPath, 'utf8'));
 
           // Restore service using backup configuration

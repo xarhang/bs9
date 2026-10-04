@@ -414,6 +414,12 @@ bs9 web status
 bs9 web stop
 ```
 
+Browser mutations and WebSocket connections require a matching `Origin`. The
+default loopback listener accepts its `localhost`, `127.0.0.1`, and `::1`
+aliases on the configured port. When serving the dashboard through TLS or a
+reverse proxy, set `WEB_DASHBOARD_PUBLIC_ORIGIN` to the exact public origin
+(for example, `https://monitor.example.com`) in the dashboard process environment.
+
 ---
 
 ### 17. `bs9 advanced` - Advanced Monitoring Dashboard
@@ -656,6 +662,11 @@ Configures a built-in reverse proxy with round-robin, least-connections, or IP-h
 bs9 loadbalancer start --port 8080 --algorithm round-robin --backends 127.0.0.1:3001,127.0.0.1:3002
 ```
 
+Without `LB_ADMIN_SECRET`, management endpoints accept local CLI requests only.
+For browser or reverse-proxy management, configure `LB_ADMIN_SECRET` and set
+`LB_PUBLIC_ORIGIN` to the exact public origin. The CLI reads the same secret
+from its environment; use a secret manager for production deployments.
+
 ---
 
 ### 32. `bs9 dbpool` - Database Connection Pool Testing
@@ -664,7 +675,17 @@ Tests and benchmarks database connection pools under concurrent query stress.
 
 ```bash
 bs9 dbpool test --host localhost --port 5432 --database prod --username app --max-connections 20
+
+# Use verified TLS with operating-system trusted CAs
+bs9 dbpool test --host db.example.com --database prod --username app --ssl
+
+# Use a private CA and a certificate name different from the connection host
+bs9 dbpool test --host 10.0.0.12 --database prod --username app --ssl --ssl-ca ./db-ca.pem --ssl-server-name db.example.com
 ```
+
+When `--ssl` is enabled, certificate verification remains on. Use `--ssl-ca`
+for a private certificate authority; do not disable verification to work around
+an untrusted or name-mismatched certificate.
 
 ---
 
@@ -729,11 +750,14 @@ bs9 inspect --deep --report json
 
 ### 37. `bs9 windows` - Windows Service Management
 
-Direct Windows service manager actions (`create`, `start`, `stop`, `restart`, `delete`, `status`).
+Direct Windows service manager actions (`create`, `start`, `stop`, `restart`, `delete`, `account`, `status`). Newly created native services default to `LocalService`; choose `LocalSystem` only when the application depends on its broader permissions.
 
 ```bash
 bs9 windows create --name MyService --file C:\apps\app.ts
 bs9 windows status --name MyService
+
+# Explicitly migrate an existing native service after validating its file/profile/network ACLs
+bs9 windows account --name MyService --service-account LocalService
 ```
 
 ---

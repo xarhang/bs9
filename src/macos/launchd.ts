@@ -10,9 +10,10 @@
  */
 
 import { execSync, spawnSync } from "node:child_process";
-import { existsSync, writeFileSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, unlinkSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { getPlatformInfo } from "../platform/detect.js";
+import { ensurePrivateDirectory, securePrivateFile, writePrivateFile } from "../utils/private-files.js";
 
 export function isValidServiceName(name: string): boolean {
   const clean = name.replace(/^bs9\./, '');
@@ -20,7 +21,7 @@ export function isValidServiceName(name: string): boolean {
   return validPattern.test(clean) && clean.length <= 64 && !clean.includes('..') && !clean.includes('/');
 }
 
-interface LaunchdServiceConfig {
+export interface LaunchdServiceConfig {
   label: string;
   programArguments: string[];
   workingDirectory: string;
@@ -30,6 +31,75 @@ interface LaunchdServiceConfig {
   standardOutPath?: string;
   standardErrorPath?: string;
   startInterval?: number;
+}
+
+/** Escape XML text and reject characters forbidden by XML 1.0. */
+export function escapePlistXmlText(value: string): string {
+  for (const character of value) {
+    const codePoint = character.codePointAt(0)!;
+    const valid = codePoint === 0x9 || codePoint === 0xa || codePoint === 0xd ||
+      (codePoint >= 0x20 && codePoint <= 0xd7ff) ||
+      (codePoint >= 0xe000 && codePoint <= 0xfffd) ||
+      (codePoint >= 0x10000 && codePoint <= 0x10ffff);
+    if (!valid) throw new Error("Launchd plist contains a character forbidden by XML 1.0");
+  }
+
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+/** Serialize the launchd configuration as valid XML plist text. */
+export function generateLaunchdPlist(config: LaunchdServiceConfig): string {
+  const plistContent: Record<string, unknown> = {
+    Label: config.label,
+    ProgramArguments: config.programArguments,
+    WorkingDirectory: config.workingDirectory,
+    EnvironmentVariables: config.environmentVariables,
+    RunAtLoad: config.runAtLoad,
+    KeepAlive: config.keepAlive,
+    StandardOutPath: config.standardOutPath,
+    StandardErrorPath: config.standardErrorPath,
+    StartInterval: config.startInterval,
+  };
+
+  const entries = Object.entries(plistContent).filter(([, value]) => value !== undefined).map(([key, value]) => {
+    const xmlKey = escapePlistXmlText(key);
+    if (typeof value === "boolean") {
+      return `    <key>${xmlKey}</key>\n    <${value ? "true" : "false"}/>`;
+    }
+    if (typeof value === "number" && Number.isFinite(value)) {
+      if (!Number.isSafeInteger(value) || value < 1) {
+        throw new Error(`Invalid integer plist value for ${key}`);
+      }
+      return `    <key>${xmlKey}</key>\n    <integer>${value}</integer>`;
+    }
+    if (typeof value === "string") {
+      return `    <key>${xmlKey}</key>\n    <string>${escapePlistXmlText(value)}</string>`;
+    }
+    if (Array.isArray(value)) {
+      const items = value.map((item) => `        <string>${escapePlistXmlText(String(item))}</string>`).join("\n");
+      return `    <key>${xmlKey}</key>\n    <array>\n${items}\n    </array>`;
+    }
+    if (typeof value === "object" && value !== null) {
+      const items = Object.entries(value as Record<string, unknown>).map(([key, item]) =>
+        `        <key>${escapePlistXmlText(key)}</key>\n        <string>${escapePlistXmlText(String(item))}</string>`
+      ).join("\n");
+      return `    <key>${xmlKey}</key>\n    <dict>\n${items}\n    </dict>`;
+    }
+    return "";
+  }).filter(Boolean).join("\n");
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+${entries}
+</dict>
+</plist>`;
 }
 
 interface LaunchdServiceStatus {
@@ -52,74 +122,43 @@ class LaunchdServiceManager {
   }
   
   private ensureDirectories(): void {
-    if (!existsSync(this.launchAgentsDir)) {
-      mkdirSync(this.launchAgentsDir, { recursive: true });
-    }
-    
     const configDir = dirname(this.configPath);
-    if (!existsSync(configDir)) {
-      mkdirSync(configDir, { recursive: true });
+    const backupDir = getPlatformInfo().backupDir;
+    ensurePrivateDirectory(this.launchAgentsDir);
+    ensurePrivateDirectory(configDir);
+    if (existsSync(this.configPath)) securePrivateFile(this.configPath);
+    for (const file of readdirSync(this.launchAgentsDir)) {
+      if (!file.startsWith("bs9.") || !file.endsWith(".plist")) continue;
+      const label = file.slice(0, -".plist".length);
+      if (isValidServiceName(label)) securePrivateFile(join(this.launchAgentsDir, file));
+    }
+    if (existsSync(backupDir)) {
+      ensurePrivateDirectory(backupDir);
+      for (const file of readdirSync(backupDir)) {
+        if (file.startsWith("bs9.") && file.endsWith(".plist")) {
+          securePrivateFile(join(backupDir, file));
+        }
+      }
     }
   }
   
   private loadConfigs(): Record<string, LaunchdServiceConfig> {
+    if (!existsSync(this.configPath)) return {};
+
+    securePrivateFile(this.configPath);
+    let configs: Record<string, LaunchdServiceConfig>;
     try {
-      if (existsSync(this.configPath)) {
-        const content = readFileSync(this.configPath, 'utf-8');
-        return JSON.parse(content);
-      }
+      configs = JSON.parse(readFileSync(this.configPath, 'utf-8'));
     } catch (error) {
       console.warn('Failed to load launchd configs:', error);
+      return {};
     }
-    return {};
+
+    return configs;
   }
   
   private saveConfigs(configs: Record<string, LaunchdServiceConfig>): void {
-    try {
-      writeFileSync(this.configPath, JSON.stringify(configs, null, 2));
-    } catch (error) {
-      console.error('Failed to save launchd configs:', error);
-    }
-  }
-  
-  private generatePlist(config: LaunchdServiceConfig): string {
-    const plistContent = {
-      Label: config.label,
-      ProgramArguments: config.programArguments,
-      WorkingDirectory: config.workingDirectory,
-      EnvironmentVariables: config.environmentVariables,
-      RunAtLoad: config.runAtLoad,
-      KeepAlive: config.keepAlive,
-      StandardOutPath: config.standardOutPath,
-      StandardErrorPath: config.standardErrorPath,
-      StartInterval: config.startInterval
-    };
-    
-    // Remove undefined values
-    Object.keys(plistContent).forEach(key => {
-      if ((plistContent as any)[key] === undefined) {
-        delete (plistContent as any)[key];
-      }
-    });
-    
-    return `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-${Object.entries(plistContent).map(([key, value]) => {
-  if (typeof value === 'boolean') {
-    return `    <key>${key}</key>\n    <${value ? 'true' : 'false'}/>`;
-  } else if (typeof value === 'string') {
-    return `    <key>${key}</key>\n    <string>${value}</string>`;
-  } else if (Array.isArray(value)) {
-    return `    <key>${key}</key>\n    <array>\n${value.map(item => `        <string>${item}</string>`).join('\n')}\n    </array>`;
-  } else if (typeof value === 'object' && value !== null) {
-    return `    <key>${key}</key>\n    <dict>\n${Object.entries(value).map(([k, v]) => `        <key>${k}</key>\n        <string>${v}</string>`).join('\n')}\n    </dict>`;
-  }
-  return '';
-}).join('\n')}
-</dict>
-</plist>`;
+    writePrivateFile(this.configPath, JSON.stringify(configs, null, 2));
   }
   
   async createService(config: LaunchdServiceConfig): Promise<void> {
@@ -133,7 +172,7 @@ ${Object.entries(plistContent).map(([key, value]) => {
     
     // Generate plist file
     const plistPath = join(this.launchAgentsDir, `${config.label}.plist`);
-    writeFileSync(plistPath, this.generatePlist(config));
+    writePrivateFile(plistPath, generateLaunchdPlist(config));
     
     try {
       // Load the service
@@ -272,6 +311,9 @@ ${Object.entries(plistContent).map(([key, value]) => {
   }
   
   async enableAutoStart(label: string): Promise<void> {
+    if (!isValidServiceName(label)) {
+      throw new Error(`Security: Invalid service label: ${label}`);
+    }
     const configs = this.loadConfigs();
     const config = configs[label];
     
@@ -285,7 +327,7 @@ ${Object.entries(plistContent).map(([key, value]) => {
     
     // Update plist file
     const plistPath = join(this.launchAgentsDir, `${label}.plist`);
-    writeFileSync(plistPath, this.generatePlist(config));
+    writePrivateFile(plistPath, generateLaunchdPlist(config));
     
     // Reload service
     try {
@@ -315,7 +357,7 @@ ${Object.entries(plistContent).map(([key, value]) => {
     
     // Update plist file
     const plistPath = join(this.launchAgentsDir, `${label}.plist`);
-    writeFileSync(plistPath, this.generatePlist(config));
+    writePrivateFile(plistPath, generateLaunchdPlist(config));
     
     // Reload service
     try {
@@ -442,13 +484,17 @@ export async function launchdCommand(action: string, options: any): Promise<void
         
       case 'save':
         if (options.name) {
+          if (!isValidServiceName(options.name)) {
+            throw new Error(`Security: Invalid service name: ${options.name}`);
+          }
           const platformInfo = getPlatformInfo();
           const plistFile = join(platformInfo.serviceDir, `${options.name}.plist`);
           if (existsSync(plistFile)) {
+            securePrivateFile(plistFile);
             const plistContent = readFileSync(plistFile, 'utf-8');
             const backupFile = join(platformInfo.backupDir, `${options.name}.plist`);
-            if (!existsSync(platformInfo.backupDir)) mkdirSync(platformInfo.backupDir, { recursive: true });
-            writeFileSync(backupFile, plistContent);
+            ensurePrivateDirectory(platformInfo.backupDir);
+            writePrivateFile(backupFile, plistContent);
             console.log(`💾 Service '${options.name}' saved to backup`);
           } else {
             console.warn(`⚠️ No plist found for '${options.name}' to save`);
@@ -458,12 +504,17 @@ export async function launchdCommand(action: string, options: any): Promise<void
 
       case 'resurrect':
         if (options.name) {
+          if (!isValidServiceName(options.name)) {
+            throw new Error(`Security: Invalid service name: ${options.name}`);
+          }
           const platformInfo = getPlatformInfo();
           const backupFile = join(platformInfo.backupDir, `${options.name}.plist`);
           if (existsSync(backupFile)) {
+            ensurePrivateDirectory(platformInfo.backupDir);
+            securePrivateFile(backupFile);
             const plistContent = readFileSync(backupFile, 'utf-8');
             const plistFile = join(platformInfo.serviceDir, `${options.name}.plist`);
-            writeFileSync(plistFile, plistContent);
+            writePrivateFile(plistFile, plistContent);
             await manager.startService(options.name);
             console.log(`✅ Service '${options.name}' resurrected from backup`);
           } else {

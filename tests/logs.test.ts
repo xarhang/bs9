@@ -8,11 +8,17 @@
  */
 
 import { describe, it, expect, spyOn } from "bun:test";
-import { logsCommand } from "../src/commands/logs.js";
+import { getNativeWindowsServiceLogDir, logsCommand } from "../src/commands/logs.js";
 
 describe("Logs Command", () => {
   it("should be exported as a function", () => {
     expect(typeof logsCommand).toBe("function");
+  });
+
+  it("resolves isolated native Windows service logs and rejects unsafe service names", () => {
+    expect(getNativeWindowsServiceLogDir("BS9_Api", "C:\\ProgramData"))
+      .toBe("C:\\ProgramData\\BS9\\services\\BS9_Api\\.bs9\\logs");
+    expect(getNativeWindowsServiceLogDir("..\\other", "C:\\ProgramData")).toBeNull();
   });
 
   it("should handle non-existent service gracefully without throwing uncaught error", async () => {

@@ -69,6 +69,8 @@ export class ControllerAdminClient extends EventEmitter {
   private pendingRequests: Map<string, PendingRequest> = new Map();
   private isConnected = false;
   private isAuthenticated = false;
+  /** Last failed handshake classification for callers that must distinguish a stopped daemon from an ambiguous failure. */
+  public lastConnectFailure: "stopped" | "ambiguous" | null = null;
 
   constructor(options: AdminClientOptions = {}) {
     super();
@@ -89,6 +91,7 @@ export class ControllerAdminClient extends EventEmitter {
 
   public async connect(timeoutMs = 5000): Promise<boolean> {
     if (this.isConnected && this.isAuthenticated) return true;
+    this.lastConnectFailure = null;
 
     return new Promise((resolve, reject) => {
       try {
@@ -98,6 +101,7 @@ export class ControllerAdminClient extends EventEmitter {
         let authTimeout: any = null;
 
         const onConnectTimeout = setTimeout(() => {
+          this.lastConnectFailure = "ambiguous";
           this.disconnect();
           resolve(false);
         }, timeoutMs);
@@ -133,9 +137,10 @@ export class ControllerAdminClient extends EventEmitter {
           this.emit("close");
         });
 
-        sock.on("error", () => {
+        sock.on("error", (err: NodeJS.ErrnoException) => {
           clearTimeout(onConnectTimeout);
           if (authTimeout) clearTimeout(authTimeout);
+          this.lastConnectFailure = err.code === "ENOENT" || err.code === "ECONNREFUSED" ? "stopped" : "ambiguous";
           this.cleanup();
           resolve(false);
         });
@@ -298,8 +303,8 @@ export class ControllerAdminClient extends EventEmitter {
     return res.found && res.manifest ? res.manifest : null;
   }
 
-  public async deleteManifest(clusterName: string): Promise<boolean> {
-    const res = await this.sendRequest<AdminDeleteManifestResponsePayload>("ADMIN_DELETE_MANIFEST", { clusterName });
+  public async deleteManifest(clusterName: string, lockToken?: string): Promise<boolean> {
+    const res = await this.sendRequest<AdminDeleteManifestResponsePayload>("ADMIN_DELETE_MANIFEST", { clusterName, lockToken });
     return res.deleted;
   }
 
@@ -488,7 +493,8 @@ export class ClusterLockSession {
 
   public async release(): Promise<boolean> {
     this.stop();
-    if (this.aborted) return false;
+    // Renewal can fail transiently after the controller extended the lease.
+    // Unlock is token-checked, so always attempt it even after local loss.
     try {
       return await this.adminClient.unlockCluster(this.clusterName, this.lockToken);
     } catch {

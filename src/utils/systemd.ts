@@ -10,6 +10,7 @@
 import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { ensurePrivateDirectory, securePrivateFile } from "./private-files.js";
 
 /**
  * Escapes a string value for safe inclusion inside a systemd double-quoted string.
@@ -22,8 +23,13 @@ export function escapeSystemdValue(val: string): string {
   }
   // Strip all CR and LF to prevent directive injection
   const noNewlines = val.replace(/[\r\n]+/g, " ");
-  // Escape backslash first, then double quote
-  return noNewlines.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  // Escape backslash and quote for the unit parser. Double percent signs so
+  // systemd does not expand a literal value as a unit specifier (for example
+  // `%h` in an environment value or application path).
+  return noNewlines
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/%/g, "%%");
 }
 
 /**
@@ -45,10 +51,11 @@ export function escapeSystemdArg(arg: string): string {
     arg = String(arg ?? "");
   }
   const noNewlines = arg.replace(/[\r\n]+/g, " ");
+  const escaped = escapeSystemdValue(noNewlines);
   if (!/[\s"'\\]/.test(noNewlines)) {
-    return noNewlines;
+    return escaped;
   }
-  return `"${escapeSystemdValue(noNewlines)}"`;
+  return `"${escaped}"`;
 }
 
 /**
@@ -67,6 +74,11 @@ export function formatSystemdExecStart(executable: string, args: string[] = []):
 export function startUserSystemdUnit(unitPath: string, unitName: string): void {
   const absoluteUnitPath = resolve(unitPath);
   const defaultUnitDir = resolve(join(homedir(), ".config", "systemd", "user"));
+
+  if (process.platform === "linux") {
+    ensurePrivateDirectory(dirname(absoluteUnitPath));
+    securePrivateFile(absoluteUnitPath);
+  }
 
   if (resolve(dirname(absoluteUnitPath)) !== defaultUnitDir) {
     execFileSync("systemctl", ["--user", "link", "--force", absoluteUnitPath], {

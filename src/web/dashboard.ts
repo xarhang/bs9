@@ -149,22 +149,79 @@ export function escapeHtml(str: unknown): string {
     .replace(/'/g, "&#39;");
 }
 
-export function isOriginAllowed(originHeader: string | null, hostHeader: string | null): boolean {
-  if (!originHeader) return true;
+function normalizeOrigin(value: string): string | null {
   try {
-    const originUrl = new URL(originHeader);
-    const host = hostHeader || "";
-    const hostName = host.split(":")[0];
-    return (
-      originUrl.host === host ||
-      originUrl.hostname === hostName ||
-      originUrl.hostname === "localhost" ||
-      originUrl.hostname === "127.0.0.1" ||
-      originUrl.hostname === "::1"
-    );
+    const url = new URL(value);
+    if ((url.protocol !== "http:" && url.protocol !== "https:") ||
+        url.username || url.password || url.pathname !== "/" || url.search || url.hash) {
+      return null;
+    }
+    return url.origin;
   } catch {
-    return false;
+    return null;
   }
+}
+
+export function isOriginAllowed(originHeader: string | null, expectedOrigin: string | null): boolean {
+  if (!originHeader || !expectedOrigin) return false;
+  const origin = normalizeOrigin(originHeader);
+  const expected = normalizeOrigin(expectedOrigin);
+  return origin !== null && expected !== null && origin === expected;
+}
+
+function expectedDashboardOrigin(): string | null {
+  const configuredOrigin = process.env.WEB_DASHBOARD_PUBLIC_ORIGIN;
+  const bindHost = HOST.includes(":") && !HOST.startsWith("[") ? `[${HOST}]` : HOST;
+  // Derive the direct-listener origin from operator-controlled bind settings,
+  // never from the request Host. TLS/reverse-proxy deployments should pin their
+  // externally visible origin with WEB_DASHBOARD_PUBLIC_ORIGIN.
+  return normalizeOrigin(configuredOrigin || `http://${bindHost}:${PORT}`);
+}
+
+function isDashboardOriginAllowed(originHeader: string | null): boolean {
+  if (originHeader === null) return false;
+  const configuredOrigin = process.env.WEB_DASHBOARD_PUBLIC_ORIGIN;
+  const expected = expectedDashboardOrigin();
+  if (!expected) return false;
+  if (configuredOrigin) return isOriginAllowed(originHeader, expected);
+
+  const requestOrigin = normalizeOrigin(originHeader);
+  if (requestOrigin === null) return false;
+  if (requestOrigin === expected) return true;
+
+  // A loopback-only dashboard is often opened through either localhost or its
+  // numeric loopback address. Treat those aliases as the same local endpoint
+  // while keeping the scheme and port fixed. Public/reverse-proxy deployments
+  // must still pin one exact WEB_DASHBOARD_PUBLIC_ORIGIN above.
+  const normalizedHost = (host: string) => host.toLowerCase().replace(/^\[|\]$/g, "");
+  const loopbackHosts = new Set(["localhost", "127.0.0.1", "::1"]);
+  if (!loopbackHosts.has(normalizedHost(HOST))) return false;
+
+  const expectedUrl = new URL(expected);
+  const requestUrl = new URL(requestOrigin);
+  return requestUrl.protocol === expectedUrl.protocol &&
+    requestUrl.port === expectedUrl.port &&
+    loopbackHosts.has(normalizedHost(requestUrl.hostname));
+}
+
+function hasBrowserRequestHeaders(req: Request): boolean {
+  return req.headers.has("Sec-Fetch-Site") ||
+    req.headers.has("Sec-Fetch-Mode") ||
+    req.headers.has("Sec-Fetch-Dest");
+}
+
+function isCookieAuthorized(req: Request): boolean {
+  if (!SESSION_TOKEN) return false;
+  const cookies = parseCookies(req.headers.get("Cookie"));
+  return Boolean(cookies["bs9_session"] && safeCompare(cookies["bs9_session"], SESSION_TOKEN));
+}
+
+function isMutationOriginAllowed(req: Request): boolean {
+  const origin = req.headers.get("Origin");
+  if (origin !== null) return isDashboardOriginAllowed(origin);
+  // Cookie sessions are browser credentials. Missing-Origin legacy API clients
+  // remain usable with Bearer auth when they do not send browser fetch metadata.
+  return !isCookieAuthorized(req) && !hasBrowserRequestHeaders(req);
 }
 
 export function safeCompare(a: string, b: string): boolean {
@@ -448,10 +505,16 @@ export function startDashboardServer() {
 
     // --- Authentication: Login ---
     if (url.pathname === "/api/login" && req.method === "POST") {
+      if (!isMutationOriginAllowed(req)) {
+        return new Response(JSON.stringify({ error: "Forbidden: invalid or missing browser Origin" }), {
+          status: 403,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
       try {
         const body = await req.json() as { token?: string };
         if (body.token && safeCompare(body.token, SESSION_TOKEN)) {
-          const isHttps = url.protocol === "https:";
+          const isHttps = expectedDashboardOrigin()?.startsWith("https://") || url.protocol === "https:";
           const cookieVal = `bs9_session=${encodeURIComponent(SESSION_TOKEN)}; HttpOnly; SameSite=Strict; Path=/${isHttps ? "; Secure" : ""}; Max-Age=86400`;
           return new Response(JSON.stringify({ ok: true }), {
             headers: {
@@ -471,6 +534,12 @@ export function startDashboardServer() {
 
     // --- Authentication: Logout ---
     if (url.pathname === "/api/logout" && req.method === "POST") {
+      if (!isMutationOriginAllowed(req)) {
+        return new Response(JSON.stringify({ error: "Forbidden: invalid or missing browser Origin" }), {
+          status: 403,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
       return new Response(JSON.stringify({ ok: true }), {
         headers: {
           "Content-Type": "application/json",
@@ -482,9 +551,11 @@ export function startDashboardServer() {
     // --- WebSocket upgrade ---
     if (url.pathname === "/ws") {
       const origin = req.headers.get("origin");
-      const host = req.headers.get("host");
-      if (origin && !isOriginAllowed(origin, host)) {
+      if (origin !== null && !isDashboardOriginAllowed(origin)) {
         return new Response("Forbidden: Cross-origin WebSocket connection denied", { status: 403 });
+      }
+      if (origin === null && (hasBrowserRequestHeaders(req) || isCookieAuthorized(req))) {
+        return new Response("Forbidden: browser WebSocket requests require Origin", { status: 403 });
       }
       if (!isAuthorized(req)) return new Response("Unauthorized", { status: 401 });
       const upgraded = server.upgrade(req);
@@ -512,6 +583,9 @@ export function startDashboardServer() {
     // --- REST: action (restart / stop) ---
     const actionMatch = url.pathname.match(/^\/api\/services\/([^/]+)\/(restart|stop)$/);
     if (actionMatch && req.method === "POST") {
+      if (!isMutationOriginAllowed(req)) {
+        return new Response(JSON.stringify({ error: "Forbidden: invalid or missing browser Origin" }), { status: 403, headers: { "Content-Type": "application/json" } });
+      }
       if (!isAuthorized(req)) {
         return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { "Content-Type": "application/json" } });
       }

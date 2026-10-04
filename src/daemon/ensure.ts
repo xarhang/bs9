@@ -12,11 +12,12 @@
  */
 
 import { spawn } from "node:child_process";
-import { existsSync, writeFileSync, mkdirSync, openSync } from "node:fs";
+import { existsSync, mkdirSync, openSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { getPlatformInfo } from "../platform/detect.js";
 import { ControllerAdminClient } from "../cluster/admin-client.js";
 import { generateSystemdUnit, startUserSystemdUnit } from "../utils/systemd.js";
+import { ensurePrivateDirectory, writePrivateFile } from "../utils/private-files.js";
 
 export interface EnsureDaemonOptions {
   timeoutMs?: number;
@@ -72,7 +73,7 @@ export async function launchSupervisedDaemon(): Promise<void> {
         },
         scriptFile: daemonFile,
         noAutorestart: false,
-      });
+      }, { forceBackground: true });
       await manager.startService("BS9_DAEMON");
       return;
     } catch {
@@ -86,7 +87,7 @@ export async function launchSupervisedDaemon(): Promise<void> {
         const value = process.env[key];
         if (value) daemonEnv[key] = value;
       }
-      mkdirSync(platformInfo.serviceDir, { recursive: true });
+      ensurePrivateDirectory(platformInfo.serviceDir);
       const unitContent = generateSystemdUnit({
         description: "BS9 Unified Persistent Controller and State Hub Daemon",
         workingDir: process.cwd(),
@@ -95,7 +96,7 @@ export async function launchSupervisedDaemon(): Promise<void> {
         env: daemonEnv,
         restartSec: 2,
       });
-      writeFileSync(serviceFile, unitContent, "utf-8");
+      writePrivateFile(serviceFile, unitContent);
       startUserSystemdUnit(serviceFile, "bs9-daemon.service");
       return;
     } catch {

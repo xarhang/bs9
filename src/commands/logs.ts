@@ -25,6 +25,24 @@ function isValidServiceName(name: string): boolean {
   return validPattern.test(name) && name.length <= 64 && !name.includes('..') && !name.includes('/');
 }
 
+export function getNativeWindowsServiceLogDir(serviceName: string, programData = process.env.ProgramData || "C:\\ProgramData"): string | null {
+  if (!isValidServiceName(serviceName)) return null;
+  return join(programData, "BS9", "services", serviceName, ".bs9", "logs");
+}
+
+function getWindowsNativeLogDirectories(programData = process.env.ProgramData || "C:\\ProgramData"): string[] {
+  const servicesRoot = join(programData, "BS9", "services");
+  if (!existsSync(servicesRoot)) return [];
+  try {
+    return readdirSync(servicesRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && isValidServiceName(entry.name))
+      .map((entry) => join(servicesRoot, entry.name, ".bs9", "logs"))
+      .filter((directory) => existsSync(directory));
+  } catch {
+    return [];
+  }
+}
+
 export async function logsCommand(name?: string, options: LogsOptions = {}): Promise<void> {
   const platformInfo = getPlatformInfo();
 
@@ -121,23 +139,37 @@ export async function logsCommand(name?: string, options: LogsOptions = {}): Pro
       }
     }
 
-    let logFile = join(platformInfo.logDir, `${fullName}.out.log`);
-    let errorFile = join(platformInfo.logDir, `${fullName}.err.log`);
-
-    if (!existsSync(logFile) && !existsSync(errorFile)) {
-      const existingFiles = existsSync(platformInfo.logDir) ? readdirSync(platformInfo.logDir) : [];
+    const logDirectories = [platformInfo.logDir];
+    if (platformInfo.isWindows) {
+      const nativeLogDir = getNativeWindowsServiceLogDir(fullName);
+      if (nativeLogDir) logDirectories.push(nativeLogDir);
+    }
+    let logFile = "";
+    let errorFile = "";
+    for (const logDir of logDirectories) {
+      const candidateLog = join(logDir, `${fullName}.out.log`);
+      const candidateError = join(logDir, `${fullName}.err.log`);
+      if (existsSync(candidateLog) || existsSync(candidateError)) {
+        logFile = candidateLog;
+        errorFile = candidateError;
+        break;
+      }
+      const existingFiles = existsSync(logDir) ? readdirSync(logDir) : [];
       const cleanPrefix = fullName.replace(/^(BS9_|bs9\.)/, "");
       const genLogs = existingFiles
         .filter(f => f.includes(cleanPrefix) && (f.endsWith(".out.log") || f.endsWith(".err.log")))
         .sort().reverse();
       const outCandidate = genLogs.find(f => f.endsWith(".out.log"));
       const errCandidate = genLogs.find(f => f.endsWith(".err.log"));
-      if (outCandidate) logFile = join(platformInfo.logDir, outCandidate);
-      if (errCandidate) errorFile = join(platformInfo.logDir, errCandidate);
+      if (outCandidate || errCandidate) {
+        logFile = outCandidate ? join(logDir, outCandidate) : "";
+        errorFile = errCandidate ? join(logDir, errCandidate) : "";
+        break;
+      }
     }
 
     if (!existsSync(logFile) && !existsSync(errorFile)) {
-      console.warn(`⚠️  No log files found for service '${fullName}' in ${platformInfo.logDir}`);
+      console.warn(`⚠️  No log files found for service '${fullName}' in ${logDirectories.join(", ")}`);
       console.log(`💡 Logs are created when the service is started with BS9.`);
       return;
     }
@@ -190,15 +222,19 @@ export async function logsCommand(name?: string, options: LogsOptions = {}): Pro
 }
 
 async function showAllLogs(options: LogsOptions, platformInfo: any): Promise<void> {
-  const logDir = platformInfo.logDir;
-  if (!existsSync(logDir)) {
-    console.log(`📋 No log files found in ${logDir}`);
-    return;
-  }
-
-  const logFiles = readdirSync(logDir).filter(f => f.endsWith(".out.log") || f.endsWith(".err.log"));
+  const logDirectories = [platformInfo.logDir];
+  if (platformInfo.isWindows) logDirectories.push(...getWindowsNativeLogDirectories());
+  const logFiles = logDirectories.flatMap((logDir) => {
+    try {
+      return readdirSync(logDir)
+        .filter(f => f.endsWith(".out.log") || f.endsWith(".err.log"))
+        .map((file) => ({ file, fullPath: join(logDir, file) }));
+    } catch {
+      return [];
+    }
+  });
   if (logFiles.length === 0) {
-    console.log(`📋 No active service logs found in ${logDir}`);
+    console.log(`📋 No active service logs found in ${logDirectories.join(", ")}`);
     return;
   }
 
@@ -208,8 +244,7 @@ async function showAllLogs(options: LogsOptions, platformInfo: any): Promise<voi
   console.log(`📜 Combined Logs for all BS9 Services (last ${count} lines)`);
   console.log(`================================================================================\n`);
 
-  for (const file of logFiles) {
-    const fullPath = join(logDir, file);
+  for (const { file, fullPath } of logFiles) {
     try {
       const content = readFileSync(fullPath, "utf-8");
       const lines = content.split("\n").filter(l => l.trim().length > 0);
@@ -224,8 +259,7 @@ async function showAllLogs(options: LogsOptions, platformInfo: any): Promise<voi
 
   if (options.follow) {
     console.log(`👀 Streaming combined logs... (Ctrl+C to stop)`);
-    for (const file of logFiles) {
-      const fullPath = join(logDir, file);
+    for (const { file, fullPath } of logFiles) {
       let fileSize = readFileSync(fullPath).length;
       watch(fullPath, (event) => {
         if (event === "change") {

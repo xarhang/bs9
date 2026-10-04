@@ -58,6 +58,8 @@ import {
   type ClusterManifestData,
 } from "../hub/protocol.js";
 import { getPlatformInfo } from "../platform/detect.js";
+import { ensurePrivateDirectory, securePrivateFile, writePrivateFile } from "../utils/private-files.js";
+import { withManifestLock } from "../utils/manifest-lock.js";
 
 export interface ClusterLockInfo {
   reason: "reload" | "scale" | "stop" | "manual";
@@ -137,6 +139,11 @@ export class ClusterController extends EventEmitter {
     const tokenFilePath = join(platformInfo.runtimeDir, "tokens", "admin.token");
     if (existsSync(tokenFilePath)) {
       try {
+        if (platformInfo.isLinux) {
+          ensurePrivateDirectory(platformInfo.runtimeDir);
+          ensurePrivateDirectory(join(platformInfo.runtimeDir, "tokens"));
+          securePrivateFile(tokenFilePath);
+        }
         this.adminToken = readFileSync(tokenFilePath, "utf-8").trim();
         return this.adminToken;
       } catch {}
@@ -150,24 +157,34 @@ export class ClusterController extends EventEmitter {
   public getOrCreateAdminToken(explicitToken?: string): { token: string; tokenFilePath: string } {
     const platformInfo = getPlatformInfo();
     const tokensDir = join(platformInfo.runtimeDir, "tokens");
-    if (!existsSync(tokensDir)) {
+    if (platformInfo.isLinux) {
+      ensurePrivateDirectory(platformInfo.runtimeDir);
+      ensurePrivateDirectory(tokensDir);
+    } else if (!existsSync(tokensDir)) {
       mkdirSync(tokensDir, { recursive: true });
     }
 
     const tokenFilePath = join(tokensDir, "admin.token");
+    if (platformInfo.isLinux && existsSync(tokenFilePath)) securePrivateFile(tokenFilePath);
     if (explicitToken) {
       this.adminToken = explicitToken;
-      writeFileSync(tokenFilePath, explicitToken, { encoding: "utf-8", mode: 0o600 });
-      try { chmodSync(tokenFilePath, 0o600); } catch {}
+      if (platformInfo.isLinux) writePrivateFile(tokenFilePath, explicitToken);
+      else {
+        writeFileSync(tokenFilePath, explicitToken, { encoding: "utf-8", mode: 0o600 });
+        try { chmodSync(tokenFilePath, 0o600); } catch {}
+      }
       return { token: explicitToken, tokenFilePath };
     }
 
     if (this.adminToken) {
       if (!existsSync(tokenFilePath)) {
-        try {
-          writeFileSync(tokenFilePath, this.adminToken, { encoding: "utf-8", mode: 0o600 });
-          chmodSync(tokenFilePath, 0o600);
-        } catch {}
+        if (platformInfo.isLinux) writePrivateFile(tokenFilePath, this.adminToken);
+        else {
+          try {
+            writeFileSync(tokenFilePath, this.adminToken, { encoding: "utf-8", mode: 0o600 });
+            chmodSync(tokenFilePath, 0o600);
+          } catch {}
+        }
       }
       return { token: this.adminToken, tokenFilePath };
     }
@@ -184,8 +201,11 @@ export class ClusterController extends EventEmitter {
 
     const token = generateToken();
     this.adminToken = token;
-    writeFileSync(tokenFilePath, token, { encoding: "utf-8", mode: 0o600 });
-    try { chmodSync(tokenFilePath, 0o600); } catch {}
+    if (platformInfo.isLinux) writePrivateFile(tokenFilePath, token);
+    else {
+      writeFileSync(tokenFilePath, token, { encoding: "utf-8", mode: 0o600 });
+      try { chmodSync(tokenFilePath, 0o600); } catch {}
+    }
     return { token, tokenFilePath };
   }
 
@@ -199,15 +219,22 @@ export class ClusterController extends EventEmitter {
 
     const platformInfo = getPlatformInfo();
     const tokensDir = join(platformInfo.runtimeDir, "tokens");
-    if (!existsSync(tokensDir)) {
+    if (platformInfo.isLinux) {
+      ensurePrivateDirectory(platformInfo.runtimeDir);
+      ensurePrivateDirectory(tokensDir);
+    } else if (!existsSync(tokensDir)) {
       mkdirSync(tokensDir, { recursive: true });
     }
     const tokenFilePath = join(tokensDir, `${clusterName}.token`);
+    if (platformInfo.isLinux && existsSync(tokenFilePath)) securePrivateFile(tokenFilePath);
 
     if (explicitToken) {
       this.clusterTokens.set(clusterName, explicitToken);
-      writeFileSync(tokenFilePath, explicitToken, { encoding: "utf-8", mode: 0o600 });
-      try { chmodSync(tokenFilePath, 0o600); } catch {}
+      if (platformInfo.isLinux) writePrivateFile(tokenFilePath, explicitToken);
+      else {
+        writeFileSync(tokenFilePath, explicitToken, { encoding: "utf-8", mode: 0o600 });
+        try { chmodSync(tokenFilePath, 0o600); } catch {}
+      }
       return { token: explicitToken, tokenFilePath };
     }
 
@@ -227,10 +254,11 @@ export class ClusterController extends EventEmitter {
 
     const token = generateToken();
     this.clusterTokens.set(clusterName, token);
-    writeFileSync(tokenFilePath, token, { encoding: "utf-8", mode: 0o600 });
-    try {
-      chmodSync(tokenFilePath, 0o600);
-    } catch {}
+    if (platformInfo.isLinux) writePrivateFile(tokenFilePath, token);
+    else {
+      writeFileSync(tokenFilePath, token, { encoding: "utf-8", mode: 0o600 });
+      try { chmodSync(tokenFilePath, 0o600); } catch {}
+    }
 
     return { token, tokenFilePath };
   }
@@ -247,9 +275,15 @@ export class ClusterController extends EventEmitter {
       return this.clusterTokens.get(clusterName)!;
     }
     const platformInfo = getPlatformInfo();
+    if (platformInfo.isLinux) {
+      ensurePrivateDirectory(platformInfo.runtimeDir);
+      const tokensDir = join(platformInfo.runtimeDir, "tokens");
+      if (existsSync(tokensDir)) ensurePrivateDirectory(tokensDir);
+    }
     const tokenFilePath = join(platformInfo.runtimeDir, "tokens", `${clusterName}.token`);
     if (existsSync(tokenFilePath)) {
       try {
+        if (platformInfo.isLinux) securePrivateFile(tokenFilePath);
         const token = readFileSync(tokenFilePath, "utf-8").trim();
         this.clusterTokens.set(clusterName, token);
         return token;
@@ -361,46 +395,58 @@ export class ClusterController extends EventEmitter {
   }
 
   public setManifest(manifest: ClusterManifestData): void {
-    this.manifests.set(manifest.clusterName, manifest);
     const platformInfo = getPlatformInfo();
-    if (!existsSync(platformInfo.clusterDir)) {
-      mkdirSync(platformInfo.clusterDir, { recursive: true });
-    }
+    if (platformInfo.isLinux) ensurePrivateDirectory(platformInfo.clusterDir);
+    else if (!existsSync(platformInfo.clusterDir)) mkdirSync(platformInfo.clusterDir, { recursive: true });
     const manifestPath = join(platformInfo.clusterDir, `${manifest.clusterName}.manifest.json`);
-    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), { encoding: "utf-8" });
+    withManifestLock(manifestPath, () => {
+      const content = JSON.stringify(manifest, null, 2);
+      if (platformInfo.isLinux) writePrivateFile(manifestPath, content);
+      else writeFileSync(manifestPath, content, { encoding: "utf-8" });
+      this.manifests.set(manifest.clusterName, manifest);
+    });
   }
 
   public getManifest(clusterName: string): ClusterManifestData | undefined {
-    if (this.manifests.has(clusterName)) {
-      return this.manifests.get(clusterName);
-    }
+    const cached = this.manifests.get(clusterName);
     const platformInfo = getPlatformInfo();
+    if (platformInfo.isLinux && existsSync(platformInfo.clusterDir)) {
+      ensurePrivateDirectory(platformInfo.clusterDir);
+    }
     const manifestPath = join(platformInfo.clusterDir, `${clusterName}.manifest.json`);
     if (existsSync(manifestPath)) {
+      if (platformInfo.isLinux) securePrivateFile(manifestPath);
       try {
         const data = JSON.parse(readFileSync(manifestPath, "utf-8")) as ClusterManifestData;
         this.manifests.set(clusterName, data);
         return data;
       } catch {}
     }
-    return undefined;
+    return cached;
   }
 
-  public deleteManifest(clusterName: string): boolean {
-    this.manifests.delete(clusterName);
+  public deleteManifest(clusterName: string, lockToken?: string): boolean {
     const platformInfo = getPlatformInfo();
     const manifestPath = join(platformInfo.clusterDir, `${clusterName}.manifest.json`);
-    if (existsSync(manifestPath)) {
-      try {
+    try {
+      return withManifestLock(manifestPath, () => {
+        const activeLock = this.getClusterLock(clusterName);
+        if (activeLock && activeLock.lockToken !== lockToken) return false;
+        this.manifests.delete(clusterName);
+        if (!existsSync(manifestPath)) return false;
         unlinkSync(manifestPath);
         return true;
-      } catch {}
+      });
+    } catch {
+      return false;
     }
-    return false;
   }
 
   public getAllManifests(): ClusterManifestData[] {
     const platformInfo = getPlatformInfo();
+    if (platformInfo.isLinux && existsSync(platformInfo.clusterDir)) {
+      ensurePrivateDirectory(platformInfo.clusterDir);
+    }
     if (existsSync(platformInfo.clusterDir)) {
       try {
         const files = readdirSync(platformInfo.clusterDir);
@@ -410,7 +456,10 @@ export class ClusterController extends EventEmitter {
             this.getManifest(clusterName);
           }
         }
-      } catch {}
+      } catch (error) {
+        console.warn(`[ClusterController] Failed to secure or load cluster manifests from ${platformInfo.clusterDir}: ${(error as Error).message}`);
+        throw error;
+      }
     }
     return Array.from(this.manifests.values());
   }
@@ -797,7 +846,7 @@ export class ClusterController extends EventEmitter {
 
       case "ADMIN_DELETE_MANIFEST": {
         const payload = envelope.payload as AdminDeleteManifestPayload;
-        const deleted = this.deleteManifest(payload.clusterName);
+        const deleted = this.deleteManifest(payload.clusterName, payload.lockToken);
         const resEnv = createEnvelope<AdminDeleteManifestResponsePayload>(
           "ADMIN_DELETE_MANIFEST_RESPONSE",
           "system",

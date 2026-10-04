@@ -171,33 +171,63 @@ export class ClusterReconciler extends EventEmitter {
 
           if (!hasAliveWorker) {
             this.missingSince.delete(slotKey);
-            // Identify highest seen generation across manifest, slot workers, and in-flight tracking
-            const knownGens = [
-              manifest.currentGeneration ?? 1,
-              ...slotWorkers.map((w) => w.generation),
-            ];
-            if (inFlight?.nextGen) {
-              knownGens.push(inFlight.nextGen);
-            }
-            const highestGen = Math.max(...knownGens);
-            const nextGen = highestGen + 1;
+            const lock = this.controller.lockCluster(clusterName, "manual", 120_000, `reconciler:${slot}`);
+            if (!lock.acquired || !lock.lockToken) continue;
 
-            // Atomically update and persist manifest currentGeneration
-            manifest.currentGeneration = nextGen;
-            manifest.updatedAt = Date.now();
-            this.controller.setManifest(manifest);
-
-            this.emit("slot:missing", { clusterName, slot, nextGen });
-
-            if (this.onResurrectSlot) {
-              this.inFlightResurrections.set(slotKey, { nextGen, timestamp: Date.now() });
-              try {
-                await this.onResurrectSlot(manifest, slot, nextGen);
-                this.emit("slot:resurrected", { clusterName, slot, nextGen });
-              } catch (err) {
-                this.inFlightResurrections.delete(slotKey);
-                this.emit("slot:resurrect-failed", { clusterName, slot, nextGen, error: err });
+            const lockToken = lock.lockToken;
+            let lockLost = false;
+            const renewalTimer = setInterval(() => {
+              if (!this.controller.renewClusterLock(clusterName, lockToken, 120_000).renewed) {
+                lockLost = true;
               }
+            }, 30_000);
+            try {
+              // Re-read under the cluster lock. The outer manifest snapshot may
+              // predate a concurrent account migration or lifecycle mutation.
+              const latestManifest = this.controller.getManifest(clusterName);
+              if (!latestManifest) continue;
+              const latestSlotWorkers = this.controller.getClusterWorkers(clusterName)
+                .filter((worker) => worker.slot === slot);
+              if (latestSlotWorkers.some((worker) =>
+                worker.status === "ready" || worker.status === "connected" || worker.status === "draining"
+              )) {
+                continue;
+              }
+
+              const latestInFlight = this.inFlightResurrections.get(slotKey);
+              if (latestInFlight && Date.now() - latestInFlight.timestamp < 20_000) continue;
+              const knownGens = [
+                latestManifest.currentGeneration ?? 1,
+                ...latestSlotWorkers.map((worker) => worker.generation),
+              ];
+              if (latestInFlight?.nextGen) knownGens.push(latestInFlight.nextGen);
+              if (inFlight?.nextGen) knownGens.push(inFlight.nextGen);
+              const nextGen = Math.max(...knownGens) + 1;
+
+              if (lockLost || !this.controller.renewClusterLock(clusterName, lockToken, 120_000).renewed) {
+                lockLost = true;
+                continue;
+              }
+              latestManifest.currentGeneration = nextGen;
+              latestManifest.updatedAt = Date.now();
+              this.controller.setManifest(latestManifest);
+              manifest.currentGeneration = nextGen;
+              manifest.updatedAt = latestManifest.updatedAt;
+
+              this.emit("slot:missing", { clusterName, slot, nextGen });
+              if (this.onResurrectSlot) {
+                this.inFlightResurrections.set(slotKey, { nextGen, timestamp: Date.now() });
+                try {
+                  await this.onResurrectSlot(latestManifest, slot, nextGen);
+                  this.emit("slot:resurrected", { clusterName, slot, nextGen });
+                } catch (err) {
+                  this.inFlightResurrections.delete(slotKey);
+                  this.emit("slot:resurrect-failed", { clusterName, slot, nextGen, error: err });
+                }
+              }
+            } finally {
+              clearInterval(renewalTimer);
+              this.controller.unlockCluster(clusterName, lockToken);
             }
           }
         }
