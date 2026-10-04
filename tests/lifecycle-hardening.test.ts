@@ -24,7 +24,7 @@ afterEach(() => {
 
 describe("production lifecycle serialization and credential handling", () => {
   it("formats Linux ExecStart and environment values with spaces, quotes, backslashes, and percent specifiers", () => {
-    const file = "D:\\Application Space\\api file.ts";
+    const file = "/tmp/Application Space/api file.ts";
     const unit = generateLinuxServiceUnit({
       serviceName: "api",
       fullPath: file,
@@ -39,8 +39,7 @@ describe("production lifecycle serialization and credential handling", () => {
     expect(unit).toContain("\"" + file.replace(/\\/g, "\\\\") + "\"");
     const expectedEnvironment = "Environment=\"DB_PASSWORD=one two%%h " + "'quoted'" + " \\\"value\\\"\"";
     expect(unit).toContain(expectedEnvironment);
-    expect(unit).toContain("WorkingDirectory=\"D:");
-    expect(unit).toContain("Application Space\"");
+    expect(unit).toContain('WorkingDirectory="/tmp/Application Space"');
   });
 
   it("rejects malformed or directive-injection environment assignments", () => {

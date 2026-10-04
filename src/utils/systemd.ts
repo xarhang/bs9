@@ -71,7 +71,11 @@ export function formatSystemdExecStart(executable: string, args: string[] = []):
  * files outside systemd's normal ~/.config/systemd/user search path, so those
  * units must first be linked explicitly.
  */
-export function startUserSystemdUnit(unitPath: string, unitName: string): void {
+export function startUserSystemdUnit(
+  unitPath: string,
+  unitName: string,
+  options: { enable?: boolean } = {},
+): void {
   const absoluteUnitPath = resolve(unitPath);
   const defaultUnitDir = resolve(join(homedir(), ".config", "systemd", "user"));
 
@@ -80,14 +84,30 @@ export function startUserSystemdUnit(unitPath: string, unitName: string): void {
     securePrivateFile(absoluteUnitPath);
   }
 
-  if (resolve(dirname(absoluteUnitPath)) !== defaultUnitDir) {
-    execFileSync("systemctl", ["--user", "link", "--force", absoluteUnitPath], {
-      stdio: "ignore",
-    });
+  for (const [command, ...args] of getUserSystemdUnitCommandSequence(
+    absoluteUnitPath,
+    unitName,
+    defaultUnitDir,
+    options.enable === true,
+  )) {
+    execFileSync(command, args, { stdio: "ignore" });
   }
+}
 
-  execFileSync("systemctl", ["--user", "daemon-reload"], { stdio: "ignore" });
-  execFileSync("systemctl", ["--user", "start", unitName], { stdio: "ignore" });
+export function getUserSystemdUnitCommandSequence(
+  absoluteUnitPath: string,
+  unitName: string,
+  defaultUnitDir: string,
+  enable = false,
+): string[][] {
+  const commands: string[][] = [];
+  if (resolve(dirname(absoluteUnitPath)) !== resolve(defaultUnitDir)) {
+    commands.push(["systemctl", "--user", "link", "--force", absoluteUnitPath]);
+  }
+  commands.push(["systemctl", "--user", "daemon-reload"]);
+  if (enable) commands.push(["systemctl", "--user", "enable", unitName]);
+  commands.push(["systemctl", "--user", "start", unitName]);
+  return commands;
 }
 
 /**

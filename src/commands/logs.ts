@@ -11,7 +11,7 @@
 
 import { execSync, spawn, spawnSync } from "node:child_process";
 import { getPlatformInfo } from "../platform/detect.js";
-import { join } from "node:path";
+import { join, win32 } from "node:path";
 import { existsSync, readFileSync, readdirSync, watch } from "node:fs";
 import { listServices } from "../utils/service-discovery.js";
 
@@ -27,16 +27,16 @@ function isValidServiceName(name: string): boolean {
 
 export function getNativeWindowsServiceLogDir(serviceName: string, programData = process.env.ProgramData || "C:\\ProgramData"): string | null {
   if (!isValidServiceName(serviceName)) return null;
-  return join(programData, "BS9", "services", serviceName, ".bs9", "logs");
+  return win32.join(programData, "BS9", "services", serviceName, ".bs9", "logs");
 }
 
 function getWindowsNativeLogDirectories(programData = process.env.ProgramData || "C:\\ProgramData"): string[] {
-  const servicesRoot = join(programData, "BS9", "services");
+  const servicesRoot = win32.join(programData, "BS9", "services");
   if (!existsSync(servicesRoot)) return [];
   try {
     return readdirSync(servicesRoot, { withFileTypes: true })
       .filter((entry) => entry.isDirectory() && isValidServiceName(entry.name))
-      .map((entry) => join(servicesRoot, entry.name, ".bs9", "logs"))
+      .map((entry) => win32.join(servicesRoot, entry.name, ".bs9", "logs"))
       .filter((directory) => existsSync(directory));
   } catch {
     return [];

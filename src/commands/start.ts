@@ -567,16 +567,16 @@ async function createLinuxService(serviceName: string, execPath: string, host: s
       // First time: Create service file
       writePrivateFile(unitPath, unitContent);
       console.log(`✅ Systemd user unit written to: ${unitPath}`);
-      const enableResult = spawnSync("systemctl", ["--user", "enable", serviceName]);
-      assertSystemctlSuccess(enableResult, `enable ${serviceName}`);
-      console.log(`🔧 Service '${serviceName}' created and enabled`);
     } else {
       securePrivateFile(unitPath);
       console.log(`📋 Service '${serviceName}' already exists, starting...`);
     }
 
-    // Always start the service (handles daemon-reload + optional link)
-    startUserSystemdUnit(unitPath, `${serviceName}.service`);
+    // Link custom BS9_HOME units before enabling them, then reload systemd and
+    // make them persistent before start. `systemctl enable` cannot resolve a
+    // unit that only exists outside systemd's normal user-unit search path.
+    startUserSystemdUnit(unitPath, `${serviceName}.service`, { enable: !serviceExists });
+    if (!serviceExists) console.log(`🔧 Service '${serviceName}' created and enabled`);
 
     console.log(`Service '${serviceName}' started successfully`);
     console.log(`   Health: ${protocol}://${host}:${port}/healthz`);

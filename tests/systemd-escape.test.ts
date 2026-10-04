@@ -5,6 +5,7 @@ import {
   escapeSystemdArg,
   formatSystemdExecStart,
   generateSystemdUnit,
+  getUserSystemdUnitCommandSequence,
 } from "../src/utils/systemd.js";
 
 describe("Systemd Unit Escaping & Injection Prevention", () => {
@@ -58,5 +59,27 @@ describe("Systemd Unit Escaping & Injection Prevention", () => {
     expect(unit).toContain('Environment="SECRET=foo\\"bar baz"');
     expect(unit).toContain('Environment="NODE_ENV=production"');
     expect(unit).toContain("RestartSec=5\n");
+  });
+
+  it("links custom unit paths before enabling and starting their service", () => {
+    expect(getUserSystemdUnitCommandSequence(
+      "/srv/bs9/services/api.service",
+      "api.service",
+      "/home/user/.config/systemd/user",
+      true,
+    )).toEqual([
+      ["systemctl", "--user", "link", "--force", "/srv/bs9/services/api.service"],
+      ["systemctl", "--user", "daemon-reload"],
+      ["systemctl", "--user", "enable", "api.service"],
+      ["systemctl", "--user", "start", "api.service"],
+    ]);
+    expect(getUserSystemdUnitCommandSequence(
+      "/home/user/.config/systemd/user/api.service",
+      "api.service",
+      "/home/user/.config/systemd/user",
+    )).toEqual([
+      ["systemctl", "--user", "daemon-reload"],
+      ["systemctl", "--user", "start", "api.service"],
+    ]);
   });
 });

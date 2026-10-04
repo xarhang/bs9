@@ -12,7 +12,7 @@
 import { execSync, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, writeFileSync, mkdirSync, readFileSync, unlinkSync, openSync, copyFileSync, cpSync, rmSync, renameSync } from "node:fs";
-import { join, dirname, resolve } from "node:path";
+import { join, dirname, resolve, win32 } from "node:path";
 import { homedir } from "node:os";
 import { spawn } from "node:child_process";
 import { getPlatformInfo } from "../platform/detect.js";
@@ -43,8 +43,8 @@ export function getWindowsPowerShellEnvironment(env: NodeJS.ProcessEnv = process
   return {
     ...env,
     PSModulePath: [
-      join(windowsRoot, "System32", "WindowsPowerShell", "v1.0", "Modules"),
-      join(programFiles, "WindowsPowerShell", "Modules"),
+      win32.join(windowsRoot, "System32", "WindowsPowerShell", "v1.0", "Modules"),
+      win32.join(programFiles, "WindowsPowerShell", "Modules"),
     ].join(";"),
   };
 }
@@ -908,9 +908,9 @@ export class WindowsServiceManager {
 
   private getNativeServicePaths(name: string): NativeServicePaths {
     const programData = process.env.ProgramData || 'C:\\ProgramData';
-    const rootDir = join(programData, 'BS9');
-    const servicesDir = join(rootDir, 'services');
-    const serviceDir = join(servicesDir, name);
+    const rootDir = win32.join(programData, 'BS9');
+    const servicesDir = win32.join(rootDir, 'services');
+    const serviceDir = win32.join(servicesDir, name);
     const platformInfo = getPlatformInfo();
     const watchdogTs = join(dirname(import.meta.path), '..', 'utils', 'watchdog-agent.ts');
     const watchdogJs = join(dirname(import.meta.path), '..', 'utils', 'watchdog-agent.js');
@@ -923,8 +923,8 @@ export class WindowsServiceManager {
       rootDir,
       servicesDir,
       serviceDir,
-      hostPath: join(serviceDir, `bs9-service-host-${hostVersion}.exe`),
-      configPath: join(serviceDir, 'service-host.json'),
+      hostPath: win32.join(serviceDir, `bs9-service-host-${hostVersion}.exe`),
+      configPath: win32.join(serviceDir, 'service-host.json'),
       setupScriptPath: join(platformInfo.configDir, `${name}-setup.ps1`),
       aclScriptPath: join(platformInfo.configDir, `${name}-acl.ps1`),
       watchdogScript,
