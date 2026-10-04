@@ -130,6 +130,32 @@ export async function monitCommand(options: MonitOptions): Promise<void> {
     }
   };
 
+  // Non-interactive output (pipes, IDE output panes, CI) cannot handle cursor
+  // movement or keyboard input. Print one readable snapshot instead of
+  // repeatedly writing terminal control sequences into the output stream.
+  if (!isTTY) {
+    currentServices = await fetchMetrics();
+    console.log("BS9 PROCESS MONITOR (snapshot)");
+    console.log("─".repeat(72));
+
+    if (currentServices.length === 0) {
+      console.log("No services running.");
+      console.log("Start one with: bs9 start <file> --name <service>");
+    } else {
+      console.log("SERVICE                 STATUS      HEALTH   CPU      MEM       UPTIME    PID");
+      for (const service of currentServices) {
+        const cleanName = service.name.replace(/^(BS9_|bs9\.)/, "");
+        const status = service.active === "active" ? "online" : service.active === "failed" ? "errored" : "stopped";
+        console.log(
+          `${truncate(cleanName, 23).padEnd(23)}  ${status.padEnd(10)}  ${(service.health || "-").padEnd(7)}  ${(service.cpu || "-").padEnd(7)}  ${(service.memory || "-").padEnd(8)}  ${(service.uptime || "-").padEnd(8)}  ${service.pid || "-"}`,
+        );
+      }
+    }
+
+    console.log("\nInteractive controls are available when bs9 monit runs in a terminal.");
+    return;
+  }
+
   // Keyboard input handler for interactive TUI
   if (isTTY) {
     try {
@@ -211,135 +237,98 @@ export async function monitCommand(options: MonitOptions): Promise<void> {
     const green = "\x1b[32m";
     const red = "\x1b[31m";
     const yellow = "\x1b[33m";
-    const cyan = "\x1b[36m";
+    const blue = "\x1b[34m";
 
-    const clamp = (str: string, len: number) => {
+    const fit = (str: string, len: number) => {
       if (str.length > len) return str.substring(0, len);
       return str.padEnd(len);
     };
+    const contentWidth = cols - 4;
+    const innerWidth = cols - 2;
+    const contentLine = (value: string) => `│ ${fit(value, contentWidth)} │`;
+    const sectionLine = (title: string) => {
+      const label = ` ${truncate(title, innerWidth - 5)} `;
+      return `├─${label}${"─".repeat(Math.max(0, innerWidth - label.length - 3))}┤`;
+    };
+    const topLine = `┌${"─".repeat(innerWidth)}┐`;
+    const bottomLine = `└${"─".repeat(innerWidth)}┘`;
 
-    let buffer = "";
+    // Keep the services table compact so the details and logs remain visible.
+    if (currentServices.length > 0) {
+      selectedIndex = Math.max(0, Math.min(selectedIndex, currentServices.length - 1));
+    } else {
+      selectedIndex = 0;
+    }
 
-    // Home cursor
-    buffer += "\x1b[H";
+    const widths = { status: 8, health: 6, cpu: 6, memory: 7, uptime: 7, pid: 6 };
+    const serviceWidth = Math.max(10, contentWidth - 6 - Object.values(widths).reduce((sum, value) => sum + value, 0));
+    const tableHeader = `${"SERVICE".padEnd(serviceWidth)} ${"STATUS".padEnd(widths.status)} ${"HEALTH".padEnd(widths.health)} ${"CPU".padEnd(widths.cpu)} ${"MEM".padEnd(widths.memory)} ${"UPTIME".padEnd(widths.uptime)} ${"PID".padEnd(widths.pid)}`;
+    const maxServiceRows = Math.max(2, Math.min(7, Math.floor(rows * 0.28)));
+    const visibleCount = Math.min(currentServices.length, maxServiceRows);
+    let startIndex = Math.max(0, selectedIndex - visibleCount + 1);
+    if (selectedIndex < startIndex) startIndex = selectedIndex;
+    const visibleServices = currentServices.slice(startIndex, startIndex + visibleCount);
+    const title = "BS9 PROCESS MONITOR";
+    const liveLabel = "LIVE";
+    const titleGap = Math.max(1, contentWidth - title.length - liveLabel.length);
 
-    // 1. Header Bar
-    const title = " BS9 PROCESS MONITOR ";
-    const shortcuts = "[↑/↓] Select  [r] Restart  [s] Stop  [q] Quit";
-    const statusNote = statusMessage ? ` | ${statusMessage}` : "";
-    const headerLine = ` ${bold}${title}${reset}${dim}${shortcuts}${statusNote}${reset}`;
-    buffer += `${clamp(headerLine, cols)}\n`;
-    buffer += `${dim}${"─".repeat(cols)}${reset}\n`;
-
-    // 2. Calculate dynamic heights
-    const availableRows = rows - 4; // header (2), divider (1), footer (1)
-    const topPanelHeight = Math.max(4, Math.min(10, Math.floor(availableRows * 0.45)));
-    const bottomPanelHeight = Math.max(4, availableRows - topPanelHeight);
-
-    // 3. Render Top Panel: Services Table
-    const svcWidth = Math.max(16, Math.min(26, Math.floor(cols * 0.3)));
-    const statusWidth = 10;
-    const healthWidth = 8;
-    const cpuWidth = 8;
-    const memWidth = 10;
-    const uptimeWidth = 10;
-    const pidWidth = 8;
-
-    const tableHeader = `  ${"SERVICE".padEnd(svcWidth)} ${"STATUS".padEnd(statusWidth)} ${"HEALTH".padEnd(healthWidth)} ${"CPU".padEnd(cpuWidth)} ${"MEM".padEnd(memWidth)} ${"UPTIME".padEnd(uptimeWidth)} ${"PID".padEnd(pidWidth)}`;
-    buffer += `${dim}${clamp(tableHeader, cols)}${reset}\n`;
+    const lines: string[] = [
+      topLine,
+      `│ ${bold}${title}${reset}${" ".repeat(titleGap)}${dim}${liveLabel}${reset} │`,
+      contentLine(`Refresh: ${refreshInterval}s    ${statusMessage || "Press ↑/↓ to select a service"}`),
+      sectionLine(`SERVICES  ${currentServices.length}`),
+      `│ ${dim}${fit(tableHeader, contentWidth)}${reset} │`,
+    ];
 
     if (currentServices.length === 0) {
-      buffer += `${dim}  No services running. Use 'bs9 start <file>' to launch.${reset}\n`;
-      for (let i = 1; i < topPanelHeight; i++) buffer += "\n";
+      lines.push(contentLine("No services running yet."));
+      lines.push(contentLine("Start one with: bs9 start <file> --name <service>"));
     } else {
-      // Clamp selectedIndex
-      if (selectedIndex >= currentServices.length) selectedIndex = currentServices.length - 1;
-      if (selectedIndex < 0) selectedIndex = 0;
-
-      // Scroll window for table
-      let startIndex = 0;
-      if (selectedIndex >= topPanelHeight - 1) {
-        startIndex = selectedIndex - (topPanelHeight - 2);
-      }
-      const visibleServices = currentServices.slice(startIndex, startIndex + topPanelHeight - 1);
-
-      for (let i = 0; i < topPanelHeight - 1; i++) {
-        if (i < visibleServices.length) {
-          const globalIdx = startIndex + i;
-          const svc = visibleServices[i];
-          const isSelected = globalIdx === selectedIndex;
-
-          const pointer = isSelected ? "> " : "  ";
-          const cleanName = svc.name.replace(/^(BS9_|bs9\.)/, "");
-          const nameCol = truncate(cleanName, svcWidth).padEnd(svcWidth);
-          const isOnline = svc.active === "active";
-          const statusStr = isOnline ? "online" : svc.active === "failed" ? "errored" : "stopped";
-          const statusCol = truncate(statusStr, statusWidth).padEnd(statusWidth);
-          const healthCol = truncate(svc.health || "-", healthWidth).padEnd(healthWidth);
-          const cpuCol = truncate(svc.cpu || "-", cpuWidth).padEnd(cpuWidth);
-          const memCol = truncate(svc.memory || "-", memWidth).padEnd(memWidth);
-          const uptimeCol = truncate(svc.uptime || "-", uptimeWidth).padEnd(uptimeWidth);
-          const pidCol = truncate(String(svc.pid || "-"), pidWidth).padEnd(pidWidth);
-
-          const rowText = `${pointer}${nameCol} ${statusCol} ${healthCol} ${cpuCol} ${memCol} ${uptimeCol} ${pidCol}`;
-          const color = isOnline ? green : red;
-
-          if (isSelected) {
-            buffer += `${highlight}${bold}${clamp(rowText, cols)}${reset}\n`;
-          } else {
-            buffer += `${color}${clamp(rowText, cols)}${reset}\n`;
-          }
-        } else {
-          buffer += "\n";
-        }
+      for (let rowIndex = 0; rowIndex < visibleServices.length; rowIndex++) {
+        const service = visibleServices[rowIndex];
+        const globalIndex = startIndex + rowIndex;
+        const cleanName = service.name.replace(/^(BS9_|bs9\.)/, "");
+        const status = service.active === "active" ? "online" : service.active === "failed" ? "errored" : "stopped";
+        const row = `${globalIndex === selectedIndex ? "› " : "  "}${truncate(cleanName, serviceWidth - 2).padEnd(serviceWidth - 2)} ${truncate(status, widths.status).padEnd(widths.status)} ${(service.health || "-").padEnd(widths.health)} ${truncate(service.cpu || "-", widths.cpu).padEnd(widths.cpu)} ${truncate(service.memory || "-", widths.memory).padEnd(widths.memory)} ${truncate(service.uptime || "-", widths.uptime).padEnd(widths.uptime)} ${truncate(String(service.pid || "-"), widths.pid).padEnd(widths.pid)}`;
+        const color = service.active === "active" ? green : service.active === "failed" ? red : yellow;
+        lines.push(`│ ${globalIndex === selectedIndex ? `${highlight}${bold}${fit(row, contentWidth)}${reset}` : `${color}${fit(row, contentWidth)}${reset}`} │`);
       }
     }
 
-    // 4. Panel Divider
     const selectedSvc = currentServices[selectedIndex];
-    const inspectorTitle = selectedSvc
-      ? ` DETAILS & LOGS: ${selectedSvc.name.replace(/^(BS9_|bs9\.)/, "")} `
-      : " DETAILS & LOGS ";
-    const dividerText = `──${bold}${inspectorTitle}${reset}${dim}${"─".repeat(Math.max(0, cols - inspectorTitle.length - 2))}${reset}`;
-    buffer += `${clamp(dividerText, cols)}\n`;
+    const cleanName = selectedSvc?.name.replace(/^(BS9_|bs9\.)/, "");
+    lines.push(sectionLine(selectedSvc ? `DETAILS & LOGS  ${cleanName}` : "DETAILS & LOGS"));
 
-    // 5. Render Bottom Panel: Inspector Details & Live Logs
     if (selectedSvc) {
-      // Metadata line
-      const cleanName = selectedSvc.name.replace(/^(BS9_|bs9\.)/, "");
-      let port = "-";
       const portMatch = selectedSvc.description?.match(/port[=:]?\s*(\d+)/i);
-      if (portMatch) port = portMatch[1];
+      const meta = `PID: ${selectedSvc.pid || "-"}   Port: ${portMatch?.[1] || "-"}   Memory: ${selectedSvc.memory || "-"}   CPU: ${selectedSvc.cpu || "-"}   Uptime: ${selectedSvc.uptime || "-"}`;
+      lines.push(contentLine(meta));
+    } else {
+      lines.push(contentLine("Select a service to inspect its status and recent logs."));
+    }
 
-      const metaLine = `  PID: ${cyan}${selectedSvc.pid || "-"}${reset}  Port: ${cyan}${port}${reset}  Memory: ${yellow}${selectedSvc.memory || "-"}${reset}  CPU: ${yellow}${selectedSvc.cpu || "-"}${reset}  Uptime: ${selectedSvc.uptime || "-"}`;
-      buffer += `${clamp(metaLine, cols)}\n`;
-
-      // Logs tail
-      const logLinesCount = Math.max(1, bottomPanelHeight - 2);
-      const logs = getServiceLogTail(selectedSvc.name, logLinesCount);
-
-      if (logs.length === 0) {
-        buffer += `${dim}  (No recent log entries found for ${cleanName})${reset}\n`;
-        for (let j = 1; j < logLinesCount; j++) buffer += "\n";
+    const footer = `↑/↓ or j/k Select   r Restart   s Stop   q Quit   •   Refresh ${refreshInterval}s`;
+    const logBudget = Math.max(0, rows - lines.length - 2); // footer and bottom border
+    if (selectedSvc) {
+      const logs = getServiceLogTail(selectedSvc.name, Math.max(1, logBudget));
+      if (logs.length === 0 && logBudget > 0) {
+        lines.push(contentLine("No recent log entries found."));
+        for (let i = 1; i < logBudget; i++) lines.push(contentLine(""));
       } else {
-        for (let j = 0; j < logLinesCount; j++) {
-          if (j < logs.length) {
-            const rawLog = logs[j].replace(/[\r\n]/g, "");
-            buffer += `${dim}  ${truncate(rawLog, cols - 4)}${reset}\n`;
-          } else {
-            buffer += "\n";
-          }
+        for (let i = 0; i < logBudget; i++) {
+          const rawLog = logs[i]?.replace(/[\r\n]/g, "") || "";
+          lines.push(`│ ${dim}${fit(truncate(rawLog, contentWidth), contentWidth)}${reset} │`);
         }
       }
     } else {
-      buffer += `${dim}  Select a service to inspect details and live logs.${reset}\n`;
-      for (let j = 1; j < bottomPanelHeight; j++) buffer += "\n";
+      for (let i = 0; i < logBudget; i++) lines.push(contentLine(""));
     }
 
-    // Clear remainder of terminal
-    buffer += "\x1b[J";
+    lines.push(`│ ${blue}${fit(footer, contentWidth)}${reset} │`);
+    lines.push(bottomLine);
 
-    process.stdout.write(buffer);
+    // Use a full-screen redraw only in a real terminal.
+    process.stdout.write(`\x1b[2J\x1b[H${lines.slice(0, rows).join("\n")}\x1b[J`);
   };
 
   // Resize listener

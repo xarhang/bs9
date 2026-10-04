@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.16] - 2026-10-04
+
+### Security
+
+- Hardened process lifecycle and service management across Linux, macOS, and Windows, including service account and filesystem permission handling.
+- Hardened administrative and command entry points, load balancer operations, and State Hub queue and WAL handling.
+
+### Fixed
+
+- Fixed cross-platform systemd unit setup and Windows path handling in lifecycle operations.
+
+### Improved
+
+- Made `bs9 monit` print a readable snapshot in non-interactive output and refreshed its terminal dashboard layout.
+
 ## [1.6.15] - 2026-09-25
 
 ### Fixed
