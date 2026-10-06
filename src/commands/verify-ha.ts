@@ -20,15 +20,18 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { existsSync, writeFileSync, unlinkSync } from "node:fs";
+import { existsSync, writeFileSync, unlinkSync, mkdtempSync, rmSync } from "node:fs";
 import { resolve, join } from "node:path";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { execSync } from "node:child_process";
 import { createServer } from "node:net";
+import { randomUUID } from "node:crypto";
 import { ClusterController } from "../cluster/controller.js";
 import { reloadCommand } from "./reload.js";
 import { listServices } from "../utils/service-discovery.js";
+import { ensurePrivateDirectory } from "../utils/private-files.js";
+import { getPlatformInfo } from "../platform/detect.js";
 
 export interface VerifyHaOptions {
   live?: boolean;
@@ -156,6 +159,30 @@ function violentlyKillProcess(pid: number): void {
 }
 
 /**
+ * Create an isolated directory for files used by one verification run.
+ * Windows stores it below the current user's profile so it inherits that
+ * profile's ACL instead of relying on a potentially shared TEMP directory.
+ */
+function createVerificationTempDirectory(): string {
+  const platformInfo = getPlatformInfo();
+  const isPosix = platformInfo.isLinux || platformInfo.isMacOS;
+  // Windows inherits the current profile's ACL; POSIX runtime dirs are repaired
+  // to owner-only before the per-run child is created.
+  const parentDir = platformInfo.isWindows ? homedir() : platformInfo.runtimeDir;
+  if (isPosix) ensurePrivateDirectory(parentDir);
+  const tempDir = mkdtempSync(join(parentDir, "bs9-verify-"));
+  if (isPosix) {
+    try {
+      ensurePrivateDirectory(tempDir);
+    } catch (error) {
+      try { rmSync(tempDir, { recursive: true, force: true }); } catch {}
+      throw error;
+    }
+  }
+  return tempDir;
+}
+
+/**
  * Run isolated ephemeral verification
  */
 async function runEphemeralVerification(file: string, options: VerifyHaOptions): Promise<VerifyHaResult> {
@@ -170,27 +197,39 @@ async function runEphemeralVerification(file: string, options: VerifyHaOptions):
   const readyTimeoutMs = options.readyTimeoutMs || 15000;
   const drainTimeoutMs = options.drainTimeoutMs || 5000;
 
-  const clusterName = `ha-verify-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+  const verificationId = randomUUID();
+  const clusterName = `ha-verify-${verificationId}`;
   const socketPath = process.platform === "win32"
-    ? `\\\\.\\pipe\\bs9-verify-${Date.now()}-${Math.floor(Math.random() * 10000)}`
-    : join(tmpdir(), `bs9-verify-${Date.now()}-${Math.floor(Math.random() * 10000)}.sock`);
+    ? `\\\\.\\pipe\\bs9-verify-${verificationId}`
+    : join(tmpdir(), `bs9-v-${verificationId.slice(0, 16)}.sock`);
 
   const controller = options.controller || new ClusterController({ socketPath });
-  const { tokenFilePath } = controller.registerClusterToken(clusterName);
-  await controller.start();
-
   const preloadUrl = pathToFileURL(join(process.cwd(), "src", "utils", "cluster-preload.ts")).href;
   const targetUrl = pathToFileURL(resolvedFile).href;
-  const wrapperScriptPath = join(tmpdir(), `bs9-verify-entry-${Date.now()}-${Math.floor(Math.random() * 1000)}.ts`);
+  const tempDir = createVerificationTempDirectory();
+  const wrapperScriptPath = join(tempDir, "entry.ts");
+  let tokenFilePath = join(getPlatformInfo().runtimeDir, "tokens", `${clusterName}.token`);
 
-  // Create ephemeral runner wrapper
-  writeFileSync(wrapperScriptPath, `
+  try {
+    const tokenRegistration = controller.registerClusterToken(clusterName);
+    tokenFilePath = tokenRegistration.tokenFilePath;
+    await controller.start();
+    // The containing directory is private; wx also rejects a pre-existing entry.
+    writeFileSync(wrapperScriptPath, `
 import "${preloadUrl}";
 const userModule = await import("${targetUrl}");
 if (userModule.default && typeof userModule.default.fetch === "function") {
   Bun.serve(userModule.default);
 }
-`);
+`, { encoding: "utf-8", flag: "wx", mode: 0o600 });
+  } catch (error) {
+    try { await controller.stop(); } catch {}
+    try { unlinkSync(tokenFilePath); } catch {}
+    try { rmSync(tempDir, { recursive: true, force: true }); } catch {}
+    throw error;
+  }
+
+  const registeredTokenFilePath = tokenFilePath;
 
   const activeProcs = new Map<string, any>();
 
@@ -206,7 +245,7 @@ if (userModule.default && typeof userModule.default.fetch === "function") {
         NODE_APP_INSTANCE: String(slot),
         BS9_CLUSTER_ID: String(slot),
         BS9_CLUSTER_GENERATION: String(gen),
-        BS9_AUTH_TOKEN_FILE: tokenFilePath,
+        BS9_AUTH_TOKEN_FILE: registeredTokenFilePath,
         BS9_CONTROLLER_SOCKET: socketPath,
       },
       stdout: "ignore",
@@ -403,7 +442,8 @@ if (userModule.default && typeof userModule.default.fetch === "function") {
 
     try { await controller.stop(); } catch {}
     try { unlinkSync(wrapperScriptPath); } catch {}
-    try { unlinkSync(tokenFilePath); } catch {}
+    try { unlinkSync(registeredTokenFilePath); } catch {}
+    try { rmSync(tempDir, { recursive: true, force: true }); } catch {}
   }
 }
 

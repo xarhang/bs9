@@ -199,6 +199,9 @@ export function initializePlatformDirectories(): void {
       ensurePrivateDirectory(platformInfo.clusterDir);
       ensurePrivateDirectory(platformInfo.serviceDir);
       ensurePrivateDirectory(platformInfo.backupDir);
+    } else if (platformInfo.isMacOS) {
+      // Cluster manifests can contain application environment secrets.
+      ensurePrivateDirectory(platformInfo.clusterDir);
     }
   } catch (error) {
     console.warn(`⚠️  Warning: Could not create platform directories: ${error}`);

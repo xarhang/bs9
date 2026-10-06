@@ -396,12 +396,13 @@ export class ClusterController extends EventEmitter {
 
   public setManifest(manifest: ClusterManifestData): void {
     const platformInfo = getPlatformInfo();
-    if (platformInfo.isLinux) ensurePrivateDirectory(platformInfo.clusterDir);
+    const usesPrivatePosixFiles = platformInfo.isLinux || platformInfo.isMacOS;
+    if (usesPrivatePosixFiles) ensurePrivateDirectory(platformInfo.clusterDir);
     else if (!existsSync(platformInfo.clusterDir)) mkdirSync(platformInfo.clusterDir, { recursive: true });
     const manifestPath = join(platformInfo.clusterDir, `${manifest.clusterName}.manifest.json`);
     withManifestLock(manifestPath, () => {
       const content = JSON.stringify(manifest, null, 2);
-      if (platformInfo.isLinux) writePrivateFile(manifestPath, content);
+      if (usesPrivatePosixFiles) writePrivateFile(manifestPath, content);
       else writeFileSync(manifestPath, content, { encoding: "utf-8" });
       this.manifests.set(manifest.clusterName, manifest);
     });
@@ -410,12 +411,13 @@ export class ClusterController extends EventEmitter {
   public getManifest(clusterName: string): ClusterManifestData | undefined {
     const cached = this.manifests.get(clusterName);
     const platformInfo = getPlatformInfo();
-    if (platformInfo.isLinux && existsSync(platformInfo.clusterDir)) {
+    const usesPrivatePosixFiles = platformInfo.isLinux || platformInfo.isMacOS;
+    if (usesPrivatePosixFiles && existsSync(platformInfo.clusterDir)) {
       ensurePrivateDirectory(platformInfo.clusterDir);
     }
     const manifestPath = join(platformInfo.clusterDir, `${clusterName}.manifest.json`);
     if (existsSync(manifestPath)) {
-      if (platformInfo.isLinux) securePrivateFile(manifestPath);
+      if (usesPrivatePosixFiles) securePrivateFile(manifestPath);
       try {
         const data = JSON.parse(readFileSync(manifestPath, "utf-8")) as ClusterManifestData;
         this.manifests.set(clusterName, data);
@@ -444,7 +446,8 @@ export class ClusterController extends EventEmitter {
 
   public getAllManifests(): ClusterManifestData[] {
     const platformInfo = getPlatformInfo();
-    if (platformInfo.isLinux && existsSync(platformInfo.clusterDir)) {
+    const usesPrivatePosixFiles = platformInfo.isLinux || platformInfo.isMacOS;
+    if (usesPrivatePosixFiles && existsSync(platformInfo.clusterDir)) {
       ensurePrivateDirectory(platformInfo.clusterDir);
     }
     if (existsSync(platformInfo.clusterDir)) {

@@ -9,6 +9,9 @@ on:
         description: SemVer to verify (without v prefix)
         required: true
 
+permissions:
+  contents: read
+
 jobs:
   npm-canary:
     name: npm canary (${{ matrix.os }})
@@ -20,15 +23,28 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: oven-sh/setup-bun@v1
         with:
           bun-version: latest
       - name: Resolve release version
         id: release
         shell: bash
-        run: echo "version=${{ github.event.inputs.version || github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+        env:
+          RAW_VERSION: ${{ github.event.inputs.version || github.event.release.tag_name }}
+        run: |
+          version="${RAW_VERSION#v}"
+          if [[ "$RAW_VERSION" == *$'\r'* || "$RAW_VERSION" == *$'\n'* || ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid release version"
+            exit 1
+          fi
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
       - name: Verify published package and CLI output
-        run: bun scripts/verify-published-canary.ts "${{ steps.release.outputs.version }}"
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: bun scripts/verify-published-canary.ts "$RELEASE_VERSION"
 
   canary-gate:
     name: Published canary gate
