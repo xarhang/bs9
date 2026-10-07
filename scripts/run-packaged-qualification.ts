@@ -44,7 +44,6 @@ try {
   run("bun", ["test", "tests/e2e-native-ha-load.test.ts"], {
     env: {
       BS9_NATIVE_HA_E2E: "1",
-      BS9_WINDOWS_BACKGROUND: "1",
       BS9_HOME: bs9Home,
       PATH: packageEnv.PATH,
       BS9_TEST_BIN_PATH: packageBin,

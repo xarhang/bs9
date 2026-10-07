@@ -2,8 +2,10 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { hasWindowsAdminPrivileges } from "../src/windows/service.js";
 
-const enabled = process.env.BS9_NATIVE_E2E === "1" && process.platform !== "linux";
+const elevatedWindowsRunner = process.platform === "win32" && hasWindowsAdminPrivileges();
+const enabled = process.env.BS9_NATIVE_E2E === "1" && process.platform !== "linux" && !elevatedWindowsRunner;
 
 describe.skipIf(!enabled)("Native Windows/macOS service lifecycle", () => {
   const testId = `${Date.now()}-${Math.floor(Math.random() * 1000)}`;
@@ -17,9 +19,6 @@ describe.skipIf(!enabled)("Native Windows/macOS service lifecycle", () => {
   const env: Record<string, string> = {
     ...(process.env as Record<string, string>),
     BS9_HOME: home,
-    // GitHub's Windows runner is elevated. Use BS9's supported watchdog mode
-    // so the test does not register machine-wide services on a shared runner.
-    BS9_WINDOWS_BACKGROUND: "1",
   };
 
   function runCli(args: string[], timeoutMs = 30_000): Promise<{ stdout: string; stderr: string; exitCode: number }> {

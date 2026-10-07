@@ -9,15 +9,113 @@
  * https://github.com/xarhang/bs9
  */
 
-import { execSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, writeFileSync, mkdirSync, readFileSync, unlinkSync, openSync, copyFileSync, cpSync, rmSync, renameSync } from "node:fs";
 import { join, dirname, resolve, win32 } from "node:path";
-import { homedir } from "node:os";
 import { spawn } from "node:child_process";
 import { getPlatformInfo } from "../platform/detect.js";
 import { recordCrash, resetCrash, sleep, startHealthyTimer, formatCrashState } from "../utils/crash-tracker.js";
 import { withManifestLock } from "../utils/manifest-lock.js";
+
+let windowsSystemDirectoryFromApi: string | undefined;
+let windowsSystemDirectoryApiError: unknown;
+let windowsProgramDataDirectoryFromApi: string | undefined;
+let windowsProgramDataDirectoryApiError: unknown;
+let windowsTokenElevationProbeFromApi: (() => boolean) | undefined;
+const requiresWindowsSystemDirectoryApi = process.platform === "win32" && Boolean(process.versions.bun);
+
+if (requiresWindowsSystemDirectoryApi) {
+  try {
+    const { dlopen, FFIType, ptr } = await import("bun:ffi");
+    const kernel32 = dlopen("kernel32.dll", {
+      GetSystemDirectoryW: {
+        args: [FFIType.ptr, FFIType.u32],
+        returns: FFIType.u32,
+      },
+      GetCurrentProcess: {
+        args: [],
+        returns: FFIType.ptr,
+      },
+      CloseHandle: {
+        args: [FFIType.ptr],
+        returns: FFIType.i32,
+      },
+    });
+    const buffer = new Uint16Array(32768);
+    const length = kernel32.symbols.GetSystemDirectoryW(ptr(buffer), buffer.length);
+    if (!length || length >= buffer.length) {
+      throw new Error("GetSystemDirectoryW returned an invalid path length");
+    }
+    const systemDirectory = String.fromCharCode(...buffer.subarray(0, length));
+    if (!/^[a-zA-Z]:[\\/]/.test(systemDirectory) || !win32.isAbsolute(systemDirectory)) {
+      throw new Error("GetSystemDirectoryW returned a non-local system directory");
+    }
+    windowsSystemDirectoryFromApi = win32.normalize(systemDirectory);
+    const shell32 = dlopen(win32.join(windowsSystemDirectoryFromApi, "shell32.dll"), {
+      SHGetFolderPathW: {
+        args: [FFIType.ptr, FFIType.i32, FFIType.ptr, FFIType.u32, FFIType.ptr],
+        returns: FFIType.i32,
+      },
+    });
+    const advapi32 = dlopen(win32.join(windowsSystemDirectoryFromApi, "advapi32.dll"), {
+      OpenProcessToken: {
+        args: [FFIType.ptr, FFIType.u32, FFIType.ptr],
+        returns: FFIType.i32,
+      },
+      GetTokenInformation: {
+        args: [FFIType.ptr, FFIType.i32, FFIType.ptr, FFIType.u32, FFIType.ptr],
+        returns: FFIType.i32,
+      },
+    });
+    const programDataBuffer = new Uint16Array(32768);
+    const programDataResult = shell32.symbols.SHGetFolderPathW(
+      null,
+      0x23, // CSIDL_COMMON_APPDATA: resolve ProgramData through Windows.
+      null,
+      0,
+      ptr(programDataBuffer),
+    );
+    if (programDataResult !== 0) {
+      throw new Error(`SHGetFolderPathW failed with HRESULT ${programDataResult}`);
+    }
+    const programDataLength = programDataBuffer.indexOf(0);
+    if (programDataLength <= 0) {
+      throw new Error("SHGetFolderPathW returned an empty ProgramData path");
+    }
+    const programDataDirectory = String.fromCharCode(...programDataBuffer.subarray(0, programDataLength));
+    if (!/^[a-zA-Z]:[\\/]/.test(programDataDirectory) || !win32.isAbsolute(programDataDirectory)) {
+      throw new Error("SHGetFolderPathW returned a non-local ProgramData directory");
+    }
+    windowsProgramDataDirectoryFromApi = win32.normalize(programDataDirectory);
+    windowsTokenElevationProbeFromApi = () => {
+      const tokenOutput = process.arch === "ia32" || process.arch === "arm"
+        ? new Uint32Array(1)
+        : new BigUint64Array(1);
+      const processHandle = kernel32.symbols.GetCurrentProcess();
+      if (!advapi32.symbols.OpenProcessToken(processHandle, 0x0008, ptr(tokenOutput))) {
+        throw new Error("OpenProcessToken failed while checking Windows token elevation");
+      }
+      const tokenHandle = tokenOutput[0];
+      try {
+        const elevation = new Uint32Array(1);
+        const returnedLength = new Uint32Array(1);
+        if (!advapi32.symbols.GetTokenInformation(tokenHandle as any, 20, ptr(elevation), elevation.byteLength, ptr(returnedLength))) {
+          throw new Error("GetTokenInformation failed while checking Windows token elevation");
+        }
+        if (returnedLength[0] !== elevation.byteLength || elevation[0] > 1) {
+          throw new Error("GetTokenInformation returned an invalid token elevation value");
+        }
+        return elevation[0] === 1;
+      } finally {
+        kernel32.symbols.CloseHandle(tokenHandle as any);
+      }
+    };
+  } catch (error) {
+    windowsSystemDirectoryApiError = error;
+    windowsProgramDataDirectoryApiError = error;
+  }
+}
 
 export function isValidServiceName(name: string): boolean {
   const validPattern = /^[a-zA-Z0-9._-]+$/;
@@ -36,28 +134,178 @@ function writeFileAtomically(path: string, contents: string | Buffer): void {
 
 export type WindowsServiceAccount = "LocalService" | "LocalSystem";
 
+function getWindowsSystemDirectory(): string {
+  if (windowsSystemDirectoryFromApi) return windowsSystemDirectoryFromApi;
+  if (requiresWindowsSystemDirectoryApi) {
+    throw new Error(`Unable to obtain the Windows system directory from the OS${windowsSystemDirectoryApiError ? `: ${String(windowsSystemDirectoryApiError)}` : ""}`);
+  }
+  const knownDefaultSystemDirectory = "C:\\Windows\\System32";
+  if (process.platform === "win32" && !existsSync(knownDefaultSystemDirectory)) {
+    throw new Error("Unable to locate the protected default Windows system directory");
+  }
+  return knownDefaultSystemDirectory;
+}
+
+export function getWindowsSystemExecutable(name: "net.exe" | "sc.exe" | "tasklist.exe" | "taskkill.exe"): string {
+  return win32.join(getWindowsSystemDirectory(), name);
+}
+
+export function getWindowsPowerShellExecutable(): string {
+  return win32.join(getWindowsSystemDirectory(), "WindowsPowerShell", "v1.0", "powershell.exe");
+}
+
+export function getWindowsProgramDataDirectory(): string {
+  if (windowsProgramDataDirectoryFromApi) return windowsProgramDataDirectoryFromApi;
+  if (requiresWindowsSystemDirectoryApi) {
+    throw new Error(`Unable to obtain ProgramData from the Windows known-folder API${windowsProgramDataDirectoryApiError ? `: ${String(windowsProgramDataDirectoryApiError)}` : ""}`);
+  }
+  const knownDefaultProgramDataDirectory = "C:\\ProgramData";
+  if (process.platform === "win32" && !existsSync(knownDefaultProgramDataDirectory)) {
+    throw new Error("Unable to locate the protected default Windows ProgramData directory");
+  }
+  return knownDefaultProgramDataDirectory;
+}
+
 /** Keep Windows PowerShell 5.1 from loading same-named modules shipped for PowerShell 7. */
-export function getWindowsPowerShellEnvironment(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-  const windowsRoot = env.SystemRoot || env.WINDIR || "C:\\Windows";
-  const programFiles = env.ProgramFiles || "C:\\Program Files";
+export function getWindowsPowerShellEnvironment(
+  env: NodeJS.ProcessEnv = process.env,
+  protectTemporaryDirectory = true,
+): NodeJS.ProcessEnv {
+  const systemDirectory = getWindowsSystemDirectory();
+  const windowsRoot = win32.dirname(systemDirectory);
   return {
     ...env,
+    SystemRoot: windowsRoot,
+    WINDIR: windowsRoot,
+    PATH: systemDirectory,
+    ...(protectTemporaryDirectory ? { TEMP: systemDirectory, TMP: systemDirectory } : {}),
     PSModulePath: [
-      win32.join(windowsRoot, "System32", "WindowsPowerShell", "v1.0", "Modules"),
-      win32.join(programFiles, "WindowsPowerShell", "Modules"),
+      win32.join(systemDirectory, "WindowsPowerShell", "v1.0", "Modules"),
     ].join(";"),
   };
 }
 
+export function hasWindowsAdminPrivileges(): boolean {
+  if (process.platform !== "win32") return false;
+  if (windowsTokenElevationProbeFromApi) return windowsTokenElevationProbeFromApi();
+  if (requiresWindowsSystemDirectoryApi) {
+    throw new Error(`Unable to check Windows token elevation through the OS API${windowsSystemDirectoryApiError ? `: ${String(windowsSystemDirectoryApiError)}` : ""}`);
+  }
+
+  const tokenProbe = String.raw`
+$ErrorActionPreference = 'Stop'
+$identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+try {
+  $principal = [System.Security.Principal.WindowsPrincipal]::new($identity)
+  if ($principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)) { Write-Output 'true' } else { Write-Output 'false' }
+} finally {
+  $identity.Dispose()
+}
+`;
+  const result = spawnSync(getWindowsPowerShellExecutable(), [
+    "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", tokenProbe,
+  ], {
+    encoding: "utf8",
+    windowsHide: true,
+    env: getWindowsPowerShellEnvironment(process.env, false),
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  if (result.error || result.status !== 0) {
+    throw new Error(`Unable to determine Windows token elevation${result.error ? `: ${result.error.message}` : ` (PowerShell exit code ${result.status})`}`);
+  }
+  const output = (result.stdout || "").trim().toLowerCase();
+  if (output === "true") return true;
+  if (output === "false") return false;
+  throw new Error(`Unable to determine Windows token elevation: the token probe returned ${JSON.stringify(output)}${result.stderr ? ` (stderr: ${String(result.stderr).trim()})` : ""}`);
+}
+
 interface NativeServicePaths {
+  programDataDir: string;
   rootDir: string;
   servicesDir: string;
   serviceDir: string;
+  runtimeDir: string;
   hostPath: string;
   configPath: string;
-  setupScriptPath: string;
-  aclScriptPath: string;
   watchdogScript: string;
+}
+
+export interface WindowsRestorePlan {
+  metadata: Record<string, any>;
+  targetFile: string;
+  backupSha256: string;
+}
+
+export function createWindowsRestorePlan(serviceName: string, backupBytes: Buffer): WindowsRestorePlan {
+  let metadata: unknown;
+  try {
+    metadata = JSON.parse(backupBytes.toString("utf-8"));
+  } catch {
+    throw new Error(`Backup for '${serviceName}' is not valid JSON`);
+  }
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    throw new Error(`Backup for '${serviceName}' must contain a service object`);
+  }
+
+  const service = metadata as Record<string, any>;
+  if (service.name !== serviceName) {
+    throw new Error(`Backup service name does not match '${serviceName}'`);
+  }
+  const lastArgument = Array.isArray(service.arguments) && service.arguments.length > 0
+    ? service.arguments[service.arguments.length - 1]
+    : undefined;
+  const targetFile = typeof service.scriptFile === "string" && service.scriptFile.length > 0
+    ? service.scriptFile
+    : typeof lastArgument === "string" && lastArgument.length > 0
+      ? lastArgument
+      : service.executable;
+  if (typeof targetFile !== "string" || targetFile.trim().length === 0 || targetFile.includes("\0")) {
+    throw new Error(`Backup for '${serviceName}' does not contain a valid executable or script path`);
+  }
+
+  const environment = service.environment;
+  if (environment !== undefined && environment !== null &&
+      (typeof environment !== "object" || Array.isArray(environment))) {
+    throw new Error(`Backup environment for '${serviceName}' must be an object`);
+  }
+  for (const [key, value] of Object.entries(environment || {})) {
+    if (!key || key.includes("=") || key.includes("\0") || typeof value !== "string" || value.includes("\0")) {
+      throw new Error(`Backup environment for '${serviceName}' contains an invalid variable`);
+    }
+  }
+
+  return {
+    metadata: service,
+    targetFile,
+    backupSha256: createHash("sha256").update(backupBytes).digest("hex"),
+  };
+}
+
+export function validateWindowsRestoreApproval(
+  plan: WindowsRestorePlan,
+  serviceAccount: string | undefined,
+  confirmedBackupSha256: string | undefined,
+): WindowsServiceAccount {
+  if (serviceAccount === "LocalSystem") {
+    throw new Error("LocalSystem restore from a profile backup is disabled. Use 'bs9 start <protected-app-path> --windows-service-account LocalSystem' to create it from an explicitly selected application.");
+  }
+  if (serviceAccount !== "LocalService") {
+    throw new Error("Choose --windows-service-account LocalService explicitly before restoring an elevated Windows service");
+  }
+  if (!confirmedBackupSha256 || !/^[a-f0-9]{64}$/i.test(confirmedBackupSha256) ||
+      confirmedBackupSha256.toLowerCase() !== plan.backupSha256) {
+    throw new Error(`Backup SHA-256 confirmation does not match. Review --dry-run output and pass --confirm-backup-sha256 ${plan.backupSha256}`);
+  }
+  return serviceAccount;
+}
+
+export function runWindowsPowerShell(script: string, spawnCommand: typeof spawnSync = spawnSync, env: NodeJS.ProcessEnv = process.env) {
+  return spawnCommand(getWindowsPowerShellExecutable(), ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "-"], {
+    input: script,
+    stdio: ["pipe", "inherit", "inherit"],
+    windowsHide: true,
+    env: getWindowsPowerShellEnvironment(env),
+  });
 }
 
 interface NativeServiceHostConfig {
@@ -438,15 +686,7 @@ export class WindowsServiceManager {
   }
 
   public checkAdminPrivileges(): boolean {
-    // Ephemeral environments can exercise the supported watchdog path without
-    // registering machine-wide services in the Windows SCM.
-    if (process.env.BS9_WINDOWS_BACKGROUND === '1') return false;
-    try {
-      execSync('net session', { stdio: 'ignore', windowsHide: true });
-      return true;
-    } catch {
-      return false;
-    }
+    return hasWindowsAdminPrivileges();
   }
 
   async createService(config: WindowsServiceConfig, options: { forceBackground?: boolean } = {}): Promise<void> {
@@ -521,7 +761,6 @@ export class WindowsServiceManager {
     this.saveProcessMetadata(config.name, metadata);
 
     if (isAdmin && nativePaths) {
-      const scriptPath = nativePaths.setupScriptPath;
       if (serviceAccount === "LocalSystem") {
         console.warn(`⚠️ Windows service '${config.name}' is configured as LocalSystem for compatibility. Use --service-account LocalService when the application supports the LocalService profile and ACLs.`);
       } else {
@@ -529,10 +768,7 @@ export class WindowsServiceManager {
       }
       try {
         this.writeNativeHostConfig(normalizedConfig, nativePaths);
-        writeFileSync(scriptPath, this.generateServiceScript(normalizedConfig));
-        const res = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", scriptPath], {
-          stdio: 'inherit', windowsHide: true, env: getWindowsPowerShellEnvironment(),
-        });
+        const res = runWindowsPowerShell(this.generateServiceScript(normalizedConfig, 'create', nativePaths));
         if (res.error || res.status !== 0) throw new Error(`PowerShell service setup failed: ${res.error?.message || `exit code ${res.status}`}`);
         console.log(`✅ Windows service '${config.name}' created successfully`);
       } catch (error) {
@@ -545,13 +781,11 @@ export class WindowsServiceManager {
           nativePaths.configPath,
           nativePaths.hostPath,
           join(nativePaths.serviceDir, 'cluster-auth.token'),
-          nativePaths.setupScriptPath,
         ]) {
           if (existsSync(path)) unlinkSync(path);
         }
+        if (existsSync(nativePaths.runtimeDir)) rmSync(nativePaths.runtimeDir, { recursive: true, force: true });
         throw error;
-      } finally {
-        if (existsSync(scriptPath)) unlinkSync(scriptPath);
       }
     } else {
       // Background Process path
@@ -570,21 +804,21 @@ export class WindowsServiceManager {
       throw new Error(`Security: Invalid service name: ${serviceName}`);
     }
 
-    const metadata = this.getProcessMetadata(serviceName);
-    if (metadata?.backgroundOnly && !metadata?.serviceAccount) {
-      await this.startBackgroundProcess(metadata);
-      return;
-    }
-
     const isAdmin = this.checkAdminPrivileges();
 
     if (isAdmin) {
-      const res = spawnSync("net", ["start", serviceName], { stdio: 'inherit', windowsHide: true });
+      const scmAccount = this.getNativeServiceAccount(serviceName);
+      if (!scmAccount || this.canonicalServiceAccount(scmAccount) === "unknown") {
+        throw new Error(
+          `No trusted Windows SCM service '${serviceName}' is registered. BS9 will not launch profile metadata from an elevated process; rerun without elevation to start a same-user watchdog.`
+        );
+      }
+
+      const res = this.startNativeService(serviceName);
       if (res.status === 0) {
         const startedMetadata = this.getProcessMetadata(serviceName);
-        const scmAccount = this.getNativeServiceAccount(serviceName);
         if (startedMetadata?.legacyNativeServiceAccount && startedMetadata.serviceAccount &&
-            scmAccount && this.canonicalServiceAccount(scmAccount) === this.canonicalServiceAccount(startedMetadata.serviceAccount)) {
+            this.canonicalServiceAccount(scmAccount) === this.canonicalServiceAccount(startedMetadata.serviceAccount)) {
           delete startedMetadata.legacyNativeServiceAccount;
           this.saveProcessMetadata(serviceName, startedMetadata);
           const configs = this.loadConfigs();
@@ -595,15 +829,9 @@ export class WindowsServiceManager {
         }
         console.log(`Windows service '${serviceName}' started successfully`);
       } else {
-        // Native services must never be restarted under the caller's identity.
-        const failedServiceMetadata = this.getProcessMetadata(serviceName);
-        if (this.mustFailClosedFallback(serviceName, failedServiceMetadata)) {
-          throw new Error(
-            `Windows service '${serviceName}' failed to start under its configured SCM identity. BS9 will not fall back to launching it under the current user; inspect the SCM error and service-host log, then repair file access or service configuration before retrying.`
-          );
-        }
-        if (failedServiceMetadata) await this.startBackgroundProcess(failedServiceMetadata);
-        else throw new Error(`Failed to start service '${serviceName}'`);
+        throw new Error(
+          `Windows service '${serviceName}' failed to start through SCM. BS9 will not fall back to profile metadata; inspect the SCM error and service-host log, then repair file access or service configuration before retrying.`
+        );
       }
     } else {
       const metadata = this.getProcessMetadata(serviceName);
@@ -615,6 +843,10 @@ export class WindowsServiceManager {
       }
       await this.startBackgroundProcess(metadata);
     }
+  }
+
+  private startNativeService(serviceName: string) {
+    return spawnSync(getWindowsSystemExecutable("net.exe"), ["start", serviceName], { stdio: 'inherit', windowsHide: true });
   }
 
   private mustFailClosedFallback(serviceName: string, metadata: WindowsServiceConfig | null): boolean {
@@ -645,7 +877,7 @@ export class WindowsServiceManager {
     const isAdmin = this.checkAdminPrivileges();
 
     if (isAdmin) {
-      const res = spawnSync("net", ["stop", serviceName], { stdio: 'inherit', windowsHide: true });
+      const res = spawnSync(getWindowsSystemExecutable("net.exe"), ["stop", serviceName], { stdio: 'inherit', windowsHide: true });
       if (res.status !== 0) {
         const metadata = this.getProcessMetadata(serviceName);
         if (this.isNativeServiceStopped(serviceName)) return;
@@ -690,7 +922,7 @@ export class WindowsServiceManager {
       if (!this.isNativeServiceStopped(serviceName)) {
         throw new Error(`Native Windows service '${serviceName}' is still running; preserving BS9 metadata so it can be stopped safely.`);
       }
-      const result = spawnSync("sc.exe", ["delete", serviceName], { encoding: 'utf-8', windowsHide: true });
+      const result = spawnSync(getWindowsSystemExecutable("sc.exe"), ["delete", serviceName], { encoding: 'utf-8', windowsHide: true });
       if ((result.error || result.status !== 0) && this.getNativeServiceAccount(serviceName)) {
         throw new Error(`Failed to delete native Windows service '${serviceName}': ${result.stderr || result.stdout || `exit code ${result.status}`}`);
       }
@@ -738,7 +970,7 @@ export class WindowsServiceManager {
 
     if (isAdmin) {
       try {
-        const res = spawnSync("sc.exe", ["query", serviceName], { encoding: 'utf-8', windowsHide: true });
+        const res = spawnSync(getWindowsSystemExecutable("sc.exe"), ["query", serviceName], { encoding: 'utf-8', windowsHide: true });
         const output = res.stdout || '';
         if (res.status === 0 && output.includes('RUNNING')) {
           return {
@@ -756,7 +988,7 @@ export class WindowsServiceManager {
     // Check background process metadata
     if (metadata && metadata.pid) {
       try {
-        const res = spawnSync("tasklist", ["/FI", `PID eq ${metadata.pid}`, "/NH"], { encoding: 'utf-8', windowsHide: true });
+        const res = spawnSync(getWindowsSystemExecutable("tasklist.exe"), ["/FI", `PID eq ${metadata.pid}`, "/NH"], { encoding: 'utf-8', windowsHide: true });
         if (res.status === 0 && (res.stdout || '').includes(String(metadata.pid))) {
           return {
             name: serviceName,
@@ -882,14 +1114,14 @@ export class WindowsServiceManager {
       throw new Error(`Refusing to stop ${label} process with invalid PID '${pidValue}'`);
     }
     try { process.kill(pid); } catch { /* Verify below; it may already have exited. */ }
-    const query = spawnSync('tasklist.exe', ['/FI', `PID eq ${pid}`, '/NH'], { encoding: 'utf-8', windowsHide: true });
+    const query = spawnSync(getWindowsSystemExecutable("tasklist.exe"), ['/FI', `PID eq ${pid}`, '/NH'], { encoding: 'utf-8', windowsHide: true });
     if (query.error || query.status !== 0) {
       throw new Error(`Could not verify whether ${label} process ${pid} stopped: ${query.error?.message || query.stderr || `exit code ${query.status}`}`);
     }
     const isRunning = () => (query.stdout || '').split(/\r?\n/).some((line) => new RegExp(`\\s${pid}\\s`).test(line));
     if (isRunning()) {
-      const termination = spawnSync('taskkill.exe', ['/F', '/T', '/PID', String(pid)], { encoding: 'utf-8', windowsHide: true });
-      const confirm = spawnSync('tasklist.exe', ['/FI', `PID eq ${pid}`, '/NH'], { encoding: 'utf-8', windowsHide: true });
+      const termination = spawnSync(getWindowsSystemExecutable("taskkill.exe"), ['/F', '/T', '/PID', String(pid)], { encoding: 'utf-8', windowsHide: true });
+      const confirm = spawnSync(getWindowsSystemExecutable("tasklist.exe"), ['/FI', `PID eq ${pid}`, '/NH'], { encoding: 'utf-8', windowsHide: true });
       if (confirm.error || confirm.status !== 0 || (confirm.stdout || '').split(/\r?\n/).some((line) => new RegExp(`\\s${pid}\\s`).test(line))) {
         throw new Error(`Could not stop ${label} process ${pid}: ${termination.error?.message || termination.stderr || termination.stdout || `exit code ${termination.status}`}`);
       }
@@ -901,17 +1133,17 @@ export class WindowsServiceManager {
     if (data.serviceAccount && !data.backgroundOnly && process.platform === 'win32') {
       const paths = this.getNativeServicePaths(name);
       if (existsSync(paths.serviceDir)) {
-        writeFileSync(join(paths.serviceDir, `${name}.json`), JSON.stringify(data, null, 2));
+        writeFileAtomically(join(paths.serviceDir, `${name}.json`), JSON.stringify(data, null, 2));
       }
     }
   }
 
   private getNativeServicePaths(name: string): NativeServicePaths {
-    const programData = process.env.ProgramData || 'C:\\ProgramData';
-    const rootDir = win32.join(programData, 'BS9');
+    const programDataDir = getWindowsProgramDataDirectory();
+    const rootDir = win32.join(programDataDir, 'BS9');
     const servicesDir = win32.join(rootDir, 'services');
     const serviceDir = win32.join(servicesDir, name);
-    const platformInfo = getPlatformInfo();
+    const runtimeDir = win32.join(serviceDir, `runtime-${randomUUID()}`);
     const watchdogTs = join(dirname(import.meta.path), '..', 'utils', 'watchdog-agent.ts');
     const watchdogJs = join(dirname(import.meta.path), '..', 'utils', 'watchdog-agent.js');
     const watchdogScript = existsSync(watchdogTs) ? watchdogTs : watchdogJs;
@@ -920,42 +1152,60 @@ export class WindowsServiceManager {
     }
     const hostVersion = createHash('sha256').update(WINDOWS_SERVICE_HOST_SOURCE).digest('hex').slice(0, 12);
     return {
+      programDataDir,
       rootDir,
       servicesDir,
       serviceDir,
-      hostPath: win32.join(serviceDir, `bs9-service-host-${hostVersion}.exe`),
-      configPath: win32.join(serviceDir, 'service-host.json'),
-      setupScriptPath: join(platformInfo.configDir, `${name}-setup.ps1`),
-      aclScriptPath: join(platformInfo.configDir, `${name}-acl.ps1`),
+      runtimeDir,
+      hostPath: win32.join(runtimeDir, `bs9-service-host-${hostVersion}.exe`),
+      configPath: win32.join(runtimeDir, 'service-host.json'),
       watchdogScript,
     };
+  }
+
+  private isManagedRuntimeExecutable(executablePath: string, paths: NativeServicePaths): boolean {
+    const serviceDir = win32.resolve(paths.serviceDir);
+    const relativePath = win32.relative(serviceDir, win32.resolve(executablePath)).replace(/\//g, "\\");
+    return /^runtime(?:-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})?\\bun\.exe$/i.test(relativePath);
   }
 
   private secureNativeServiceDirectory(paths: NativeServicePaths, serviceName: string): void {
     const serviceExists = Boolean(this.getNativeServiceAccount(serviceName));
     const script = this.generateDirectoryAclScript(paths, serviceName, serviceExists);
-    writeFileSync(paths.aclScriptPath, script, 'utf-8');
-    try {
-      const result = spawnSync('powershell.exe', [
-        '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', paths.aclScriptPath,
-      ], { encoding: 'utf-8', windowsHide: true, env: getWindowsPowerShellEnvironment() });
-      if (result.error || result.status !== 0) {
-        throw new Error(`Could not secure native service runtime storage: ${result.error?.message || result.stderr || result.stdout || `exit code ${result.status}`}`);
-      }
-    } finally {
-      if (existsSync(paths.aclScriptPath)) unlinkSync(paths.aclScriptPath);
+    const result = runWindowsPowerShell(script);
+    if (result.error || result.status !== 0) {
+      throw new Error(`Could not secure native service runtime storage: ${result.error?.message || result.stderr || result.stdout || `exit code ${result.status}`}`);
+    }
+  }
+
+  private generateRuntimeAclScript(runtimeDirPath: string): string {
+    const runtimeDir = quotePowerShellLiteral(runtimeDirPath);
+    return `$ErrorActionPreference = 'Stop'\n$runtimeDir = ${runtimeDir}\nif (-not (Test-Path -LiteralPath $runtimeDir -PathType Container)) { throw 'Staged service runtime directory is missing' }\n$pending = [System.Collections.Generic.Stack[string]]::new()\n$pending.Push($runtimeDir)\n$runtimePaths = [System.Collections.Generic.List[string]]::new()\nwhile ($pending.Count -gt 0) {\n  $parent = $pending.Pop()\n  $parentItem = Get-Item -LiteralPath $parent -Force\n  if (($parentItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { throw \"Refusing reparse point in staged runtime: $parent\" }\n  $runtimePaths.Add($parent)\n  foreach ($item in @(Get-ChildItem -LiteralPath $parent -Force)) {\n    if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { throw \"Refusing reparse point in staged runtime: $($item.FullName)\" }\n    $runtimePaths.Add($item.FullName)\n    if ($item.PSIsContainer) { $pending.Push($item.FullName) }\n  }\n}\n$adminSid = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-32-544')\n$systemSid = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-18')\n$localServiceSid = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-19')\nforeach ($path in $runtimePaths) {\n  $item = Get-Item -LiteralPath $path -Force\n  $acl = Get-Acl -LiteralPath $path\n  $acl.SetOwner($adminSid)\n  $acl.SetAccessRuleProtection($true, $false)\n  foreach ($oldRule in @($acl.Access)) { [void]$acl.RemoveAccessRuleAll($oldRule) }\n  $inheritance = if ($item.PSIsContainer) { [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit } else { [System.Security.AccessControl.InheritanceFlags]::None }\n  foreach ($identity in @($systemSid, $adminSid)) {\n    $rule = [System.Security.AccessControl.FileSystemAccessRule]::new($identity, [System.Security.AccessControl.FileSystemRights]::FullControl, $inheritance, [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow)\n    [void]$acl.AddAccessRule($rule)\n  }\n  $readRule = [System.Security.AccessControl.FileSystemAccessRule]::new($localServiceSid, [System.Security.AccessControl.FileSystemRights]::ReadAndExecute, $inheritance, [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow)\n  [void]$acl.AddAccessRule($readRule)\n  Set-Acl -LiteralPath $path -AclObject $acl\n}`;
+  }
+
+  private secureNativeServiceRuntime(paths: NativeServicePaths): void {
+    const script = this.generateRuntimeAclScript(paths.runtimeDir);
+    const result = runWindowsPowerShell(script);
+    if (result.error || result.status !== 0) {
+      throw new Error(`Could not secure staged Windows service runtime: ${result.error?.message || result.stderr || result.stdout || `exit code ${result.status}`}`);
     }
   }
 
   private generateDirectoryAclScript(paths: NativeServicePaths, serviceName: string, serviceExists: boolean): string {
+    const programDataDir = quotePowerShellLiteral(paths.programDataDir);
     const rootDir = quotePowerShellLiteral(paths.rootDir);
     const servicesDir = quotePowerShellLiteral(paths.servicesDir);
     const serviceDir = quotePowerShellLiteral(paths.serviceDir);
+    const runtimeDir = quotePowerShellLiteral(paths.runtimeDir);
+    const hostPath = quotePowerShellLiteral(paths.hostPath);
+    const configPath = quotePowerShellLiteral(paths.configPath);
+    const serviceMetadataPath = quotePowerShellLiteral(win32.join(paths.serviceDir, `${serviceName}.json`));
+    const tokenPath = quotePowerShellLiteral(win32.join(paths.serviceDir, 'cluster-auth.token'));
     const serviceSidAccount = quotePowerShellLiteral(`NT SERVICE\\${serviceName}`);
     const existingServiceSidAcl = serviceExists
       ? `\n$serviceAcl = Get-Acl -LiteralPath $serviceDir\n$serviceIdentity = New-Object System.Security.Principal.NTAccount(${serviceSidAccount})\n$serviceSid = $serviceIdentity.Translate([System.Security.Principal.SecurityIdentifier])\n$serviceRule = [System.Security.AccessControl.FileSystemAccessRule]::new($serviceSid, [System.Security.AccessControl.FileSystemRights]::Modify, $inherit, [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow)\n[void]$serviceAcl.AddAccessRule($serviceRule)\nSet-Acl -LiteralPath $serviceDir -AclObject $serviceAcl\n`
       : '';
-    return `$ErrorActionPreference = 'Stop'\n$rootDir = ${rootDir}\n$servicesDir = ${servicesDir}\n$serviceDir = ${serviceDir}\n$parentPaths = @($rootDir, $servicesDir)\nforeach ($path in @($parentPaths + $serviceDir)) { New-Item -ItemType Directory -Path $path -Force | Out-Null }\n$inherit = [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit\nfunction Set-Bs9BaseAcl([string]$path, [bool]$allowLocalServiceTraverse) {\n  $acl = Get-Acl -LiteralPath $path\n  $acl.SetAccessRuleProtection($true, $false)\n  foreach ($oldRule in @($acl.Access)) { [void]$acl.RemoveAccessRuleAll($oldRule) }\n  foreach ($sid in @('S-1-5-18', 'S-1-5-32-544')) {\n    $identity = New-Object System.Security.Principal.SecurityIdentifier($sid)\n    $rule = [System.Security.AccessControl.FileSystemAccessRule]::new($identity, [System.Security.AccessControl.FileSystemRights]::FullControl, $inherit, [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow)\n    [void]$acl.AddAccessRule($rule)\n  }\n  if ($allowLocalServiceTraverse) {\n    $identity = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-19')\n    $rule = [System.Security.AccessControl.FileSystemAccessRule]::new($identity, [System.Security.AccessControl.FileSystemRights]::Traverse, [System.Security.AccessControl.InheritanceFlags]::None, [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow)\n    [void]$acl.AddAccessRule($rule)\n  }\n  Set-Acl -LiteralPath $path -AclObject $acl\n}\nSet-Bs9BaseAcl $rootDir $true\nSet-Bs9BaseAcl $servicesDir $true\nSet-Bs9BaseAcl $serviceDir $false${existingServiceSidAcl}`;
+    return `$ErrorActionPreference = 'Stop'\n$programDataDir = ${programDataDir}\n$rootDir = ${rootDir}\n$servicesDir = ${servicesDir}\n$serviceDir = ${serviceDir}\n$runtimeDir = ${runtimeDir}\n$hostPath = ${hostPath}\n$configPath = ${configPath}\n$serviceMetadataPath = ${serviceMetadataPath}\n$tokenPath = ${tokenPath}\n$expectedProgramDataDir = [System.IO.Path]::GetFullPath([Environment]::GetFolderPath([Environment+SpecialFolder]::CommonApplicationData)).TrimEnd([char]92)\nif (-not [String]::Equals([System.IO.Path]::GetFullPath($programDataDir).TrimEnd([char]92), $expectedProgramDataDir, [StringComparison]::OrdinalIgnoreCase)) { throw 'ProgramData path does not match the Windows known-folder API' }\n$expectedRootDir = Join-Path $expectedProgramDataDir 'BS9'\n$expectedServicesDir = Join-Path $expectedRootDir 'services'\nif (-not [String]::Equals([System.IO.Path]::GetFullPath($rootDir), [System.IO.Path]::GetFullPath($expectedRootDir), [StringComparison]::OrdinalIgnoreCase) -or -not [String]::Equals([System.IO.Path]::GetFullPath($servicesDir), [System.IO.Path]::GetFullPath($expectedServicesDir), [StringComparison]::OrdinalIgnoreCase)) { throw 'BS9 service path is outside the Windows ProgramData directory' }\n$runtimeParent = [System.IO.Path]::GetDirectoryName([System.IO.Path]::GetFullPath($runtimeDir))\n$runtimeLeaf = [System.IO.Path]::GetFileName($runtimeDir)\nif (-not [String]::Equals($runtimeParent, [System.IO.Path]::GetFullPath($serviceDir), [StringComparison]::OrdinalIgnoreCase) -or $runtimeLeaf -notmatch '^runtime-[0-9a-fA-F-]{36}$') { throw 'Staged service runtime path is not a versioned BS9 service child' }\nfunction Assert-Bs9NoReparsePoint([string]$path, [bool]$directoryExpected = $false) {\n  if (Test-Path -LiteralPath $path) {\n    $item = Get-Item -LiteralPath $path -Force\n    if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { throw \"Refusing reparse point in protected service path: $path\" }\n    if ($directoryExpected -and -not $item.PSIsContainer) { throw \"Expected a directory in protected service path: $path\" }\n  }\n}\nif (-not (Test-Path -LiteralPath $programDataDir -PathType Container)) { throw 'Windows ProgramData directory is unavailable' }\nforeach ($path in @($programDataDir, $rootDir, $servicesDir, $serviceDir, $runtimeDir)) { Assert-Bs9NoReparsePoint $path $true }\nforeach ($path in @($hostPath, $configPath, $serviceMetadataPath, $tokenPath)) { Assert-Bs9NoReparsePoint $path }\nforeach ($path in @($rootDir, $servicesDir, $serviceDir)) { New-Item -ItemType Directory -Path $path -Force | Out-Null }\nforeach ($path in @($programDataDir, $rootDir, $servicesDir, $serviceDir, $runtimeDir)) { Assert-Bs9NoReparsePoint $path $true }\n$inherit = [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit\nfunction Set-Bs9BaseAcl([string]$path, [bool]$allowLocalServiceTraverse) {\n  $acl = Get-Acl -LiteralPath $path\n  $acl.SetOwner((New-Object System.Security.Principal.SecurityIdentifier('S-1-5-32-544')))\n  $acl.SetAccessRuleProtection($true, $false)\n  foreach ($oldRule in @($acl.Access)) { [void]$acl.RemoveAccessRuleAll($oldRule) }\n  foreach ($sid in @('S-1-5-18', 'S-1-5-32-544')) {\n    $identity = New-Object System.Security.Principal.SecurityIdentifier($sid)\n    $rule = [System.Security.AccessControl.FileSystemAccessRule]::new($identity, [System.Security.AccessControl.FileSystemRights]::FullControl, $inherit, [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow)\n    [void]$acl.AddAccessRule($rule)\n  }\n  if ($allowLocalServiceTraverse) {\n    $identity = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-19')\n    $rule = [System.Security.AccessControl.FileSystemAccessRule]::new($identity, [System.Security.AccessControl.FileSystemRights]::Traverse, [System.Security.AccessControl.InheritanceFlags]::None, [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow)\n    [void]$acl.AddAccessRule($rule)\n  }\n  Set-Acl -LiteralPath $path -AclObject $acl\n}\nSet-Bs9BaseAcl $rootDir $true\nSet-Bs9BaseAcl $servicesDir $true\nSet-Bs9BaseAcl $serviceDir $false${existingServiceSidAcl}`;
   }
 
   private writeNativeHostConfig(config: WindowsServiceConfig, paths: NativeServicePaths): void {
@@ -964,28 +1214,30 @@ export class WindowsServiceManager {
     }
     const hostConfig: NativeServiceHostConfig = {
       name: config.name,
-      runtimeExecutable: join(paths.serviceDir, 'runtime', 'bun.exe'),
-      watchdogScript: join(paths.serviceDir, 'runtime', 'src', 'utils', paths.watchdogScript.endsWith('.ts') ? 'watchdog-agent.ts' : 'watchdog-agent.js'),
+      runtimeExecutable: join(paths.runtimeDir, 'bun.exe'),
+      watchdogScript: join(paths.runtimeDir, 'src', 'utils', paths.watchdogScript.endsWith('.ts') ? 'watchdog-agent.ts' : 'watchdog-agent.js'),
       serviceDir: paths.serviceDir,
       // Native services must not share a writable BS9_HOME across the common
       // LocalService logon SID. Keep service state and credentials isolated.
       bs9Home: paths.serviceDir,
       logPath: join(paths.serviceDir, 'service-host.log'),
     };
-    writeFileSync(paths.configPath, JSON.stringify(hostConfig, null, 2), 'utf-8');
+    writeFileAtomically(paths.configPath, JSON.stringify(hostConfig, null, 2));
+    this.secureNativeServiceRuntime(paths);
   }
 
   private stageNativeServiceRuntime(paths: NativeServicePaths): { runtimeExecutable: string; watchdogScript: string } {
     // SCM services commonly run as LocalService, which cannot traverse a
     // developer's per-user Bun install. Keep the interpreter and the watchdog
     // module tree beside the service host under the protected ProgramData tree.
-    const runtimeDir = join(paths.serviceDir, 'runtime');
+    const runtimeDir = paths.runtimeDir;
     const runtimeExecutable = join(runtimeDir, 'bun.exe');
     const sourceRoot = join(dirname(paths.watchdogScript), '..');
     const stagedSourceRoot = join(runtimeDir, 'src');
     if (!existsSync(process.execPath)) {
       throw new Error(`Cannot stage Windows service runtime: Bun executable '${process.execPath}' is missing`);
     }
+    if (existsSync(runtimeDir)) rmSync(runtimeDir, { recursive: true, force: true });
     mkdirSync(runtimeDir, { recursive: true });
     copyFileSync(process.execPath, runtimeExecutable);
     cpSync(sourceRoot, stagedSourceRoot, { recursive: true, force: true });
@@ -993,6 +1245,7 @@ export class WindowsServiceManager {
     if (!existsSync(watchdogScript)) {
       throw new Error(`Cannot stage Windows service watchdog: '${watchdogScript}' is missing`);
     }
+    this.secureNativeServiceRuntime(paths);
     return { runtimeExecutable, watchdogScript };
   }
 
@@ -1021,7 +1274,7 @@ export class WindowsServiceManager {
   }
 
   private getNativeServiceAccount(serviceName: string): string | undefined {
-    const result = spawnSync("sc.exe", ["qc", serviceName], {
+    const result = spawnSync(getWindowsSystemExecutable("sc.exe"), ["qc", serviceName], {
       encoding: "utf-8",
       windowsHide: true,
     });
@@ -1031,7 +1284,7 @@ export class WindowsServiceManager {
   }
 
   private isNativeServiceStopped(serviceName: string): boolean {
-    const result = spawnSync('sc.exe', ['query', serviceName], { encoding: 'utf-8', windowsHide: true });
+    const result = spawnSync(getWindowsSystemExecutable("sc.exe"), ['query', serviceName], { encoding: 'utf-8', windowsHide: true });
     return result.status === 0 && /STATE\s*:\s*1\b/i.test(result.stdout || '');
   }
 
@@ -1130,14 +1383,9 @@ export class WindowsServiceManager {
     };
     const paths = this.getNativeServicePaths(serviceName);
     this.secureNativeServiceDirectory(paths, serviceName);
-    const stagedRuntime = this.stageNativeServiceRuntime(paths);
     let nextConfig: WindowsServiceConfig = { ...config, serviceAccount, backgroundOnly: false };
-    if (resolve(nextConfig.executable) === resolve(process.execPath)) {
-      nextConfig = { ...nextConfig, executable: stagedRuntime.runtimeExecutable };
-    }
-    const nextMetadata = {
+    let nextMetadata = {
       ...oldMetadata,
-      ...(resolve(oldMetadata.executable) === resolve(process.execPath) ? { executable: stagedRuntime.runtimeExecutable } : {}),
       serviceAccount,
       backgroundOnly: false,
       ...(this.canonicalServiceAccount(oldNativeAccount) !== serviceAccount
@@ -1147,7 +1395,6 @@ export class WindowsServiceManager {
     if (this.canonicalServiceAccount(oldNativeAccount) === serviceAccount) {
       delete nextMetadata.legacyNativeServiceAccount;
     }
-    const scriptPath = join(dirname(paths.setupScriptPath), `${serviceName}-account-setup.ps1`);
     const nativeMetadataPath = join(paths.serviceDir, `${serviceName}.json`);
     const tokenPath = join(paths.serviceDir, 'cluster-auth.token');
     const clusterMatch = /^BS9_(.+)-\d+-g\d+$/.exec(serviceName);
@@ -1172,6 +1419,13 @@ export class WindowsServiceManager {
       previousFiles.set(path, existsSync(path) ? readFileSync(path) : null);
     }
     try {
+      const stagedRuntime = this.stageNativeServiceRuntime(paths);
+      if (resolve(nextConfig.executable) === resolve(process.execPath) || this.isManagedRuntimeExecutable(nextConfig.executable, paths)) {
+        nextConfig = { ...nextConfig, executable: stagedRuntime.runtimeExecutable };
+      }
+      if (resolve(oldMetadata.executable) === resolve(process.execPath) || this.isManagedRuntimeExecutable(oldMetadata.executable, paths)) {
+        nextMetadata = { ...nextMetadata, executable: stagedRuntime.runtimeExecutable };
+      }
       if (serviceAccount === 'LocalService') {
         nextConfig = this.stageLocalServiceToken(serviceName, nextConfig, paths);
       }
@@ -1182,12 +1436,7 @@ export class WindowsServiceManager {
       this.writeNativeHostConfig(nextConfig, paths);
       this.saveProcessMetadata(serviceName, nextMetadata);
       if (manifestUpdate) writeFileAtomically(manifestUpdate.path, manifestUpdate.contents);
-      writeFileSync(scriptPath, this.generateServiceScript(nextConfig, 'configure'), 'utf-8');
-      const result = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", scriptPath], {
-        encoding: "utf-8",
-        windowsHide: true,
-        env: getWindowsPowerShellEnvironment(),
-      });
+      const result = runWindowsPowerShell(this.generateServiceScript(nextConfig, 'configure', paths));
       if (result.error || result.status !== 0) {
         throw new Error(`Failed to stage the BS9 SCM host for '${serviceName}': ${result.error?.message || result.stderr || result.stdout || `exit code ${result.status}`}`);
       }
@@ -1212,8 +1461,6 @@ export class WindowsServiceManager {
           `Windows service account migration failed and rollback was incomplete: ${rollbackErrors.join('; ')}`);
       }
       throw error;
-    } finally {
-      if (existsSync(scriptPath)) unlinkSync(scriptPath);
     }
 
     console.log(`✅ Windows service '${serviceName}' is staged for ${serviceAccount} under the BS9 service host. The running instance is unchanged; restart it during a maintenance window to apply the new host/account. Validate LocalService profile, file, pipe, and network access before restarting.`);
@@ -1225,8 +1472,12 @@ export class WindowsServiceManager {
     return existsSync(path) ? JSON.parse(readFileSync(path, 'utf-8')) : null;
   }
 
-  public generateServiceScript(config: WindowsServiceConfig, operation: 'create' | 'configure' = 'create'): string {
-    const paths = this.getNativeServicePaths(config.name);
+  public generateServiceScript(
+    config: WindowsServiceConfig,
+    operation: 'create' | 'configure' = 'create',
+    nativePaths?: NativeServicePaths,
+  ): string {
+    const paths = nativePaths || this.getNativeServicePaths(config.name);
     const serviceAccount = this.normalizeServiceAccount(config.serviceAccount);
     const credentialAccount = serviceAccount === "LocalService"
       ? "NT AUTHORITY\\LocalService"
@@ -1245,18 +1496,19 @@ export class WindowsServiceManager {
     const registrationArgs = operation === 'create'
       ? `@('${command}', $serviceName, 'binPath=', $binaryPath, 'start=', 'auto', 'obj=', $account, 'DisplayName=', $displayName)`
       : `@('${command}', $serviceName, 'binPath=', $binaryPath, 'obj=', $account)`;
-    const deleteOnFailure = operation === 'create' ? `if ($created) { & sc.exe delete $serviceName | Out-Null }` : '';
+    const deleteOnFailure = operation === 'create' ? `if ($created) { & $scExe delete $serviceName | Out-Null }` : '';
     const descriptionFailure = operation === 'create'
       ? `if ($LASTEXITCODE -ne 0) { throw "sc.exe description failed with exit code $LASTEXITCODE" }`
       : `if ($LASTEXITCODE -ne 0) { Write-Warning "Could not update the service description (exit code $LASTEXITCODE)" }`;
     const recoveryConfig = operation === 'create'
-      ? `  $failureArgs = @('failure', $serviceName, 'reset=', '86400', 'actions=', 'restart/5000/restart/15000/restart/60000')\n  & sc.exe @failureArgs\n  if ($LASTEXITCODE -ne 0) { throw "sc.exe failure recovery configuration failed with exit code $LASTEXITCODE" }\n  & sc.exe failureflag $serviceName 1\n  if ($LASTEXITCODE -ne 0) { throw "sc.exe failureflag failed with exit code $LASTEXITCODE" }\n`
+      ? `  $failureArgs = @('failure', $serviceName, 'reset=', '86400', 'actions=', 'restart/5000/restart/15000/restart/60000')\n  & $scExe @failureArgs\n  if ($LASTEXITCODE -ne 0) { throw "sc.exe failure recovery configuration failed with exit code $LASTEXITCODE" }\n  & $scExe failureflag $serviceName 1\n  if ($LASTEXITCODE -ne 0) { throw "sc.exe failureflag failed with exit code $LASTEXITCODE" }\n`
       : '';
-    const sidTypeSetup = `  $sidTypeArgs = @('sidtype', $serviceName, 'unrestricted')\n  & sc.exe @sidTypeArgs\n  if ($LASTEXITCODE -ne 0) { throw "sc.exe sidtype failed with exit code $LASTEXITCODE" }\n`;
+    const sidTypeSetup = `  $sidTypeArgs = @('sidtype', $serviceName, 'unrestricted')\n  & $scExe @sidTypeArgs\n  if ($LASTEXITCODE -ne 0) { throw "sc.exe sidtype failed with exit code $LASTEXITCODE" }\n`;
     const serviceAclSetup = `  $acl = Get-Acl -LiteralPath $serviceDir\n  $acl.SetAccessRuleProtection($true, $false)\n  foreach ($oldRule in @($acl.Access)) { [void]$acl.RemoveAccessRuleAll($oldRule) }\n  $inherit = [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit\n  foreach ($sid in @('S-1-5-18', 'S-1-5-32-544')) {\n    $identity = New-Object System.Security.Principal.SecurityIdentifier($sid)\n    $rule = [System.Security.AccessControl.FileSystemAccessRule]::new($identity, [System.Security.AccessControl.FileSystemRights]::FullControl, $inherit, [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow)\n    [void]$acl.AddAccessRule($rule)\n  }\n  $serviceIdentity = New-Object System.Security.Principal.NTAccount($serviceSidAccount)\n  $serviceSid = $serviceIdentity.Translate([System.Security.Principal.SecurityIdentifier])\n  $serviceRule = [System.Security.AccessControl.FileSystemAccessRule]::new($serviceSid, [System.Security.AccessControl.FileSystemRights]::Modify, $inherit, [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow)\n  [void]$acl.AddAccessRule($serviceRule)\n  Set-Acl -LiteralPath $serviceDir -AclObject $acl\n`;
+    const hostAclSetup = `  $hostItem = Get-Item -LiteralPath $hostPath -Force\n  if (($hostItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'Refusing a reparse point at the service host path' }\n  $hostAcl = Get-Acl -LiteralPath $hostPath\n  $hostAcl.SetOwner((New-Object System.Security.Principal.SecurityIdentifier('S-1-5-32-544')))\n  $hostAcl.SetAccessRuleProtection($true, $false)\n  foreach ($oldRule in @($hostAcl.Access)) { [void]$hostAcl.RemoveAccessRuleAll($oldRule) }\n  foreach ($sid in @('S-1-5-18', 'S-1-5-32-544')) {\n    $identity = New-Object System.Security.Principal.SecurityIdentifier($sid)\n    $rule = [System.Security.AccessControl.FileSystemAccessRule]::new($identity, [System.Security.AccessControl.FileSystemRights]::FullControl, [System.Security.AccessControl.InheritanceFlags]::None, [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow)\n    [void]$hostAcl.AddAccessRule($rule)\n  }\n  $localService = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-19')\n  $hostReadRule = [System.Security.AccessControl.FileSystemAccessRule]::new($localService, [System.Security.AccessControl.FileSystemRights]::ReadAndExecute, [System.Security.AccessControl.InheritanceFlags]::None, [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow)\n  [void]$hostAcl.AddAccessRule($hostReadRule)\n  Set-Acl -LiteralPath $hostPath -AclObject $hostAcl\n`;
     const preRegistrationSetup = operation === 'configure' ? `${sidTypeSetup}${serviceAclSetup}` : '';
     const postRegistrationSetup = operation === 'create' ? `${sidTypeSetup}${serviceAclSetup}` : '';
-    return `$ErrorActionPreference = 'Stop'\n$serviceName = ${serviceName}\n$displayName = ${displayName}\n$hostPath = ${hostPath}\n$serviceDir = ${serviceDir}\n$serviceSidAccount = ${serviceSidAccount}\n$binaryPath = ${binaryPathLiteral}\n$account = ${accountLiteral}\n$description = ${description}\n$created = $false\ntry {\n  if (-not (Test-Path -LiteralPath $hostPath)) {\n    $source = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${sourceBase64}'))\n    Add-Type -TypeDefinition $source -OutputAssembly $hostPath -OutputType ConsoleApplication -ReferencedAssemblies @('System.ServiceProcess', 'System.Web.Extensions')\n  }\n${preRegistrationSetup}  $serviceArgs = ${registrationArgs}\n  & sc.exe @serviceArgs\n  if ($LASTEXITCODE -ne 0) { throw "sc.exe ${command} failed with exit code $LASTEXITCODE" }\n  $created = $true\n${postRegistrationSetup}  $descriptionArgs = @('description', $serviceName, $description)\n  & sc.exe @descriptionArgs\n  ${descriptionFailure}\n${recoveryConfig}} catch {\n  ${deleteOnFailure}\n  throw\n}\n`;
+    return `$ErrorActionPreference = 'Stop'\n$serviceName = ${serviceName}\n$displayName = ${displayName}\n$hostPath = ${hostPath}\n$serviceDir = ${serviceDir}\n$serviceSidAccount = ${serviceSidAccount}\n$binaryPath = ${binaryPathLiteral}\n$account = ${accountLiteral}\n$description = ${description}\n$scExe = [System.IO.Path]::Combine([Environment]::SystemDirectory, 'sc.exe')\n$created = $false\ntry {\n  if (Test-Path -LiteralPath $hostPath) {\n    $existingHost = Get-Item -LiteralPath $hostPath -Force\n    if (($existingHost.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'Refusing a reparse point at the service host path' }\n    Remove-Item -LiteralPath $hostPath -Force\n  }\n  $source = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${sourceBase64}'))\n  Add-Type -TypeDefinition $source -OutputAssembly $hostPath -OutputType ConsoleApplication -ReferencedAssemblies @('System.ServiceProcess', 'System.Web.Extensions')\n${hostAclSetup}${preRegistrationSetup}  $serviceArgs = ${registrationArgs}\n  & $scExe @serviceArgs\n  if ($LASTEXITCODE -ne 0) { throw "sc.exe ${command} failed with exit code $LASTEXITCODE" }\n  $created = $true\n${postRegistrationSetup}  $descriptionArgs = @('description', $serviceName, $description)\n  & $scExe @descriptionArgs\n  ${descriptionFailure}\n${recoveryConfig}} catch {\n  ${deleteOnFailure}\n  throw\n}\n`;
   }
 }
 
@@ -1322,18 +1574,48 @@ export async function windowsCommand(action: string, options: any): Promise<void
           const platformInfo = getPlatformInfo();
           const backupFile = join(platformInfo.backupDir, `${options.name}.json`);
           if (existsSync(backupFile)) {
-            const metadata = JSON.parse(readFileSync(backupFile, 'utf-8'));
-            const { startCommand } = await import("../commands/start.js");
-            const targetFile = metadata.scriptFile || (metadata.arguments && metadata.arguments.length > 0 ? metadata.arguments[metadata.arguments.length - 1] : metadata.executable);
-            if (!metadata.serviceAccount) {
-              console.warn(`[Security] Saved service '${options.name}' has no Windows service account recorded. Keeping LocalSystem for compatibility; recreate with --windows-service-account LocalService after validating profile access and ACLs to migrate.`);
+            const backupBytes = readFileSync(backupFile);
+            const plan = createWindowsRestorePlan(options.name, backupBytes);
+            const isAdmin = manager.checkAdminPrivileges();
+            if (options.dryRun) {
+              if (options.windowsServiceAccount !== undefined &&
+                  options.windowsServiceAccount !== "LocalService" &&
+                  options.windowsServiceAccount !== "LocalSystem") {
+                throw new Error("Choose --windows-service-account LocalService");
+              }
+              console.log("Windows restore preview (no changes made):");
+              console.log(`  Service: ${JSON.stringify(plan.metadata.name)}`);
+              console.log(`  Target: ${JSON.stringify(plan.targetFile)}`);
+              console.log(`  Account: ${options.windowsServiceAccount || "select LocalService"}`);
+              console.log(`  Backup SHA-256: ${plan.backupSha256}`);
+              if (options.windowsServiceAccount === "LocalSystem") {
+                console.log("  Result: LocalSystem restore from backup is disabled; create it explicitly from a protected application path.");
+              }
+              break;
             }
-            await startCommand([targetFile], {
-              name: metadata.name.replace(/^BS9_/, ''),
-              port: metadata.environment?.PORT,
-              host: metadata.environment?.HOST,
-              env: Object.entries(metadata.environment || {}).map(([k, v]) => `${k}=${v}`),
-              windowsServiceAccount: metadata.serviceAccount || "LocalSystem",
+
+            if (!isAdmin && (options.windowsServiceAccount || options.confirmBackupSha256)) {
+              throw new Error("Selecting a Windows service account or approving an elevated restore requires an elevated shell");
+            }
+            if (isAdmin && (!options.windowsServiceAccount || !options.confirmBackupSha256)) {
+              console.log(`Restore preview: target ${JSON.stringify(plan.targetFile)}, backup SHA-256 ${plan.backupSha256}`);
+              throw new Error("Elevated restore requires an explicit account and the reviewed backup digest. First run --dry-run, then pass --windows-service-account and --confirm-backup-sha256.");
+            }
+            const serviceAccount = isAdmin
+              ? validateWindowsRestoreApproval(
+                  plan,
+                  options.windowsServiceAccount,
+                  options.confirmBackupSha256,
+                )
+              : undefined;
+
+            const { startCommand } = await import("../commands/start.js");
+            await startCommand([plan.targetFile], {
+              name: plan.metadata.name.replace(/^BS9_/, ''),
+              port: plan.metadata.environment?.PORT,
+              host: plan.metadata.environment?.HOST,
+              env: Object.entries(plan.metadata.environment || {}).map(([k, v]) => `${k}=${v}`),
+              windowsServiceAccount: serviceAccount,
             });
             console.log(`✅ Service '${options.name}' resurrected from backup`);
           } else {

@@ -250,7 +250,7 @@ export class LeaseManager {
 
   public exportState(namespace: string): Record<string, LeaseSnapshotState> {
     const prefix = `${namespace}:`;
-    const result: Record<string, LeaseSnapshotState> = {};
+    const result = Object.create(null) as Record<string, LeaseSnapshotState>;
     const now = Date.now();
 
     for (const [key, lastFencingToken] of this.fencingTokens.entries()) {

@@ -285,6 +285,9 @@ program
   .option("-a, --all", "Resurrect all services")
   .option("-f, --force", "Force resurrection without errors")
   .option("-c, --config <file>", "Configuration file to use")
+  .option("--dry-run", "Preview a Windows restore target and backup digest without starting it")
+  .option("--windows-service-account <account>", "Explicit Windows backup restore account (LocalService; LocalSystem backup restores are disabled)")
+  .option("--confirm-backup-sha256 <digest>", "Approve the exact backup digest shown by --dry-run")
   .action(resurrectCommand);
 
 program

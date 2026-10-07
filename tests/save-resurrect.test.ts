@@ -54,6 +54,14 @@ describe("Save & Resurrect Command QA Suite", () => {
     expect(true).toBe(true);
   });
 
+  it("rejects --dry-run with --all instead of entering the restore loop", async () => {
+    process.exitCode = 0;
+    await resurrectCommand("all", { all: true, dryRun: true });
+    expect(process.exitCode).toBe(1);
+    expect(stderrLogs.some((line) => line.includes("one named Windows service at a time"))).toBe(true);
+    process.exitCode = 0;
+  });
+
   it("recovers safely from corrupted backup JSON files", async () => {
     const platformInfo = getPlatformInfo();
     const backupDir = platformInfo.backupDir;

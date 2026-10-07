@@ -3,9 +3,11 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync, appendFileSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { getPlatformInfo } from "../src/platform/detect.js";
+import { hasWindowsAdminPrivileges } from "../src/windows/service.js";
 import { hasUsableUserSystemd, removeSandboxSystemdLinks } from "./helpers/systemd.js";
 
-const enabled = process.env.BS9_NATIVE_HA_E2E === "1";
+const elevatedWindowsRunner = process.platform === "win32" && hasWindowsAdminPrivileges();
+const enabled = process.env.BS9_NATIVE_HA_E2E === "1" && !elevatedWindowsRunner;
 
 describe.skipIf(!enabled)("Native HA load and chaos gate", () => {
   const testId = `${Date.now()}-${Math.floor(Math.random() * 1000)}`;
@@ -31,7 +33,6 @@ describe.skipIf(!enabled)("Native HA load and chaos gate", () => {
     BS9_HOME: home,
     BS9_CONTROLLER_SOCKET: controllerSocket,
     BS9_HUB_SOCKET: hubSocket,
-    BS9_WINDOWS_BACKGROUND: "1",
   };
 
   function record(title: string, result: { stdout: string; stderr: string; exitCode: number }): void {

@@ -19,6 +19,9 @@ interface ResurrectOptions {
   all?: boolean;
   force?: boolean;
   config?: string;
+  windowsServiceAccount?: "LocalService" | "LocalSystem";
+  confirmBackupSha256?: string;
+  dryRun?: boolean;
 }
 
 // Security: Service name validation
@@ -34,9 +37,21 @@ export async function resurrectCommand(name: string, options: ResurrectOptions):
   initializePlatformDirectories();
 
   const platformInfo = getPlatformInfo();
+  const isMultiServiceRequest = options.all || !name || name === 'all' || name.includes('[') || name.includes(' ');
+  if (options.dryRun && (!platformInfo.isWindows || isMultiServiceRequest)) {
+    console.error("❌ --dry-run is supported for one named Windows service at a time");
+    process.exitCode = 1;
+    return;
+  }
+  if ((options.windowsServiceAccount || options.confirmBackupSha256) &&
+      (!platformInfo.isWindows || isMultiServiceRequest)) {
+    console.error("❌ Windows service account and digest approval options require one named Windows service");
+    process.exitCode = 1;
+    return;
+  }
 
   // Handle resurrect all services or patterns
-  if (options.all || !name || name === 'all' || name.includes('[') || name.includes(' ')) {
+  if (isMultiServiceRequest) {
     await resurrectAllServices(platformInfo, options);
     return;
   }
@@ -109,9 +124,14 @@ export async function resurrectCommand(name: string, options: ResurrectOptions):
 
     } else if (platformInfo.isWindows) {
       const { windowsCommand } = await import("../windows/service.js");
-      await windowsCommand('resurrect', { name: `BS9_${name}` });
+      await windowsCommand('resurrect', {
+        name: `BS9_${name}`,
+        dryRun: options.dryRun,
+        windowsServiceAccount: options.windowsServiceAccount,
+        confirmBackupSha256: options.confirmBackupSha256,
+      });
 
-      console.log(`✅ Service '${name}' resurrected successfully`);
+      if (!options.dryRun) console.log(`✅ Service '${name}' resurrected successfully`);
     }
   } catch (err) {
     console.error(`❌ Failed to resurrect service '${name}': ${err}`);
@@ -172,6 +192,14 @@ async function resurrectAllServices(platformInfo: any, options: ResurrectOptions
       console.log(`   ${platformInfo.backupDir}/*.plist`);
       console.log("   And then run: launchctl load ~/Library/LaunchAgents/bs9.*.plist");
     } else if (platformInfo.isWindows) {
+      const { WindowsServiceManager } = await import("../windows/service.js");
+      const manager = new WindowsServiceManager();
+      if (manager.checkAdminPrivileges()) {
+        console.error("❌ Elevated Windows restore cannot use --all. Review and restore each service separately with --dry-run, an explicit service account, and the displayed backup SHA-256.");
+        process.exitCode = 1;
+        return;
+      }
+
       const backupDir = platformInfo.backupDir;
       if (existsSync(backupDir)) {
         const files = readdirSync(backupDir).filter((f: string) => f.endsWith('.json'));

@@ -183,4 +183,32 @@ describe("Hub WAL hardening regressions", () => {
     expect(hub.leases.get(namespace, "deploy")).toBeNull();
     await hub.stop();
   });
+
+  it("preserves __proto__ KV entries and lease fencing tokens across snapshot recovery", async () => {
+    stateDir = join(tmpdir(), `bs9-proto-snapshot-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    const namespace = "proto-snapshot";
+    let hub = new HubServer({ stateDir, autoRecover: false });
+    hub.set(namespace, "__proto__", "stored safely");
+    const firstLease = hub.leaseAcquire(namespace, "__proto__", 60_000, "first-owner");
+    expect(firstLease.acquired).toBe(true);
+    expect(firstLease.fencingToken).toBe(1);
+    hub.snapshot(namespace);
+    await hub.stop();
+
+    hub = new HubServer({ stateDir, autoRecover: false });
+    expect(hub.get(namespace, "__proto__")).toBe("stored safely");
+    const currentLease = hub.leaseAcquire(namespace, "__proto__", 60_000, "second-owner");
+    expect(currentLease.acquired).toBe(false);
+    expect(currentLease.currentOwner).toBe("first-owner");
+    expect(hub.leaseRelease(namespace, "__proto__", firstLease.fencingToken!)).toEqual({ released: true });
+    hub.snapshot(namespace);
+    await hub.stop();
+
+    hub = new HubServer({ stateDir, autoRecover: false });
+    expect(hub.get(namespace, "__proto__")).toBe("stored safely");
+    const nextLease = hub.leaseAcquire(namespace, "__proto__", 60_000, "second-owner");
+    expect(nextLease.acquired).toBe(true);
+    expect(nextLease.fencingToken).toBeGreaterThan(firstLease.fencingToken!);
+    await hub.stop();
+  });
 });

@@ -292,10 +292,10 @@ export class KvEngine {
    */
   public exportState(namespace: string): Record<string, KvEntry> {
     const store = this.stores.get(namespace);
-    if (!store) return {};
+    if (!store) return Object.create(null) as Record<string, KvEntry>;
 
     const now = Date.now();
-    const result: Record<string, KvEntry> = {};
+    const result = Object.create(null) as Record<string, KvEntry>;
 
     for (const [key, entry] of store.entries()) {
       if (!entry.expiresAt || now < entry.expiresAt) {
