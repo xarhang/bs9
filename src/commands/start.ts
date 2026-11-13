@@ -189,8 +189,8 @@ async function handleClusterStart(file: string, options: StartOptions, instanceC
   const envMap: Record<string, string> = {};
   if (options.env) {
     for (const e of options.env) {
-      const [k, v] = e.split("=");
-      if (k && v !== undefined) envMap[k] = v;
+      const sepIdx = e.indexOf("=");
+      if (sepIdx > 0) envMap[e.slice(0, sepIdx)] = e.slice(sepIdx + 1);
     }
   }
 
@@ -597,8 +597,8 @@ async function createMacOSService(serviceName: string, execPath: string, host: s
     NODE_ENV: "production",
     SERVICE_NAME: serviceName,
     ...(options.env || []).reduce((acc, env) => {
-      const [key, value] = env.split('=');
-      if (key && value) acc[key] = value;
+      const sepIdx = env.indexOf('=');
+      if (sepIdx > 0) acc[env.slice(0, sepIdx)] = env.slice(sepIdx + 1);
       return acc;
     }, {} as Record<string, string>)
   };
@@ -652,8 +652,8 @@ async function createWindowsService(serviceName: string, execPath: string, host:
     NODE_ENV: "production",
     SERVICE_NAME: serviceName,
     ...(options.env || []).reduce((acc, env) => {
-      const [key, value] = env.split('=');
-      if (key && value) acc[key] = value;
+      const sepIdx = env.indexOf('=');
+      if (sepIdx > 0) acc[env.slice(0, sepIdx)] = env.slice(sepIdx + 1);
       return acc;
     }, {} as Record<string, string>)
   };

@@ -3,10 +3,11 @@
  * Unified Service Discovery Utility
  */
 
-import { execSync } from "node:child_process";
+import { execSync, execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { getPlatformInfo, PlatformInfo } from "../platform/detect.js";
+import { escapeRegExp } from "./array-parser.js";
 
 export interface ServiceMetrics {
     name: string;
@@ -81,7 +82,7 @@ export async function listServices(): Promise<ServiceMetrics[]> {
 
 export async function findClusterWorkers(appName: string, allServices?: ServiceMetrics[]): Promise<ServiceMetrics[]> {
     const services = allServices || await listServices();
-    const cleanApp = appName.replace(/^(BS9_|bs9\.)/, "");
+    const cleanApp = escapeRegExp(appName.replace(/^(BS9_|bs9\.)/, ""));
     return services.filter(s => {
         const clean = s.name.replace(/^(BS9_|bs9\.)/, "");
         return new RegExp(`^${cleanApp}-\\d+(-g\\d+)?$`).test(clean);
@@ -91,9 +92,10 @@ export async function findClusterWorkers(appName: string, allServices?: ServiceM
 export async function resolveActiveWorkerForSlot(slotName: string, allServices?: ServiceMetrics[]): Promise<ServiceMetrics | null> {
     const services = allServices || await listServices();
     const cleanSlot = slotName.replace(/^(BS9_|bs9\.)/, "");
+    const escapedSlot = escapeRegExp(cleanSlot);
     const matching = services.filter(s => {
         const clean = s.name.replace(/^(BS9_|bs9\.)/, "");
-        return clean === cleanSlot || new RegExp(`^${cleanSlot}-g\\d+$`).test(clean);
+        return clean === cleanSlot || new RegExp(`^${escapedSlot}-g\\d+$`).test(clean);
     });
     if (matching.length === 0) return null;
     const active = matching.find(s => s.active === "active");
@@ -132,10 +134,12 @@ async function getLinuxServices(): Promise<ServiceMetrics[]> {
                 pid: '-',
             };
 
+            if (!/^[a-zA-Z0-9._@-]+$/.test(name)) continue;
+
             // Populate metrics
             try {
                 const props = ["CPUUsageNSec", "MemoryCurrent", "ActiveEnterTimestamp", "TasksCurrent", "MainPID", "StatusText"];
-                const showOutput = execSync(`systemctl --user show ${name} -p ${props.join(",")} --no-pager`, { encoding: "utf-8" });
+                const showOutput = execFileSync("systemctl", ["--user", "show", name, "-p", props.join(","), "--no-pager"], { encoding: "utf-8" });
 
                 const getData = (key: string) => {
                     const m = showOutput.match(new RegExp(`${key}=(.+)`));
@@ -283,7 +287,6 @@ async function getWindowsServices(): Promise<ServiceMetrics[]> {
 
 async function getMacOSServices(): Promise<ServiceMetrics[]> {
     try {
-        const { execSync } = await import("node:child_process");
         const { existsSync, readFileSync } = await import("node:fs");
         const { join } = await import("node:path");
         const platformInfo = getPlatformInfo();
@@ -294,6 +297,7 @@ async function getMacOSServices(): Promise<ServiceMetrics[]> {
         const services: ServiceMetrics[] = [];
 
         for (const label of Object.keys(configs)) {
+            if (!/^[a-zA-Z0-9._-]+$/.test(label)) continue;
             let pid = '-';
             let active = 'inactive';
             let sub = 'stopped';
@@ -302,7 +306,7 @@ async function getMacOSServices(): Promise<ServiceMetrics[]> {
             let uptime = '-';
 
             try {
-                const out = execSync(`launchctl list "${label}"`, { encoding: 'utf-8' });
+                const out = execFileSync("launchctl", ["list", label], { encoding: 'utf-8' });
                 const dictionaryPid = out.match(/"PID"\s*=\s*(\d+)/);
                 const row = out.split('\n').find(l => l.trim().endsWith(label));
                 const rowPid = row?.trim().split(/\s+/)[0];

@@ -375,6 +375,18 @@ function formatBytes(bytes: number): string {
 }
 
 async function saveProfileData(profile: PerformanceProfile, filename: string): Promise<void> {
+  const { resolve, sep } = await import("node:path");
+  const { homedir, tmpdir } = await import("node:os");
+  if (!filename || filename.includes("\0")) {
+    throw new Error("Invalid output file path");
+  }
+  const resolved = resolve(filename);
+  const allowedRoots = [resolve(process.cwd()), resolve(homedir()), resolve(tmpdir())];
+  const isContained = allowedRoots.some(root => resolved === root || resolved.startsWith(root + sep));
+  if (!isContained) {
+    throw new Error(`Security: Output path '${filename}' is outside allowed directories`);
+  }
+
   const data = {
     metadata: {
       serviceName: profile.serviceName,
@@ -388,5 +400,5 @@ async function saveProfileData(profile: PerformanceProfile, filename: string): P
   };
 
   const json = JSON.stringify(data, null, 2);
-  await Bun.write(filename, json);
+  await Bun.write(resolved, json);
 }

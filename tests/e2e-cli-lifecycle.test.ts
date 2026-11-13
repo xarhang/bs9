@@ -5,6 +5,9 @@ import { join, resolve } from "node:path";
 import { createServer } from "node:net";
 import { getPlatformInfo } from "../src/platform/detect.js";
 import { hasUsableUserSystemd, removeSandboxSystemdLinks } from "./helpers/systemd.js";
+import { hasWindowsAdminPrivileges } from "../src/windows/service.js";
+
+const elevatedWindowsRunner = process.platform === "win32" && hasWindowsAdminPrivileges();
 
 describe("E2E CLI Lifecycle Integration (Isolated)", () => {
   const testId = Date.now() + "_" + Math.floor(Math.random() * 1000);
@@ -148,7 +151,7 @@ describe("E2E CLI Lifecycle Integration (Isolated)", () => {
     throw lastErr || new Error(`Timed out fetching ${url}`);
   }
 
-  it.skipIf(!hasUsableUserSystemd())("should run full CLI lifecycle: daemon start, ping, start cluster, status, reload, stop, daemon stop", async () => {
+  it.skipIf(elevatedWindowsRunner || !hasUsableUserSystemd())("should run full CLI lifecycle: daemon start, ping, start cluster, status, reload, stop, daemon stop", async () => {
     // A retry must begin from a clean native-service state. This also removes
     // debris left by an interrupted runner before exercising startup again.
     await runCli(["delete", serviceName, "--force"], 5_000);
@@ -178,7 +181,7 @@ describe("E2E CLI Lifecycle Integration (Isolated)", () => {
       "-p", String(port),
       "-i", "2"
     ]);
-    expect(startRes.exitCode).toBe(0);
+    expect(startRes.exitCode, `start stdout:\n${startRes.stdout}\nstart stderr:\n${startRes.stderr}`).toBe(0);
     expect(startRes.stdout).toContain("Cluster");
 
     // Verify HTTP response from cluster deterministically

@@ -799,6 +799,50 @@ export class WindowsServiceManager {
     }
   }
 
+  /**
+   * Registers and launches BS9_DAEMON as a same-user watchdog process using
+   * trusted in-memory configuration rather than reading profile metadata from disk.
+   */
+  async startDaemonWatchdog(config: WindowsServiceConfig): Promise<void> {
+    if (config.name !== "BS9_DAEMON") {
+      throw new Error("startDaemonWatchdog can only be used for BS9_DAEMON");
+    }
+    await this.createService(config, { forceBackground: true });
+    const metadata = {
+      name: config.name,
+      description: config.description,
+      executable: config.executable,
+      arguments: config.arguments,
+      workingDir: config.workingDirectory,
+      environment: config.environment,
+      backgroundOnly: true,
+      status: 'stopped',
+      watch: config.watch,
+      maxMemoryRestart: config.maxMemoryRestart,
+      restartDelay: config.restartDelay,
+      noAutorestart: config.noAutorestart,
+      time: config.time,
+      scriptFile: config.scriptFile,
+    };
+    await this.startBackgroundProcess(metadata);
+  }
+
+  /**
+   * Stops BS9_DAEMON cleanly whether it is registered as a native SCM service
+   * or as a same-user background watchdog process.
+   */
+  async stopDaemonWatchdog(): Promise<void> {
+    const nativeAccount = this.getNativeServiceAccount("BS9_DAEMON");
+    if (nativeAccount && this.canonicalServiceAccount(nativeAccount) !== "unknown") {
+      await this.stopService("BS9_DAEMON");
+      return;
+    }
+    const metadata = this.getProcessMetadata("BS9_DAEMON");
+    if (metadata && metadata.backgroundOnly && (metadata.pid || metadata.watchdogPid)) {
+      await this.stopBackgroundProcess(metadata);
+    }
+  }
+
   async startService(serviceName: string): Promise<void> {
     if (!isValidServiceName(serviceName)) {
       throw new Error(`Security: Invalid service name: ${serviceName}`);

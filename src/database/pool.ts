@@ -16,10 +16,15 @@ function isValidHost(host: string): boolean {
   const hostnameRegex = /^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$/;
   const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
   const localhostRegex = /^(localhost|127\.0\.0\.1)$/;
-  
-  return hostnameRegex.test(host) && host.length <= 253 || 
-         ipv4Regex.test(host) || 
-         localhostRegex.test(host);
+
+  if (localhostRegex.test(host)) return true;
+  if (ipv4Regex.test(host)) {
+    return host.split('.').every(part => {
+      const n = parseInt(part, 10);
+      return n >= 0 && n <= 255;
+    });
+  }
+  return hostnameRegex.test(host) && host.length <= 253;
 }
 
 function isValidDatabaseName(name: string): boolean {
@@ -34,6 +39,19 @@ function isValidUsername(username: string): boolean {
 
 export function sanitizeSQL(sql: string): string {
   if (typeof sql !== "string") {
+    throw new Error(`❌ Security: Dangerous SQL pattern detected`);
+  }
+
+  // Strip SQL comments before pattern matching to prevent comment-splitting bypasses (e.g. DROP/**/TABLE)
+  const stripped = sql
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/--[^\r\n]*/g, " ")
+    .replace(/#[^\r\n]*/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  // Reject stacked queries (semicolon followed by another statement)
+  if (/;\s*\S/.test(stripped)) {
     throw new Error(`❌ Security: Dangerous SQL pattern detected`);
   }
 
@@ -58,7 +76,7 @@ export function sanitizeSQL(sql: string): string {
   ];
 
   for (const pattern of dangerousPatterns) {
-    if (pattern.test(sql)) {
+    if (pattern.test(stripped)) {
       throw new Error(`❌ Security: Dangerous SQL pattern detected`);
     }
   }
@@ -110,6 +128,7 @@ interface PoolStats {
 export class DatabasePool {
   private config: DatabaseConfig;
   private connections: DatabaseConnection[] = [];
+  private pendingConnections = 0;
   private waitingQueue: Array<{
     resolve: (connection: DatabaseConnection) => void;
     reject: (error: Error) => void;
@@ -237,11 +256,16 @@ export class DatabasePool {
       return availableConnection;
     }
     
-    if (this.connections.length < this.config.maxConnections!) {
-      const newConnection = await this.createConnection();
-      newConnection.inUse = true;
-      this.connections.push(newConnection);
-      return newConnection;
+    if (this.connections.length + this.pendingConnections < this.config.maxConnections!) {
+      this.pendingConnections++;
+      try {
+        const newConnection = await this.createConnection();
+        newConnection.inUse = true;
+        this.connections.push(newConnection);
+        return newConnection;
+      } finally {
+        this.pendingConnections--;
+      }
     }
     
     return new Promise((resolve, reject) => {

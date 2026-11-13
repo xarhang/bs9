@@ -17,7 +17,52 @@ import { ensurePrivateDirectory, securePrivateFile, writePrivateFile } from "../
 export function isValidWebhookUrl(rawUrl: string): boolean {
   try {
     const parsed = new URL(rawUrl);
-    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return false;
+    }
+
+    const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    if (!hostname) return false;
+
+    // Block loopback, unspecified, and local/internal hostnames
+    if (
+      hostname === 'localhost' ||
+      hostname === '0.0.0.0' ||
+      hostname === '::' ||
+      hostname === '::1' ||
+      hostname.endsWith('.localhost') ||
+      hostname.endsWith('.local') ||
+      hostname.endsWith('.internal')
+    ) {
+      return false;
+    }
+
+    // Block private, loopback, and link-local IPv4 ranges (including IPv4-mapped IPv6)
+    const ipv4Match = hostname.match(/^(?:::ffff:)?(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/i);
+    if (ipv4Match) {
+      const [, a, b, c, d] = ipv4Match.map(Number);
+      if (a > 255 || b > 255 || c > 255 || d > 255) return false;
+      if (
+        a === 0 ||                                  // 0.0.0.0/8
+        a === 10 ||                                 // 10.0.0.0/8
+        a === 127 ||                                // 127.0.0.0/8 (loopback)
+        (a === 169 && b === 254) ||                 // 169.254.0.0/16 (link-local / cloud metadata)
+        (a === 172 && b >= 16 && b <= 31) ||        // 172.16.0.0/12
+        (a === 192 && b === 168) ||                 // 192.168.0.0/16
+        (a === 100 && b >= 64 && b <= 127)          // 100.64.0.0/10 (CGNAT)
+      ) {
+        return false;
+      }
+    }
+
+    // Block IPv6 unique local (fc00::/7) and link-local (fe80::/10)
+    if (hostname.includes(':')) {
+      if (/^(fc|fd|fe[89ab])[0-9a-f]{0,2}:/i.test(hostname)) {
+        return false;
+      }
+    }
+
+    return true;
   } catch {
     return false;
   }

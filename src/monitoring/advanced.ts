@@ -10,7 +10,24 @@
  */
 
 import { serve } from "bun";
-import { randomBytes } from "node:crypto";
+import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
+
+function escapeHtml(str: unknown): string {
+  if (str === null || str === undefined) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function safeCompare(a: string, b: string): boolean {
+  if (typeof a !== "string" || typeof b !== "string") return false;
+  const hashA = createHash("sha256").update(a).digest();
+  const hashB = createHash("sha256").update(b).digest();
+  return timingSafeEqual(hashA, hashB);
+}
 
 interface AdvancedWidget {
   id: string;
@@ -41,7 +58,7 @@ interface AlertCorrelation {
   rootCause?: string;
 }
 
-class AdvancedMonitoring {
+export class AdvancedMonitoring {
   private widgets: Map<string, AdvancedWidget> = new Map();
   private anomalies: Map<string, AnomalyDetection> = new Map();
   private correlations: Map<string, AlertCorrelation> = new Map();
@@ -131,13 +148,20 @@ class AdvancedMonitoring {
     
     for (const [serviceName, metrics] of Object.entries(serviceMetrics)) {
       for (const [metricName, value] of Object.entries(metrics)) {
+        if (typeof value !== 'number' || !Number.isFinite(value)) continue;
         const key = `${serviceName}-${metricName}`;
-        const baseline = this.baselines.get(key) || 0;
-        
+        const baseline = this.baselines.get(key);
+
+        // Establish initial baseline when none exists or baseline is 0 to avoid division by zero
+        if (baseline === undefined || baseline === 0) {
+          this.baselines.set(key, value);
+          continue;
+        }
+
         // Simple anomaly detection using statistical deviation
-        const deviation = Math.abs((value as number) - baseline) / baseline;
+        const deviation = Math.abs(value - baseline) / Math.abs(baseline);
         const threshold = 0.3; // 30% deviation threshold
-        
+
         if (deviation > threshold) {
           const anomaly: AnomalyDetection = {
             service: serviceName,
@@ -147,7 +171,7 @@ class AdvancedMonitoring {
             detected: true,
             timestamp: Date.now()
           };
-          
+
           anomalies.push(anomaly);
           this.anomalies.set(key, anomaly);
         }
@@ -235,9 +259,11 @@ class AdvancedMonitoring {
     </div>
     
     <script>
+        const authToken = new URLSearchParams(window.location.search).get('token');
         // Auto-refresh widgets
         setInterval(() => {
-            fetch('/api/advanced-metrics')
+            const headers = authToken ? { 'Authorization': 'Bearer ' + authToken } : {};
+            fetch('/api/advanced-metrics', { headers })
                 .then(response => response.json())
                 .then(data => {
                     updateWidgets(data);
@@ -255,25 +281,28 @@ class AdvancedMonitoring {
   }
   
   private renderWidget(widget: AdvancedWidget): string {
+    const safeTitle = escapeHtml(widget.title);
+    const safeId = escapeHtml(widget.id);
+    const span = Math.max(1, Math.ceil((Number(widget.position?.width) || 300) / 300));
     switch (widget.type) {
       case 'metric':
         return `
-          <div class="widget" style="grid-column: span ${Math.ceil(widget.position.width / 300)};">
-            <div class="widget-header">${widget.title}</div>
+          <div class="widget" style="grid-column: span ${span};">
+            <div class="widget-header">${safeTitle}</div>
             <div class="widget-content">
-              <div class="metric-value" id="${widget.id}-value">${typeof widget.config.value === 'number' ? widget.config.value : '--'}</div>
-              <span class="metric-unit">${widget.config.unit}</span>
+              <div class="metric-value" id="${safeId}-value">${typeof widget.config.value === 'number' ? widget.config.value : '--'}</div>
+              <span class="metric-unit">${escapeHtml(widget.config.unit)}</span>
             </div>
           </div>
         `;
       
       case 'chart':
         return `
-          <div class="widget" style="grid-column: span ${Math.ceil(widget.position.width / 300)};">
-            <div class="widget-header">${widget.title}</div>
+          <div class="widget" style="grid-column: span ${span};">
+            <div class="widget-header">${safeTitle}</div>
             <div class="widget-content">
               <div class="chart-container">
-                📊 ${widget.config.chartType.toUpperCase()} Chart
+                📊 ${escapeHtml(String(widget.config.chartType || 'LINE').toUpperCase())} Chart
               </div>
             </div>
           </div>
@@ -281,9 +310,9 @@ class AdvancedMonitoring {
       
       case 'alert':
         return `
-          <div class="widget" style="grid-column: span ${Math.ceil(widget.position.width / 300)};">
-            <div class="widget-header">${widget.title}</div>
-            <div class="widget-content" id="${widget.id}-alerts">
+          <div class="widget" style="grid-column: span ${span};">
+            <div class="widget-header">${safeTitle}</div>
+            <div class="widget-content" id="${safeId}-alerts">
               <div class="alert-item">No active alerts</div>
             </div>
           </div>
@@ -292,7 +321,7 @@ class AdvancedMonitoring {
       default:
         return `
           <div class="widget">
-            <div class="widget-header">${widget.title}</div>
+            <div class="widget-header">${safeTitle}</div>
             <div class="widget-content">
               Custom widget content
             </div>
@@ -329,8 +358,11 @@ export async function advancedMonitoringCommand(options: any): Promise<void> {
       
       if (url.pathname === '/api/advanced-metrics') {
         const authHeader = req.headers.get("Authorization") || "";
+        const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
         const tokenParam = url.searchParams.get("token") || "";
-        if (authHeader !== `Bearer ${sessionToken}` && tokenParam !== sessionToken) {
+        const isValidBearer = bearerToken.length > 0 && safeCompare(bearerToken, sessionToken);
+        const isValidParam = tokenParam.length > 0 && safeCompare(tokenParam, sessionToken);
+        if (!isValidBearer && !isValidParam) {
           return new Response(JSON.stringify({ error: "Unauthorized" }), {
             status: 401,
             headers: { 'Content-Type': 'application/json' }

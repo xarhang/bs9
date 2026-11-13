@@ -159,7 +159,7 @@ export class Bs9Daemon {
     } else if (platformInfo.isLinux) {
       const unitPath = join(platformInfo.serviceDir, `${physicalName}.service`);
       const unitContent = generateSystemdUnit({
-        description: `BS9 Cluster Worker ${physicalName}`,
+        description: `BS9 Service: ${physicalName} (Cluster Worker)`,
         workingDir: dirname(manifest.appFile),
         executable: runtime.executable,
         args: runtime.args,

@@ -60,7 +60,7 @@ export async function launchSupervisedDaemon(): Promise<void> {
     try {
       const { WindowsServiceManager } = await import("../windows/service.js");
       const manager = new WindowsServiceManager();
-      await manager.createService({
+      await manager.startDaemonWatchdog({
         name: "BS9_DAEMON",
         displayName: "BS9 Persistent Daemon",
         description: "BS9 Controller and State Hub Persistent Daemon",
@@ -73,8 +73,7 @@ export async function launchSupervisedDaemon(): Promise<void> {
         },
         scriptFile: daemonFile,
         noAutorestart: false,
-      }, { forceBackground: true });
-      await manager.startService("BS9_DAEMON");
+      });
       return;
     } catch {
       // Fallback to detached spawn

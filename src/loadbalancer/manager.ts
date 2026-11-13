@@ -96,9 +96,14 @@ function isValidHost(host: string): boolean {
   const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
   const localhostRegex = /^(localhost|127\.0\.0\.1)$/;
 
-  return hostnameRegex.test(host) && host.length <= 253 ||
-    ipv4Regex.test(host) ||
-    localhostRegex.test(host);
+  if (localhostRegex.test(host)) return true;
+  if (ipv4Regex.test(host)) {
+    return host.split('.').every(part => {
+      const n = parseInt(part, 10);
+      return n >= 0 && n <= 255;
+    });
+  }
+  return hostnameRegex.test(host) && host.length <= 253;
 }
 
 function isValidPort(port: number): boolean {

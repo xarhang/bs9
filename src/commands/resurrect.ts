@@ -13,7 +13,7 @@ import { execSync } from "node:child_process";
 import { join } from "node:path";
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { getPlatformInfo, initializePlatformDirectories } from "../platform/detect.js";
-import { securePrivateFile } from "../utils/private-files.js";
+import { ensurePrivateDirectory, securePrivateFile, writePrivateFile } from "../utils/private-files.js";
 
 interface ResurrectOptions {
   all?: boolean;
@@ -111,9 +111,18 @@ export async function resurrectCommand(name: string, options: ResurrectOptions):
       await launchdCommand('resurrect', { name: `bs9.${name}` });
 
       if (options.config) {
+        if (
+          typeof options.config !== "string" ||
+          options.config.includes("\0") ||
+          !options.config.includes("<plist") ||
+          !options.config.includes("</plist>")
+        ) {
+          throw new Error("Security: Invalid launchd plist configuration");
+        }
+        ensurePrivateDirectory(platformInfo.serviceDir);
         const plistFile = join(platformInfo.serviceDir, `bs9.${name}.plist`);
         try {
-          writeFileSync(plistFile, options.config);
+          writePrivateFile(plistFile, options.config);
           console.log(`📝 Configuration restored: ${plistFile}`);
         } catch (error) {
           console.error(`❌ Failed to restore configuration: ${error}`);

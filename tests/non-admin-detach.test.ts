@@ -15,8 +15,10 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { hasWindowsAdminPrivileges } from "../src/windows/service.js";
+import { hasUsableUserSystemd } from "./helpers/systemd.js";
 
 const elevatedWindowsRunner = process.platform === "win32" && hasWindowsAdminPrivileges();
+const skipBackgroundTest = elevatedWindowsRunner || !hasUsableUserSystemd();
 
 describe("Non-Admin Detached Background Process", () => {
   const testId = `${Date.now()}-${Math.floor(Math.random() * 1000)}`;
@@ -54,7 +56,7 @@ describe("Non-Admin Detached Background Process", () => {
     }
   });
 
-  it.skipIf(elevatedWindowsRunner)("spawns a background service that persists across CLI execution", async () => {
+  it.skipIf(skipBackgroundTest)("spawns a background service that persists across CLI execution", async () => {
     mkdirSync(fixtureDir, { recursive: true });
     writeFileSync(
       appFile,

@@ -51,7 +51,7 @@ export async function daemonCommand(
         try {
           const { WindowsServiceManager } = await import("../windows/service.js");
           const manager = new WindowsServiceManager();
-          await manager.stopService("BS9_DAEMON");
+          await manager.stopDaemonWatchdog();
         } catch {}
       } else if (platformInfo.isLinux) {
         try {

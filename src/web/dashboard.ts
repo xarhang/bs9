@@ -100,8 +100,12 @@ const buildPayload = async () => {
   const services = await getMetrics();
   const running = services.filter(s => s.active === "active").length;
   const totalMemoryBytes = services.reduce((sum, s) => {
-    const m = s.memory.match(/([\d.]+)(B|KB|MB|GB)/);
-    if (m) return sum + Number(m[1]) * Math.pow(1024, ["B", "KB", "MB", "GB"].indexOf(m[2]));
+    const m = s.memory.match(/([\d.]+)\s*(B|K|KB|MB|GB|TB)/i);
+    if (m) {
+      const unit = m[2].toUpperCase() === "K" ? "KB" : m[2].toUpperCase();
+      const idx = ["B", "KB", "MB", "GB", "TB"].indexOf(unit);
+      if (idx !== -1) return sum + Number(m[1]) * Math.pow(1024, idx);
+    }
     return sum;
   }, 0);
   return {
@@ -133,8 +137,15 @@ function parseCookies(cookieHeader: string | null): Record<string, string> {
   if (!cookieHeader) return {};
   const cookies: Record<string, string> = {};
   for (const part of cookieHeader.split(";")) {
-    const [k, v] = part.trim().split("=");
-    if (k && v) cookies[k] = decodeURIComponent(v);
+    const trimmed = part.trim();
+    const sepIdx = trimmed.indexOf("=");
+    if (sepIdx > 0) {
+      const k = trimmed.slice(0, sepIdx).trim();
+      const v = trimmed.slice(sepIdx + 1).trim();
+      if (k && v) {
+        try { cookies[k] = decodeURIComponent(v); } catch {}
+      }
+    }
   }
   return cookies;
 }

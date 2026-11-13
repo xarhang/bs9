@@ -60,9 +60,10 @@ export async function reloadCommand(names: string[] = [], options: ReloadOptions
   }
 
   // Check if target is a cluster parent (workers named target-0, target-0-g1, etc.)
+  const escapedTarget = target.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   let clusterWorkers = allServices.filter(s => {
     const clean = s.name.replace(/^(BS9_|bs9\.)/, "");
-    return new RegExp(`^${target}-\\d+(-g\\d+)?$`).test(clean);
+    return new RegExp(`^${escapedTarget}-\\d+(-g\\d+)?$`).test(clean);
   });
 
   // Also check if controller has connected workers for this cluster
@@ -107,9 +108,10 @@ async function reloadClusterApp(
   let clusterWorkers = initialWorkers;
   if (!clusterWorkers) {
     const allServices = await listServices();
+    const escapedAppName = appName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     clusterWorkers = allServices.filter(s => {
       const clean = s.name.replace(/^(BS9_|bs9\.)/, "");
-      return new RegExp(`^${appName}-\\d+(-g\\d+)?$`).test(clean);
+      return new RegExp(`^${escapedAppName}-\\d+(-g\\d+)?$`).test(clean);
     });
 
     if (clusterWorkers.length === 0 && options.controller) {
@@ -476,9 +478,17 @@ async function spawnReplacementWorker(
       ensurePrivateDirectory(platformInfo.serviceDir);
       securePrivateFile(serviceFile);
       let content = readFileSync(serviceFile, "utf-8");
-      content = content.replace(new RegExp(currentPhysicalName, "g"), nextPhysicalName);
+      const escapedCurrentPhysical = currentPhysicalName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       content = content.replace(
-        new RegExp(`BS9_CLUSTER_GENERATION=${currentGen}`, "g"),
+        new RegExp(`^(Description=.*)${escapedCurrentPhysical}`, "gm"),
+        `$1${nextPhysicalName}`
+      );
+      content = content.replace(
+        new RegExp(`SERVICE_NAME=${escapedCurrentPhysical}(?=["\\s]|$)`, "g"),
+        `SERVICE_NAME=${nextPhysicalName}`
+      );
+      content = content.replace(
+        new RegExp(`BS9_CLUSTER_GENERATION=${currentGen}(?=["\\s]|$)`, "g"),
         `BS9_CLUSTER_GENERATION=${nextGen}`
       );
       const newServiceFile = join(platformInfo.serviceDir, `${nextPhysicalName}.service`);
