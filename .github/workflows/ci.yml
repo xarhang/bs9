@@ -124,7 +124,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, windows-2022, windows-2025, macos-14, macos-15, macos-26]
+        os: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, windows-2022, windows-2025, macos-15, macos-26]
     env:
       BS9_HA_CONCURRENCY: "25"
       BS9_HA_SOAK_SECONDS: "10"
