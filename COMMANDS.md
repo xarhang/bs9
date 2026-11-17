@@ -113,6 +113,10 @@ bs9 start app.ts --cron "0 4 * * *"                 # Daily restart at 4 AM
 - `--otel`: Configure OpenTelemetry service/exporter environment variables (default: `true`; application instrumentation is still required).
 - `--prometheus`: Record Prometheus integration metadata (default: `true`; the application must expose its own metrics endpoint).
 - `--build`: Build TypeScript before starting.
+- `--max-log-size <size>`: Rotate stdout/stderr logs when exceeding size (e.g., `50M`, `1G`).
+- `--max-log-files <n>`: Maximum compressed `.gz` log archives to retain.
+- `--wait-ready`: Wait for the service health endpoint to pass before returning.
+- `--ready-timeout <ms>`: Startup readiness gate timeout in ms (default: `30000`).
 
 ---
 
@@ -474,9 +478,9 @@ bs9 deps my-app --format json
 
 ---
 
-### 21. `bs9 export` - Export Historical Metrics
+### 21. `bs9 export` - Export Metrics, Reverse Proxy & Grafana Configs
 
-Exports persisted metrics (CPU, memory, latency, requests) to JSON or CSV.
+Exports persisted metrics (`json`, `csv`) or generates hardened reverse proxy and observability configs (`nginx`, `caddy`, `grafana`).
 
 ```bash
 # Export last 24 hours of metrics to JSON
@@ -484,6 +488,11 @@ bs9 export --format json --hours 24 --output metrics.json
 
 # Export specific service metrics to CSV
 bs9 export --service my-app --format csv --output app-metrics.csv
+
+# Generate hardened Nginx / Caddy / Grafana configs
+bs9 export --format nginx --service api --domain api.example.com --port 3000 --ssl
+bs9 export --format caddy --service api --domain api.example.com --port 3000
+bs9 export --format grafana --service api --output grafana-dashboard.json
 ```
 
 ---
@@ -691,14 +700,32 @@ an untrusted or name-mismatched certificate.
 
 ### 33. `bs9 mcp` - Native Model Context Protocol Server
 
-Starts the Model Context Protocol (MCP) server over stdio for AI assistants (Claude Desktop, Cursor, Antigravity).
+Starts the Model Context Protocol (MCP) server (16 tools) over stdio for AI assistants (Claude Desktop, Cursor, Antigravity) with secret redaction and `mcp-agent` audit logging.
 
 ```bash
 # Start MCP server
 bs9 mcp
 
+# Read-only mode: hides/blocks mutating tools and redacts secrets
+bs9 mcp --readonly
+
 # Output configuration JSON for Claude Desktop / Cursor
 bs9 mcp --install
+bs9 mcp --install --readonly
+```
+
+---
+
+### 33b. `bs9 audit` - Tamper-Safe Security & Lifecycle Audit Log
+
+Inspects lifecycle, authentication, and MCP agent audit events recorded in `audit.log`.
+
+```bash
+# View recent audit events
+bs9 audit
+
+# Filter by action in JSON format
+bs9 audit --action bs9_restart_process --json
 ```
 
 ---
@@ -808,5 +835,5 @@ bs9 consul register --name api-service --address 127.0.0.1 --port 3000 --health-
 
 ---
 
-*Last Updated: September 25, 2026*
-*BS9 Version: 1.6.15*
+*Last Updated: November 17, 2026*
+*BS9 Version: 1.7.0*
