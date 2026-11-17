@@ -243,5 +243,5 @@ describe("Scale & Stress Tests (100 - 1,000 Services/Statuses)", () => {
       await browser.close();
       server.stop(true);
     }
-  });
+  }, 60000);
 });

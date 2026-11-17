@@ -9,7 +9,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { appendFileSync, existsSync, lstatSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { getPlatformInfo } from "../platform/detect.js";
 import { ensurePrivateDirectory } from "./private-files.js";
@@ -43,7 +43,16 @@ export function recordAuditEvent(
   auditPath: string = getAuditLogPath()
 ): boolean {
   try {
-    ensurePrivateDirectory(dirname(auditPath));
+    const dir = dirname(auditPath);
+    if (process.platform === "linux" || process.platform === "darwin") {
+      ensurePrivateDirectory(dir);
+    } else {
+      mkdirSync(dir, { recursive: true });
+      const dirStat = lstatSync(dir);
+      if (dirStat.isSymbolicLink() || !dirStat.isDirectory()) {
+        return false;
+      }
+    }
 
     if (existsSync(auditPath)) {
       const st = lstatSync(auditPath);
