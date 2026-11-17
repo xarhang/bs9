@@ -7,33 +7,33 @@ permalink: /
 ---
 
 <section class="hero">
-  <p class="eyebrow">Bun Sentinel 9 · v1.6.15</p>
+  <p class="eyebrow">Bun Sentinel 9 · v1.7.0</p>
   <h1>Keep services running.<br><span>Stay in control.</span></h1>
-  <p class="lede">Self-healing process manager for Bun with zero-downtime clustering, real-time dashboards, TypeScript build support, and durable same-host state.</p>
+  <p class="lede">Self-healing process manager for Bun with zero-downtime clustering, WebSocket live dashboards, AI-safe MCP guardrails, and durable same-host state.</p>
   <div class="actions">
     <a class="button primary" href="{{ '/commands/' | relative_url }}">Explore commands →</a>
     <a class="button" href="https://github.com/xarhang/bs9">View on GitHub ↗</a>
   </div>
   <div class="install"><pre><code>bun add -g bs9
-bs9 start app.ts --name api -i max
+bs9 start app.ts --name api -i max --wait-ready
 bs9 status</code></pre></div>
 </section>
 
 <section class="feature-grid" aria-label="Key capabilities">
   <article class="card">
     <span class="kicker">Resilience</span>
-    <h3>Zero-downtime reloads</h3>
-    <p>Replace-first rolling generations preserve ready capacity while your application updates.</p>
+    <h3>Zero-downtime &amp; readiness</h3>
+    <p>Replace-first rolling generations, startup readiness gates, and size-based gzip log rotation.</p>
   </article>
   <article class="card">
-    <span class="kicker">Portable</span>
-    <h3>Native supervision</h3>
-    <p>Runs with systemd, launchd, and the Windows watchdog without requiring root access.</p>
+    <span class="kicker">AI-Safe MCP</span>
+    <h3>Read-only &amp; audit-logged</h3>
+    <p>Native 16-tool MCP server with <code>--readonly</code> guardrails, secret redaction, and tamper-safe <code>bs9 audit</code>.</p>
   </article>
   <article class="card">
     <span class="kicker">Observable</span>
-    <h3>Diagnostics built in</h3>
-    <p>Inspect health, logs, exceptions, metrics, cluster state, and recovery from one CLI.</p>
+    <h3>Live logs &amp; exports</h3>
+    <p>WebSocket delta log streaming, anomaly detection, plus hardened Nginx, Caddy, and Grafana exports.</p>
   </article>
 </section>
 
@@ -41,7 +41,7 @@ bs9 status</code></pre></div>
 
 <section class="docs-grid" aria-label="Documentation sections">
   <a class="card" href="{{ '/commands/' | relative_url }}">
-    <span class="kicker">39 commands</span>
+    <span class="kicker">40 commands</span>
     <h3>CLI reference →</h3>
     <p>Lifecycle, monitoring, clustering, deployment, diagnostics, and platform commands.</p>
   </a>
