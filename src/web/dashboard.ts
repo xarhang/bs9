@@ -425,6 +425,15 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
   </div>
 </div>
 <div class="stats" id="stats"></div>
+<div style="display:flex;gap:12px;margin-bottom:14px;flex-wrap:wrap;">
+  <input id="searchInput" type="text" placeholder="🔍 Filter services by name..." style="flex:1;min-width:220px;padding:10px 14px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);background:#13132b;color:#f8fafc;outline:none;">
+  <select id="stateFilter" style="padding:10px 14px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);background:#13132b;color:#f8fafc;outline:none;">
+    <option value="all">All States</option>
+    <option value="active">Active / Running</option>
+    <option value="inactive">Stopped</option>
+    <option value="failed">Failed</option>
+  </select>
+</div>
 <div class="table-wrap">
   <table>
     <thead><tr><th>Service</th><th>State</th><th>Health</th><th>CPU</th><th>Memory</th><th>Uptime</th><th>Actions</th></tr></thead>
@@ -434,6 +443,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
 <script>
 const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws';
 let ws;
+let lastData = null;
 
 function escapeHtml(str) {
   if (str === null || str === undefined) return '';
@@ -453,12 +463,20 @@ function healthBadge(h) {
 }
 
 function render(data) {
+  lastData = data;
   document.getElementById('last-update').innerHTML = '<span class="ws-dot" id="ws-dot"></span>' + escapeHtml(data.lastUpdate);
   document.getElementById('stats').innerHTML = 
     '<div class="card"><div class="card-val">' + escapeHtml(data.total) + '</div><div class="card-lbl">Total Services</div></div>' +
     '<div class="card"><div class="card-val">' + escapeHtml(data.running) + '</div><div class="card-lbl">Running</div></div>' +
     '<div class="card"><div class="card-val">' + escapeHtml(data.totalMemory) + '</div><div class="card-lbl">Total Memory</div></div>';
-  document.getElementById('tbody').innerHTML = data.services.map(s => {
+  const query = (document.getElementById('searchInput')?.value || '').trim().toLowerCase();
+  const stateFilter = document.getElementById('stateFilter')?.value || 'all';
+  const filtered = (data.services || []).filter(s => {
+    if (query && !String(s.name || '').toLowerCase().includes(query)) return false;
+    if (stateFilter !== 'all' && s.active !== stateFilter) return false;
+    return true;
+  });
+  document.getElementById('tbody').innerHTML = filtered.map(s => {
     const safeName = escapeHtml(s.name);
     return '<tr>' +
       '<td><strong>' + safeName + '</strong></td>' +
@@ -476,6 +494,9 @@ function render(data) {
   }).join('');
 }
 
+document.getElementById('searchInput').addEventListener('input', () => { if (lastData) render(lastData); });
+document.getElementById('stateFilter').addEventListener('change', () => { if (lastData) render(lastData); });
+
 document.getElementById('tbody').addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-name]');
   if (!btn) return;
@@ -486,6 +507,7 @@ document.getElementById('tbody').addEventListener('click', (e) => {
 });
 
 let activeLogService = null;
+let logRefreshTimer = null;
 async function openLogs(name) {
   activeLogService = name;
   let modal = document.getElementById('logModal');
@@ -497,7 +519,8 @@ async function openLogs(name) {
       '<div style="background:#13132b;border:1px solid rgba(255,255,255,0.15);border-radius:14px;width:min(900px,100%);max-height:80vh;display:flex;flex-direction:column;overflow:hidden;">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.1);">' +
           '<strong id="logTitle">Service Logs</strong>' +
-          '<div style="display:flex;gap:8px;">' +
+          '<div style="display:flex;gap:10px;align-items:center;">' +
+            '<label style="font-size:0.8rem;color:#cbd5e1;display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="logAutoRefresh"> Auto (2s)</label>' +
             '<button class="btn" style="background:#7c6aff;color:#fff" onclick="refreshLogs()">↻ Refresh</button>' +
             '<button class="btn" style="background:#334155;color:#fff" onclick="closeLogs()">✕ Close</button>' +
           '</div>' +
@@ -505,6 +528,12 @@ async function openLogs(name) {
         '<pre id="logContent" style="margin:0;padding:16px;overflow:auto;font-family:monospace;font-size:0.8rem;line-height:1.5;color:#cbd5e1;white-space:pre-wrap;word-break:break-word;flex:1;"></pre>' +
       '</div>';
     document.body.appendChild(modal);
+    document.getElementById('logAutoRefresh').addEventListener('change', (ev) => {
+      if (logRefreshTimer) { clearInterval(logRefreshTimer); logRefreshTimer = null; }
+      if (ev.target.checked && activeLogService) {
+        logRefreshTimer = setInterval(refreshLogs, 2000);
+      }
+    });
   }
   modal.style.display = 'flex';
   document.getElementById('logTitle').textContent = 'Logs: ' + name;
@@ -514,7 +543,7 @@ async function openLogs(name) {
 async function refreshLogs() {
   if (!activeLogService) return;
   const el = document.getElementById('logContent');
-  el.textContent = 'Loading...';
+  if (!el.textContent) el.textContent = 'Loading...';
   const res = await fetch('/api/services/' + encodeURIComponent(activeLogService) + '/logs?lines=100');
   const data = await res.json();
   if (!res.ok) { el.textContent = data.error || 'Failed to load logs'; return; }
@@ -522,6 +551,9 @@ async function refreshLogs() {
 }
 
 function closeLogs() {
+  if (logRefreshTimer) { clearInterval(logRefreshTimer); logRefreshTimer = null; }
+  const cb = document.getElementById('logAutoRefresh');
+  if (cb) cb.checked = false;
   const modal = document.getElementById('logModal');
   if (modal) modal.style.display = 'none';
   activeLogService = null;

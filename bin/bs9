@@ -80,6 +80,8 @@ program
   .option("--no-autorestart", "Do not automatically restart this application")
   .option("--time", "Prefix stdout and stderr logs with timestamps")
   .option("--cron <pattern>", "Cron pattern to force restart application")
+  .option("--max-log-size <size>", "Max log file size before rotation (e.g. 50M, 1G)")
+  .option("--max-log-files <n>", "Max rotated log archives to retain")
   .option("--interpreter <bin>", "Custom interpreter (e.g. python3, go, node, none for binary)")
   .option("--windows-service-account <account>", "Windows native service identity: LocalService by default; choose LocalSystem only for legacy permission requirements")
   .action(startCommand);

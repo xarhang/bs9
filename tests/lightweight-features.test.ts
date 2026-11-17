@@ -18,6 +18,8 @@ import {
   parseCronExpression,
   getNextCronDate,
   getNextCronDelayMs,
+  HealthAnomalyDetector,
+  startCommand,
 } from "../src/index.js";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
@@ -296,5 +298,35 @@ describe("Lightweight Production Features (Unit, Security & CLI E2E)", () => {
 
     expect(() => parseCronExpression("* * *")).toThrow();
     expect(() => parseCronExpression("99 * * * *")).toThrow();
+  });
+
+  test("HealthAnomalyDetector detects memory leak trends, measures event-loop lag, and startCommand validates flags", async () => {
+    const detector = new HealthAnomalyDetector({ minConsecutiveIncreases: 4, minGrowthRatio: 0.25 });
+
+    // Normal sawtooth fluctuation should NOT trigger leak alert
+    expect(detector.recordMemorySample("api", 100_000_000).leakSuspected).toBe(false);
+    expect(detector.recordMemorySample("api", 105_000_000).leakSuspected).toBe(false);
+    expect(detector.recordMemorySample("api", 98_000_000).leakSuspected).toBe(false);
+
+    // Monotonic growth across 4+ consecutive samples with >=25% growth SHOULD trigger
+    detector.recordMemorySample("leak-app", 100_000_000);
+    detector.recordMemorySample("leak-app", 110_000_000);
+    detector.recordMemorySample("leak-app", 120_000_000);
+    detector.recordMemorySample("leak-app", 130_000_000);
+    const finalRes = detector.recordMemorySample("leak-app", 140_000_000);
+    expect(finalRes.leakSuspected).toBe(true);
+    expect(finalRes.consecutiveIncreases).toBe(4);
+    expect(finalRes.growthRatio).toBeCloseTo(0.4, 2);
+
+    const alertPayload = detector.buildMemoryLeakAlert("slack", finalRes, "prod-01") as any;
+    expect(alertPayload.text).toContain("leak-app");
+
+    const lagMs = await detector.measureEventLoopLag();
+    expect(lagMs).toBeGreaterThanOrEqual(0);
+
+    // Security/input validation on startCommand flags
+    await expect(startCommand(["app.ts"], { cron: "invalid cron" })).rejects.toThrow(/Invalid cron expression/);
+    await expect(startCommand(["app.ts"], { maxLogSize: "50M; rm -rf /" })).rejects.toThrow(/Invalid --max-log-size/);
+    await expect(startCommand(["app.ts"], { maxLogFiles: "-5" })).rejects.toThrow(/Invalid --max-log-files/);
   });
 });

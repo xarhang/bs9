@@ -119,6 +119,11 @@ export {
   getNextCronDelayMs,
   type ParsedCron,
 } from "./utils/cron.js";
+export {
+  HealthAnomalyDetector,
+  type MemoryLeakResult,
+  type HealthAnomalyOptions,
+} from "./utils/health-anomaly.js";
 
 // If executed directly, run the CLI
 if (import.meta.main) {

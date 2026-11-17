@@ -76,6 +76,8 @@ export interface StartOptions {
   autorestart?: boolean;
   cron?: string;
   time?: boolean;
+  maxLogSize?: string;
+  maxLogFiles?: string;
   interpreter?: string;
   windowsServiceAccount?: "LocalService" | "LocalSystem";
 }
@@ -94,6 +96,19 @@ export async function startCommand(files: string[], options: StartOptions): Prom
       options.windowsServiceAccount !== "LocalService" &&
       options.windowsServiceAccount !== "LocalSystem") {
     throw new Error("Invalid --windows-service-account. Use LocalService or LocalSystem.");
+  }
+  if (options.cron !== undefined) {
+    const { parseCronExpression } = await import("../utils/cron.js");
+    parseCronExpression(options.cron);
+  }
+  if (options.maxLogSize !== undefined && !/^\d+(?:\.\d+)?\s*[KMG]?B?$/i.test(options.maxLogSize.trim())) {
+    throw new Error(`Invalid --max-log-size '${options.maxLogSize}'. Expected format like 50M, 1G, or 512K.`);
+  }
+  if (options.maxLogFiles !== undefined) {
+    const n = Number(options.maxLogFiles);
+    if (!Number.isInteger(n) || n < 1 || n > 100) {
+      throw new Error(`Invalid --max-log-files '${options.maxLogFiles}'. Must be an integer between 1 and 100.`);
+    }
   }
   const platformInfo = getPlatformInfo();
 
@@ -612,6 +627,8 @@ async function createMacOSService(serviceName: string, execPath: string, host: s
     envVars.OTEL_SERVICE_NAME = serviceName;
     envVars.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = "http://localhost:4318/v1/traces";
   }
+  if (options.maxLogSize) envVars.BS9_MAX_LOG_SIZE = options.maxLogSize;
+  if (options.maxLogFiles) envVars.BS9_MAX_LOG_FILES = options.maxLogFiles;
 
   const isClusterWorker = (options.env || []).some(e => e.includes("BS9_REUSE_PORT=true"));
   const preloadPath = resolve(join(dirname(import.meta.path), '..', 'utils', 'cluster-preload.ts'));
@@ -667,6 +684,8 @@ async function createWindowsService(serviceName: string, execPath: string, host:
     envVars.OTEL_SERVICE_NAME = serviceName;
     envVars.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = "http://localhost:4318/v1/traces";
   }
+  if (options.maxLogSize) envVars.BS9_MAX_LOG_SIZE = options.maxLogSize;
+  if (options.maxLogFiles) envVars.BS9_MAX_LOG_FILES = options.maxLogFiles;
 
   try {
     // windowsCommand internally handles admin vs non-admin (background process)
@@ -684,6 +703,9 @@ async function createWindowsService(serviceName: string, execPath: string, host:
       restartDelay: options.restartDelay ? parseInt(options.restartDelay, 10) : undefined,
       noAutorestart: options.autorestart === false,
       time: options.time,
+      cron: options.cron,
+      maxLogSize: options.maxLogSize,
+      maxLogFiles: options.maxLogFiles,
       scriptFile: execPath
     });
 

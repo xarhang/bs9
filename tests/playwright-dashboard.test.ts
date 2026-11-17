@@ -185,6 +185,14 @@ describe.skipIf(!CHROMIUM_PATH)("Playwright Browser E2E & Security Tests", () =>
       expect(logsCheck.okBody.service).toBe("sample-app");
       expect(logsCheck.badStatus).toBe(400);
 
+      // Verify #searchInput and #stateFilter exist and neutralize XSS input
+      await page.waitForSelector("#searchInput");
+      await page.waitForSelector("#stateFilter");
+      await page.fill("#searchInput", '<img src=x onerror="window.__searchXss=true">');
+      await page.selectOption("#stateFilter", "active");
+      const searchXss = await page.evaluate(() => (window as any).__searchXss);
+      expect(searchXss).toBeUndefined();
+
       expect(pageErrors).toEqual([]);
     } finally {
       await context.close();
