@@ -18,6 +18,7 @@ import { getPlatformInfo } from "../platform/detect.js";
 import { ControllerAdminClient } from "../cluster/admin-client.js";
 import { generateSystemdUnit, startUserSystemdUnit } from "../utils/systemd.js";
 import { ensurePrivateDirectory, writePrivateFile } from "../utils/private-files.js";
+import { rotateLogIfNeeded, parseLogSizeBytes } from "../utils/log-rotator.js";
 
 export interface EnsureDaemonOptions {
   timeoutMs?: number;
@@ -140,7 +141,11 @@ export function spawnDetachedDaemon(): void {
     mkdirSync(logsDir, { recursive: true });
   }
 
-  const daemonOut = openSync(join(logsDir, "bs9-daemon.log"), "a");
+  const daemonLogPath = join(logsDir, "bs9-daemon.log");
+  try {
+    rotateLogIfNeeded(daemonLogPath, { maxBytes: parseLogSizeBytes(process.env.BS9_MAX_LOG_SIZE) });
+  } catch {}
+  const daemonOut = openSync(daemonLogPath, "a");
 
   const child = spawn(process.execPath, ["run", daemonFile], {
     cwd: process.cwd(),

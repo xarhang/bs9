@@ -12,10 +12,11 @@
  */
 
 import { spawn, execSync } from "node:child_process";
-import { openSync, closeSync, existsSync, readFileSync, writeFileSync, mkdirSync, watch as fsWatch, appendFileSync } from "node:fs";
+import { openSync, closeSync, existsSync, readFileSync, writeFileSync, mkdirSync, watch as fsWatch, createWriteStream } from "node:fs";
 import { join } from "node:path";
 import { getPlatformInfo } from "../platform/detect.js";
 import { recordCrash, resetCrash, sleep, startHealthyTimer } from "./crash-tracker.js";
+import { rotateLogIfNeeded, parseLogSizeBytes, DEFAULT_MAX_LOG_FILES } from "./log-rotator.js";
 
 // Detach completely from console on Windows so terminal closure does not terminate supervisor
 if (process.platform === "win32") {
@@ -149,12 +150,25 @@ async function runSupervisor() {
 
     const outPath = join(logsDir, `${serviceName}.out.log`);
     const errPath = join(logsDir, `${serviceName}.err.log`);
+    const logRotationOpts = {
+      maxBytes: parseLogSizeBytes(currentMeta.maxLogSize || process.env.BS9_MAX_LOG_SIZE),
+      maxFiles: Number(currentMeta.maxLogFiles || process.env.BS9_MAX_LOG_FILES) || DEFAULT_MAX_LOG_FILES,
+    };
+    rotateLogIfNeeded(outPath, logRotationOpts);
+    rotateLogIfNeeded(errPath, logRotationOpts);
 
     const withTime = Boolean(currentMeta.time);
     let child: any;
+    let outStream: ReturnType<typeof createWriteStream> | null = null;
+    let errStream: ReturnType<typeof createWriteStream> | null = null;
 
     if (withTime) {
-      // Stream with timestamp prefix
+      // Stream with timestamp prefix using non-blocking buffered WriteStream
+      outStream = createWriteStream(outPath, { flags: "a" });
+      errStream = createWriteStream(errPath, { flags: "a" });
+      let outBytes = 0;
+      let errBytes = 0;
+
       child = spawn(exe, args, {
         cwd: currentMeta.workingDir,
         env: { ...process.env, ...currentMeta.environment },
@@ -168,14 +182,24 @@ async function runSupervisor() {
         const time = new Date().toISOString();
         const lines = chunk.toString().split("\n");
         const formatted = lines.map((l) => (l.length ? `[${time}] ${l}` : l)).join("\n");
-        appendFileSync(outPath, formatted);
+        outStream!.write(formatted);
+        outBytes += Buffer.byteLength(formatted);
+        if (outBytes >= logRotationOpts.maxBytes) {
+          outBytes = 0;
+          rotateLogIfNeeded(outPath, logRotationOpts);
+        }
       });
 
       child.stderr.on("data", (chunk: Buffer) => {
         const time = new Date().toISOString();
         const lines = chunk.toString().split("\n");
         const formatted = lines.map((l) => (l.length ? `[${time}] ${l}` : l)).join("\n");
-        appendFileSync(errPath, formatted);
+        errStream!.write(formatted);
+        errBytes += Buffer.byteLength(formatted);
+        if (errBytes >= logRotationOpts.maxBytes) {
+          errBytes = 0;
+          rotateLogIfNeeded(errPath, logRotationOpts);
+        }
       });
     } else {
       const out = openSync(outPath, "a");
@@ -198,6 +222,11 @@ async function runSupervisor() {
     saveMetadata(currentMeta);
 
     let healthyTimer = startHealthyTimer(serviceName);
+    const logRotateInterval = setInterval(() => {
+      rotateLogIfNeeded(outPath, logRotationOpts);
+      rotateLogIfNeeded(errPath, logRotationOpts);
+    }, 30_000);
+    if (typeof logRotateInterval.unref === "function") logRotateInterval.unref();
 
     // Memory monitoring loop if maxMemoryRestart is configured
     let memoryMonitorInterval: any = null;
@@ -224,8 +253,11 @@ async function runSupervisor() {
       child.on("exit", (code: number | null) => resolve(code));
     });
 
+    clearInterval(logRotateInterval);
     clearInterval(memoryMonitorInterval);
     clearTimeout(healthyTimer);
+    try { outStream?.end(); } catch {}
+    try { errStream?.end(); } catch {}
 
     // Check if service was intentionally stopped
     const freshMeta = getMetadata();

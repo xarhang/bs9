@@ -212,6 +212,8 @@ interface LoadBalancerStats {
 export class LoadBalancer {
   private config: LoadBalancerConfig;
   private currentIndex = 0;
+  private draining = false;
+  private healthCheckTimer: ReturnType<typeof setInterval> | null = null;
   private stats: LoadBalancerStats = {
     totalRequests: 0,
     activeConnections: 0,
@@ -265,9 +267,14 @@ export class LoadBalancer {
   }
 
   private startHealthChecking(): void {
-    setInterval(async () => {
-      await this.performHealthChecks();
+    this.healthCheckTimer = setInterval(async () => {
+      if (!this.draining) {
+        await this.performHealthChecks();
+      }
     }, this.config.healthCheck.interval);
+    if (typeof this.healthCheckTimer.unref === "function") {
+      this.healthCheckTimer.unref();
+    }
   }
 
   private async performHealthChecks(): Promise<void> {
@@ -343,6 +350,13 @@ export class LoadBalancer {
   }
 
   public async handleRequest(request: Request, clientIp = "127.0.0.1"): Promise<Response> {
+    if (this.draining) {
+      return new Response('Service Unavailable - Load balancer draining', {
+        status: 503,
+        headers: { 'Retry-After': '5', 'Connection': 'close' }
+      });
+    }
+
     const backend = this.selectBackend();
 
     if (!backend) {
@@ -416,6 +430,32 @@ export class LoadBalancer {
         backendStats.connections = backend.connections;
       }
     }
+  }
+
+  public isDraining(): boolean {
+    return this.draining;
+  }
+
+  /**
+   * Gracefully drain in-flight requests before shutting down.
+   * Stops accepting new requests and waits up to `timeoutMs` for activeConnections to reach 0.
+   */
+  public async drain(timeoutMs = 5000): Promise<{ drained: boolean; remainingConnections: number }> {
+    this.draining = true;
+    if (this.healthCheckTimer) {
+      clearInterval(this.healthCheckTimer);
+      this.healthCheckTimer = null;
+    }
+
+    const deadline = Date.now() + Math.max(0, timeoutMs);
+    while (this.stats.activeConnections > 0 && Date.now() < deadline) {
+      await setTimeout(25);
+    }
+
+    return {
+      drained: this.stats.activeConnections === 0,
+      remainingConnections: this.stats.activeConnections,
+    };
   }
 
   public getStats(): LoadBalancerStats {
@@ -584,12 +624,41 @@ async function startLoadBalancer(options?: any): Promise<void> {
     console.log(`🔒 Management endpoints accept loopback CLI requests only; set LB_ADMIN_SECRET to enable token-authenticated access`);
   }
 
-  // Graceful shutdown
-  process.on('SIGINT', () => {
-    console.log('\n🛑 Shutting down load balancer...');
+  // Graceful shutdown with connection draining
+  const shutdown = async () => {
+    console.log('\n🛑 Draining active connections and shutting down load balancer...');
+    const result = await loadBalancer.drain(5000);
+    if (!result.drained) {
+      console.warn(`⚠️  Shutdown timeout reached with ${result.remainingConnections} active connection(s) remaining`);
+    }
     server.stop();
     process.exit(0);
-  });
+  };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+}
+
+/**
+ * Determine the cluster traffic distribution strategy for a platform.
+ * Linux/macOS support kernel-level SO_REUSEPORT; Windows lacks kernel-level
+ * round-robin on SO_REUSEPORT and benefits from BS9's built-in LoadBalancer or Nginx/Caddy.
+ */
+export function getClusterDistributionMode(
+  platform: NodeJS.Platform = process.platform,
+  env: Record<string, string | undefined> = process.env
+): { mode: 'reusePort' | 'loadbalancer'; reason: string } {
+  if (platform === 'win32' || env.BS9_WINDOWS_LB === 'true') {
+    return {
+      mode: 'loadbalancer',
+      reason: platform === 'win32'
+        ? 'Windows does not distribute connections across SO_REUSEPORT sockets; use `bs9 lb start` or `bs9 export --format nginx|caddy`.'
+        : 'BS9_WINDOWS_LB=true explicitly enables userspace LoadBalancer distribution.',
+    };
+  }
+  return {
+    mode: 'reusePort',
+    reason: 'Kernel-level SO_REUSEPORT distributes connections across workers with zero proxy overhead.',
+  };
 }
 
 async function showLoadBalancerStatus(options?: any): Promise<void> {

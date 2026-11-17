@@ -173,7 +173,12 @@ async function handleClusterStart(file: string, options: StartOptions, instanceC
   const port = options.port || '3000';
 
   console.log(`🔀 Starting ${instanceCount} cluster workers for '${baseName}' on port ${port}...`);
-  console.log(`   Using Bun reusePort — kernel load balances across all workers`);
+  if (process.platform === 'win32') {
+    console.log(`   ℹ️  Windows note: SO_REUSEPORT does not round-robin across sockets on Windows.`);
+    console.log(`   💡 For multi-worker distribution on Windows, run 'bs9 lb start --port ${port} --backends ...' or 'bs9 export --format caddy'`);
+  } else {
+    console.log(`   Using Bun reusePort — kernel load balances across all workers`);
+  }
 
   const { ensureDaemonRunning } = await import("../daemon/ensure.js");
   await ensureDaemonRunning();

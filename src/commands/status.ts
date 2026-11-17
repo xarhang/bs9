@@ -13,7 +13,7 @@ import { execSync } from "node:child_process";
 import { join } from "node:path";
 import { getPlatformInfo } from "../platform/detect.js";
 import { readFileSync, existsSync } from "node:fs";
-import { parseServiceArray, getMultipleServiceInfo } from "../utils/array-parser.js";
+import { parseServiceArray, getMultipleServiceInfo, escapeRegExp } from "../utils/array-parser.js";
 import { listServices, ServiceMetrics } from "../utils/service-discovery.js";
 
 export interface StatusOptions {
@@ -89,12 +89,13 @@ async function handleStatus(options: StatusOptions, name?: string): Promise<void
     // Filter by specific service if provided
     if (name) {
       const clean = name.replace(/^(BS9_|bs9\.)/, "");
+      const escapedClean = escapeRegExp(clean);
+      const genRe = new RegExp(`^${escapedClean}-g\\d+$`);
+      const workerRe = new RegExp(`^${escapedClean}-\\d+(-g\\d+)?$`);
       services = services.filter(service => {
         const sClean = service.name.replace(/^(BS9_|bs9\.)/, "");
         if (service.name === name || sClean === clean) return true;
-        if (new RegExp(`^${clean}-g\\d+$`).test(sClean)) return true;
-        const isWorker = new RegExp(`^${clean}-\\d+(-g\\d+)?$`).test(sClean);
-        return isWorker;
+        return genRe.test(sClean) || workerRe.test(sClean);
       });
     }
 
@@ -121,12 +122,13 @@ async function handleStatus(options: StatusOptions, name?: string): Promise<void
         // Filter by specific service if provided
         if (name) {
           const clean = name.replace(/^(BS9_|bs9\.)/, "");
+          const escapedClean = escapeRegExp(clean);
+          const genRe = new RegExp(`^${escapedClean}-g\\d+$`);
+          const workerRe = new RegExp(`^${escapedClean}-\\d+(-g\\d+)?$`);
           updatedServices = updatedServices.filter(service => {
             const sClean = service.name.replace(/^(BS9_|bs9\.)/, "");
             if (service.name === name || sClean === clean) return true;
-            if (new RegExp(`^${clean}-g\\d+$`).test(sClean)) return true;
-            const isWorker = new RegExp(`^${clean}-\\d+(-g\\d+)?$`).test(sClean);
-            return isWorker;
+            return genRe.test(sClean) || workerRe.test(sClean);
           });
         }
 
@@ -146,7 +148,7 @@ function truncate(str: string, maxLen: number): string {
   return str.substring(0, maxLen - 3) + "...";
 }
 
-function displayServices(services: ServiceMetrics[]): void {
+export function displayServices(services: ServiceMetrics[]): void {
   if (services.length === 0) {
     console.log("No BS9 services found");
     console.log("Use 'bs9 start <file>' to start a service");

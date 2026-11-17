@@ -119,8 +119,9 @@ async function getLinuxServices(): Promise<ServiceMetrics[]> {
             const [, , name, loaded, active, sub, description] = match;
 
             if (!description.includes("Bun Service:") && !description.includes("BS9 Service:")) continue;
+            if (!/^[a-zA-Z0-9._@-]+$/.test(name)) continue;
 
-            const service: ServiceMetrics = {
+            services.push({
                 name,
                 loaded,
                 active,
@@ -132,38 +133,53 @@ async function getLinuxServices(): Promise<ServiceMetrics[]> {
                 uptime: '-',
                 tasks: '-',
                 pid: '-',
-            };
+            });
+        }
 
-            if (!/^[a-zA-Z0-9._@-]+$/.test(name)) continue;
+        // Batch `systemctl --user show` in chunks of 50 to scale cleanly to 100-1000+ services
+        const props = ["Id", "CPUUsageNSec", "MemoryCurrent", "ActiveEnterTimestamp", "TasksCurrent", "MainPID"];
+        const serviceByUnit = new Map<string, ServiceMetrics>();
+        for (const svc of services) {
+            serviceByUnit.set(`${svc.name}.service`, svc);
+        }
 
-            // Populate metrics
+        const BATCH_SIZE = 50;
+        for (let i = 0; i < services.length; i += BATCH_SIZE) {
+            const batchNames = services.slice(i, i + BATCH_SIZE).map(s => `${s.name}.service`);
             try {
-                const props = ["CPUUsageNSec", "MemoryCurrent", "ActiveEnterTimestamp", "TasksCurrent", "MainPID", "StatusText"];
-                const showOutput = execFileSync("systemctl", ["--user", "show", name, "-p", props.join(","), "--no-pager"], { encoding: "utf-8" });
+                const showOutput = execFileSync(
+                    "systemctl",
+                    ["--user", "show", ...batchNames, "-p", props.join(","), "--no-pager"],
+                    { encoding: "utf-8" }
+                );
+                const blocks = showOutput.split(/\r?\n\r?\n/);
+                for (const block of blocks) {
+                    if (!block.trim()) continue;
+                    const idMatch = block.match(/^Id=(.+)$/m);
+                    const svc = idMatch ? serviceByUnit.get(idMatch[1].trim()) : undefined;
+                    if (!svc) continue;
 
-                const getData = (key: string) => {
-                    const m = showOutput.match(new RegExp(`${key}=(.+)`));
-                    return m ? m[1].trim() : null;
-                };
+                    const getData = (key: string) => {
+                        const m = block.match(new RegExp(`^${key}=(.+)$`, "m"));
+                        return m ? m[1].trim() : null;
+                    };
 
-                const cpuNs = getData("CPUUsageNSec");
-                if (cpuNs && cpuNs !== "0") service.cpu = `${(Number(cpuNs) / 1000000).toFixed(1)}ms`;
+                    const cpuNs = getData("CPUUsageNSec");
+                    if (cpuNs && cpuNs !== "0") svc.cpu = `${(Number(cpuNs) / 1000000).toFixed(1)}ms`;
 
-                const memBytes = getData("MemoryCurrent");
-                if (memBytes && memBytes !== "[not set]") service.memory = formatMemory(Number(memBytes));
+                    const memBytes = getData("MemoryCurrent");
+                    if (memBytes && memBytes !== "[not set]") svc.memory = formatMemory(Number(memBytes));
 
-                const uptime = getData("ActiveEnterTimestamp");
-                if (uptime && uptime !== "") service.uptime = formatUptime(uptime);
+                    const uptime = getData("ActiveEnterTimestamp");
+                    if (uptime && uptime !== "") svc.uptime = formatUptime(uptime);
 
-                const tasks = getData("TasksCurrent");
-                if (tasks && tasks !== "[not set]") service.tasks = tasks;
+                    const tasks = getData("TasksCurrent");
+                    if (tasks && tasks !== "[not set]") svc.tasks = tasks;
 
-                const pid = getData("MainPID");
-                if (pid && pid !== "0") service.pid = pid;
-
-            } catch { /* ignore properties errors */ }
-
-            services.push(service);
+                    const pid = getData("MainPID");
+                    if (pid && pid !== "0") svc.pid = pid;
+                }
+            } catch { /* ignore batch properties errors */ }
         }
 
         return services;

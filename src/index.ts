@@ -84,6 +84,26 @@ export {
 // Runtime Client
 export * from "./runtime/index.js";
 
+// Programmatic SDK & Lightweight Utilities
+export { bs9, Bs9Client, type Bs9StartOptions } from "./sdk.js";
+export {
+  rotateLogIfNeeded,
+  parseLogSizeBytes,
+  DEFAULT_MAX_LOG_BYTES,
+  DEFAULT_MAX_LOG_FILES,
+  type LogRotationOptions,
+} from "./utils/log-rotator.js";
+export {
+  generateNginxConfig,
+  generateCaddyConfig,
+  sanitizeProxyDomain,
+  sanitizeProxyHost,
+  sanitizeUpstreamName,
+  type ProxyConfigOptions,
+  type ProxyUpstream,
+} from "./utils/proxy-config.js";
+export { LoadBalancer, getClusterDistributionMode } from "./loadbalancer/manager.js";
+
 // If executed directly, run the CLI
 if (import.meta.main) {
   const { spawn } = await import("node:child_process");

@@ -11,20 +11,64 @@
 
 import { MetricsStorage } from "../storage/metrics.js";
 import { writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { resolve, sep } from "node:path";
+import { generateCaddyConfig, generateNginxConfig } from "../utils/proxy-config.js";
 
 interface ExportOptions {
   format?: string;
   hours?: string;
   output?: string;
   service?: string;
+  domain?: string;
+  port?: string;
+  rateLimit?: string;
+  ssl?: boolean;
+}
+
+function isContainedExportPath(filePath: string): boolean {
+  const resolved = resolve(filePath);
+  const allowedRoots = [resolve(process.cwd()), resolve(homedir()), resolve(tmpdir())];
+  return allowedRoots.some((root) => resolved === root || resolved.startsWith(root + sep));
 }
 
 export async function exportCommand(options: ExportOptions): Promise<void> {
-  const storage = new MetricsStorage();
-  const format = options.format || 'json';
+  const format = (options.format || 'json').toLowerCase();
   const hours = Number(options.hours) || 24;
   const serviceName = options.service;
-  
+
+  if (options.output && !isContainedExportPath(options.output)) {
+    console.error(`❌ Security: Output path '${options.output}' must be inside workspace, home, or temp directory.`);
+    process.exitCode = 1;
+    return;
+  }
+
+  if (format === 'nginx' || format === 'caddy') {
+    try {
+      const targetService = serviceName || 'app';
+      const basePort = options.port ? parseInt(options.port, 10) : 3000;
+      const proxyOpts = {
+        serviceName: targetService,
+        domain: options.domain || 'localhost',
+        upstreams: [{ host: '127.0.0.1', port: basePort }],
+        rateLimitRps: options.rateLimit ? parseInt(options.rateLimit, 10) : 50,
+        ssl: Boolean(options.ssl),
+      };
+      const config = format === 'nginx' ? generateNginxConfig(proxyOpts) : generateCaddyConfig(proxyOpts);
+      if (options.output) {
+        writeFileSync(resolve(options.output), config, 'utf-8');
+        console.log(`✅ ${format.toUpperCase()} config exported to: ${options.output}`);
+      } else {
+        console.log(config);
+      }
+    } catch (error) {
+      console.error(`❌ Failed to generate ${format} config: ${error}`);
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  const storage = new MetricsStorage();
   console.log(`📊 Exporting BS9 metrics (${format.toUpperCase()} format)`);
   
   try {
@@ -41,7 +85,7 @@ export async function exportCommand(options: ExportOptions): Promise<void> {
       console.log(`📈 Exporting all metrics for last ${hours} hours`);
     }
     
-    const outputFile = options.output || `bs9-metrics-${Date.now()}.${format}`;
+    const outputFile = resolve(options.output || `bs9-metrics-${Date.now()}.${format}`);
     writeFileSync(outputFile, data);
     
     console.log(`✅ Metrics exported to: ${outputFile}`);

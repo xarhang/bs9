@@ -235,11 +235,15 @@ program
 
 program
   .command("export")
-  .description("Export historical metrics data")
-  .option("-f, --format <format>", "Export format (json|csv)", "json")
+  .description("Export historical metrics data or reverse proxy config (nginx|caddy)")
+  .option("-f, --format <format>", "Export format (json|csv|nginx|caddy)", "json")
   .option("-h, --hours <hours>", "Hours of data to export", "24")
   .option("-o, --output <file>", "Output file path")
-  .option("-s, --service <name>", "Export specific service metrics")
+  .option("-s, --service <name>", "Service name")
+  .option("-d, --domain <domain>", "Proxy server domain (for nginx|caddy)", "localhost")
+  .option("-p, --port <port>", "Upstream port (for nginx|caddy)", "3000")
+  .option("--rate-limit <rps>", "Requests per second limit (for nginx)", "50")
+  .option("--ssl", "Enable TLS block (for nginx)")
   .action(exportCommand);
 
 program
