@@ -248,11 +248,28 @@ async function runSupervisor() {
       }, 5000);
     }
 
+    let cronTimer: ReturnType<typeof setTimeout> | null = null;
+    if (currentMeta.cron && typeof currentMeta.cron === "string") {
+      try {
+        const { getNextCronDelayMs } = await import("./cron.js");
+        const delayMs = getNextCronDelayMs(currentMeta.cron);
+        cronTimer = setTimeout(() => {
+          console.log(`⏰ [Cron] Scheduled restart triggered for '${serviceName}' (${currentMeta.cron})`);
+          restartTriggeredByWatch = true;
+          try { child.kill("SIGTERM"); } catch {}
+        }, delayMs);
+        if (typeof cronTimer.unref === "function") cronTimer.unref();
+      } catch (err) {
+        console.warn(`⚠️ [Cron] Invalid cron expression '${currentMeta.cron}': ${err}`);
+      }
+    }
+
     // Wait for child to exit
     const exitCode: number | null = await new Promise((resolve) => {
       child.on("exit", (code: number | null) => resolve(code));
     });
 
+    if (cronTimer) clearTimeout(cronTimer);
     clearInterval(logRotateInterval);
     clearInterval(memoryMonitorInterval);
     clearTimeout(healthyTimer);

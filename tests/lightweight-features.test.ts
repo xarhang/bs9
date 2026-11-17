@@ -13,6 +13,11 @@ import {
   generateCaddyConfig,
   LoadBalancer,
   getClusterDistributionMode,
+  generateGrafanaDashboard,
+  formatAlertPayload,
+  parseCronExpression,
+  getNextCronDate,
+  getNextCronDelayMs,
 } from "../src/index.js";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
@@ -237,5 +242,59 @@ describe("Lightweight Production Features (Unit, Security & CLI E2E)", () => {
     expect(conf).toContain("sdk.example.com");
     expect(conf).toContain("127.0.0.1:8080");
     expect(["linux", "darwin", "win32"]).toContain(bs9.getPlatform().platform);
+  });
+
+  test("Grafana dashboard export (SDK & CLI E2E), Alert Presets, and Cron scheduler work safely", () => {
+    // 1. Grafana Dashboard JSON
+    const grafanaJson = generateGrafanaDashboard({ title: "Prod Overview", serviceName: "api" });
+    const parsedGrafana = JSON.parse(grafanaJson);
+    expect(parsedGrafana.title).toBe("Prod Overview");
+    expect(parsedGrafana.panels.length).toBe(5);
+    expect(parsedGrafana.panels[0].targets[0].expr).toContain('bs9_service_up{service="api"}');
+
+    const grafanaCli = spawnSync(
+      "bun",
+      ["run", BIN_BS9, "export", "--format", "grafana", "--service", "web"],
+      { cwd: REPO_ROOT, encoding: "utf8" }
+    );
+    expect(grafanaCli.status).toBe(0);
+    expect(JSON.parse(grafanaCli.stdout).uid).toBe("bs9-overview");
+
+    // 2. Alert Presets (Telegram, Discord, Slack)
+    const event = {
+      service: "api-prod",
+      severity: "critical" as const,
+      title: "High Crash Rate",
+      message: "Worker restarted 5 times\u0000",
+      host: "node-01",
+      chatId: "123456",
+    };
+    const tg = formatAlertPayload("telegram", event);
+    expect(tg.chat_id).toBe("123456");
+    expect(String(tg.text)).toContain("api-prod");
+    expect(String(tg.text)).not.toContain("\u0000");
+
+    const discord = formatAlertPayload("discord", event) as any;
+    expect(discord.embeds[0].color).toBe(0xef4444);
+    expect(discord.embeds[0].title).toBe("High Crash Rate");
+
+    const slack = formatAlertPayload("slack", event) as any;
+    expect(slack.text).toContain("api-prod");
+    expect(slack.blocks.length).toBe(1);
+
+    // 3. Cron Expression Parser & Next Run
+    const parsedCron = parseCronExpression("*/15 2-4 * * 1-5");
+    expect(parsedCron.minutes.has(0)).toBe(true);
+    expect(parsedCron.minutes.has(15)).toBe(true);
+    expect(parsedCron.hours.has(3)).toBe(true);
+    expect(parsedCron.daysOfWeek.has(0)).toBe(false);
+
+    const baseDate = new Date("2026-11-16T01:50:00Z");
+    const nextDate = getNextCronDate("0 * * * *", baseDate);
+    expect(nextDate.getUTCMinutes()).toBe(0);
+    expect(getNextCronDelayMs("0 * * * *", baseDate)).toBe(10 * 60 * 1000);
+
+    expect(() => parseCronExpression("* * *")).toThrow();
+    expect(() => parseCronExpression("99 * * * *")).toThrow();
   });
 });

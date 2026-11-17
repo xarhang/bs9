@@ -14,6 +14,7 @@ import { writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { resolve, sep } from "node:path";
 import { generateCaddyConfig, generateNginxConfig } from "../utils/proxy-config.js";
+import { generateGrafanaDashboard } from "../utils/grafana-export.js";
 
 interface ExportOptions {
   format?: string;
@@ -40,6 +41,17 @@ export async function exportCommand(options: ExportOptions): Promise<void> {
   if (options.output && !isContainedExportPath(options.output)) {
     console.error(`❌ Security: Output path '${options.output}' must be inside workspace, home, or temp directory.`);
     process.exitCode = 1;
+    return;
+  }
+
+  if (format === 'grafana') {
+    const json = generateGrafanaDashboard({ serviceName });
+    if (options.output) {
+      writeFileSync(resolve(options.output), json, 'utf-8');
+      console.log(`✅ Grafana dashboard exported to: ${options.output}`);
+    } else {
+      console.log(json);
+    }
     return;
   }
 

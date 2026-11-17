@@ -21,8 +21,9 @@ import { listServices, ServiceMetrics as UnifiedMetrics } from "../utils/service
 import { spawn } from "node:child_process";
 import { resolve, join } from "node:path";
 import { randomBytes, timingSafeEqual, createHash } from "node:crypto";
-import { appendFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, lstatSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { getPlatformInfo } from "../platform/detect.js";
 
 
 // Detach from console on Windows if running in background
@@ -467,6 +468,7 @@ function render(data) {
       '<td>' + escapeHtml(s.memory) + '</td>' +
       '<td>' + escapeHtml(s.uptime) + '</td>' +
       '<td>' +
+        '<button class="btn" style="background:#334155;color:#e2e8f0" data-name="' + safeName + '" data-cmd="logs">📄 Logs</button> ' +
         '<button class="btn btn-restart" data-name="' + safeName + '" data-cmd="restart">↺ Restart</button> ' +
         '<button class="btn btn-stop"    data-name="' + safeName + '" data-cmd="stop">■ Stop</button>' +
       '</td>' +
@@ -479,8 +481,51 @@ document.getElementById('tbody').addEventListener('click', (e) => {
   if (!btn) return;
   const name = btn.getAttribute('data-name');
   const cmd = btn.getAttribute('data-cmd');
+  if (name && cmd === 'logs') { openLogs(name); return; }
   if (name && cmd) action(name, cmd);
 });
+
+let activeLogService = null;
+async function openLogs(name) {
+  activeLogService = name;
+  let modal = document.getElementById('logModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'logModal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);display:flex;align-items:center;justify-content:center;z-index:1000;padding:24px;';
+    modal.innerHTML =
+      '<div style="background:#13132b;border:1px solid rgba(255,255,255,0.15);border-radius:14px;width:min(900px,100%);max-height:80vh;display:flex;flex-direction:column;overflow:hidden;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.1);">' +
+          '<strong id="logTitle">Service Logs</strong>' +
+          '<div style="display:flex;gap:8px;">' +
+            '<button class="btn" style="background:#7c6aff;color:#fff" onclick="refreshLogs()">↻ Refresh</button>' +
+            '<button class="btn" style="background:#334155;color:#fff" onclick="closeLogs()">✕ Close</button>' +
+          '</div>' +
+        '</div>' +
+        '<pre id="logContent" style="margin:0;padding:16px;overflow:auto;font-family:monospace;font-size:0.8rem;line-height:1.5;color:#cbd5e1;white-space:pre-wrap;word-break:break-word;flex:1;"></pre>' +
+      '</div>';
+    document.body.appendChild(modal);
+  }
+  modal.style.display = 'flex';
+  document.getElementById('logTitle').textContent = 'Logs: ' + name;
+  await refreshLogs();
+}
+
+async function refreshLogs() {
+  if (!activeLogService) return;
+  const el = document.getElementById('logContent');
+  el.textContent = 'Loading...';
+  const res = await fetch('/api/services/' + encodeURIComponent(activeLogService) + '/logs?lines=100');
+  const data = await res.json();
+  if (!res.ok) { el.textContent = data.error || 'Failed to load logs'; return; }
+  el.textContent = (data.out || '(no stdout)') + (data.err ? '\\n--- STDERR ---\\n' + data.err : '');
+}
+
+function closeLogs() {
+  const modal = document.getElementById('logModal');
+  if (modal) modal.style.display = 'none';
+  activeLogService = null;
+}
 
 async function action(name, cmd) {
   if (!confirm(cmd + ' \\'' + name + '\\'?')) return;
@@ -589,6 +634,47 @@ export function startDashboardServer() {
           "Cache-Control": "private, max-age=2"
         }
       });
+    }
+
+    // --- REST: service logs ---
+    const logsMatch = url.pathname.match(/^\/api\/services\/([^/]+)\/logs$/);
+    if (logsMatch && req.method === "GET") {
+      if (!isAuthorized(req)) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      const name = decodeURIComponent(logsMatch[1]);
+      if (!isValidServiceName(name)) {
+        return new Response(JSON.stringify({ error: "Security: Invalid service name" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      const cleanName = name.replace(/^(BS9_|bs9\.)/, "");
+      const linesLimit = Math.min(500, Math.max(1, Number(url.searchParams.get("lines")) || 100));
+      const logDir = getPlatformInfo().logDir;
+      const readTail = (filePath: string): string => {
+        if (!existsSync(filePath)) return "";
+        try {
+          const st = lstatSync(filePath);
+          if (st.isSymbolicLink() || !st.isFile()) return "";
+          const raw = readFileSync(filePath, "utf8");
+          const bounded = raw.length > 65536 ? raw.slice(-65536) : raw;
+          return bounded.split(/\r?\n/).slice(-linesLimit).join("\n");
+        } catch {
+          return "";
+        }
+      };
+      return new Response(
+        JSON.stringify({
+          service: cleanName,
+          out: readTail(join(logDir, `${cleanName}.out.log`)),
+          err: readTail(join(logDir, `${cleanName}.err.log`)),
+        }),
+        { headers: { "Content-Type": "application/json" } }
+      );
     }
 
     // --- REST: action (restart / stop) ---

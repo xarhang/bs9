@@ -175,6 +175,16 @@ describe.skipIf(!CHROMIUM_PATH)("Playwright Browser E2E & Security Tests", () =>
       const docCookie = await page.evaluate(() => document.cookie);
       expect(docCookie).not.toContain(webToken);
 
+      // Verify /api/services/:name/logs works when authenticated and blocks traversal
+      const logsCheck = await page.evaluate(async () => {
+        const okRes = await fetch("/api/services/sample-app/logs?lines=50");
+        const badRes = await fetch("/api/services/..%2F..%2Fetc%2Fpasswd/logs");
+        return { okStatus: okRes.status, okBody: await okRes.json(), badStatus: badRes.status };
+      });
+      expect(logsCheck.okStatus).toBe(200);
+      expect(logsCheck.okBody.service).toBe("sample-app");
+      expect(logsCheck.badStatus).toBe(400);
+
       expect(pageErrors).toEqual([]);
     } finally {
       await context.close();

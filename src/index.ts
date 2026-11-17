@@ -103,6 +103,22 @@ export {
   type ProxyUpstream,
 } from "./utils/proxy-config.js";
 export { LoadBalancer, getClusterDistributionMode } from "./loadbalancer/manager.js";
+export { generateGrafanaDashboard, type GrafanaExportOptions } from "./utils/grafana-export.js";
+export {
+  formatTelegramAlert,
+  formatDiscordAlert,
+  formatSlackAlert,
+  formatAlertPayload,
+  type AlertProvider,
+  type Bs9AlertEvent,
+} from "./utils/alert-presets.js";
+export {
+  parseCronField,
+  parseCronExpression,
+  getNextCronDate,
+  getNextCronDelayMs,
+  type ParsedCron,
+} from "./utils/cron.js";
 
 // If executed directly, run the CLI
 if (import.meta.main) {
