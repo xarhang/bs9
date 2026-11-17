@@ -71,7 +71,7 @@ function updatePackageJson(version) {
 function updateReadmeVersion(version) {
   const readme = readFileSync("README.md", "utf-8");
   const updatedReadme = readme.replace(
-    /\[!\[Version\].*v\d+\.\d+\.\d+.*\]\(https:\/\/github\.com\/xarhang\/bs9\)/,
+    /\[!\[Version\]\(https:\/\/img\.shields\.io\/badge\/version-\d+\.\d+\.\d+-blue\.svg\)\]\(https:\/\/github\.com\/xarhang\/bs9\)/,
     `[![Version](https://img.shields.io/badge/version-${version}-blue.svg)](https://github.com/xarhang/bs9)`
   );
   writeFileSync("README.md", updatedReadme);
