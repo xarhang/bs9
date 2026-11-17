@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { isValidWebhookUrl } from "../src/alerting/config.js";
+import { isValidWebhookUrl, isSafeWebhookTarget } from "../src/alerting/config.js";
 import { sanitizeSQL, DatabasePool } from "../src/database/pool.js";
 import { LoadBalancer } from "../src/loadbalancer/manager.js";
 import { AdvancedMonitoring } from "../src/monitoring/advanced.js";
@@ -22,6 +22,21 @@ describe("Security & Bug Fix Verification Suite", () => {
       expect(isValidWebhookUrl("http://192.168.1.1/admin")).toBe(false);
       expect(isValidWebhookUrl("http://metadata.internal/token")).toBe(false);
       expect(isValidWebhookUrl("http://service.local/hook")).toBe(false);
+    });
+
+    it("blocks hostnames whose DNS resolves to private/loopback/metadata IPs (DNS rebinding)", async () => {
+      expect(
+        await isSafeWebhookTarget("https://rebind.example.com/hook", async () => [{ address: "127.0.0.1" }]),
+      ).toBe(false);
+      expect(
+        await isSafeWebhookTarget("https://rebind.example.com/hook", async () => [{ address: "169.254.169.254" }]),
+      ).toBe(false);
+      expect(
+        await isSafeWebhookTarget("https://rebind.example.com/hook", async () => [{ address: "::ffff:10.0.0.1" }]),
+      ).toBe(false);
+      expect(
+        await isSafeWebhookTarget("https://hooks.slack.com/services/T/B/X", async () => [{ address: "54.230.1.10" }]),
+      ).toBe(true);
     });
   });
 

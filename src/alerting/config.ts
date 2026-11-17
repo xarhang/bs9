@@ -10,9 +10,47 @@
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { lookup } from "node:dns/promises";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { ensurePrivateDirectory, securePrivateFile, writePrivateFile } from "../utils/private-files.js";
+
+export function isBlockedIpAddress(rawIp: string): boolean {
+  const ip = rawIp.toLowerCase().replace(/^\[|\]$/g, '');
+  if (!ip) return true;
+
+  if (ip === '::' || ip === '::1') {
+    return true;
+  }
+
+  // Block private, loopback, and link-local IPv4 ranges (including IPv4-mapped IPv6)
+  const ipv4Match = ip.match(/^(?:::ffff:)?(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/i);
+  if (ipv4Match) {
+    const [, a, b, c, d] = ipv4Match.map(Number);
+    if (a > 255 || b > 255 || c > 255 || d > 255) return true;
+    if (
+      a === 0 ||                                  // 0.0.0.0/8
+      a === 10 ||                                 // 10.0.0.0/8
+      a === 127 ||                                // 127.0.0.0/8 (loopback)
+      (a === 169 && b === 254) ||                 // 169.254.0.0/16 (link-local / cloud metadata)
+      (a === 172 && b >= 16 && b <= 31) ||        // 172.16.0.0/12
+      (a === 192 && b === 168) ||                 // 192.168.0.0/16
+      (a === 100 && b >= 64 && b <= 127)          // 100.64.0.0/10 (CGNAT)
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  // Block IPv6 unique local (fc00::/7) and link-local (fe80::/10)
+  if (ip.includes(':')) {
+    if (/^(fc|fd|fe[89ab])[0-9a-f]{0,2}:/i.test(ip)) {
+      return true;
+    }
+  }
+
+  return false;
+}
 
 export function isValidWebhookUrl(rawUrl: string): boolean {
   try {
@@ -27,9 +65,6 @@ export function isValidWebhookUrl(rawUrl: string): boolean {
     // Block loopback, unspecified, and local/internal hostnames
     if (
       hostname === 'localhost' ||
-      hostname === '0.0.0.0' ||
-      hostname === '::' ||
-      hostname === '::1' ||
       hostname.endsWith('.localhost') ||
       hostname.endsWith('.local') ||
       hostname.endsWith('.internal')
@@ -37,32 +72,35 @@ export function isValidWebhookUrl(rawUrl: string): boolean {
       return false;
     }
 
-    // Block private, loopback, and link-local IPv4 ranges (including IPv4-mapped IPv6)
-    const ipv4Match = hostname.match(/^(?:::ffff:)?(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/i);
-    if (ipv4Match) {
-      const [, a, b, c, d] = ipv4Match.map(Number);
-      if (a > 255 || b > 255 || c > 255 || d > 255) return false;
-      if (
-        a === 0 ||                                  // 0.0.0.0/8
-        a === 10 ||                                 // 10.0.0.0/8
-        a === 127 ||                                // 127.0.0.0/8 (loopback)
-        (a === 169 && b === 254) ||                 // 169.254.0.0/16 (link-local / cloud metadata)
-        (a === 172 && b >= 16 && b <= 31) ||        // 172.16.0.0/12
-        (a === 192 && b === 168) ||                 // 192.168.0.0/16
-        (a === 100 && b >= 64 && b <= 127)          // 100.64.0.0/10 (CGNAT)
-      ) {
-        return false;
-      }
-    }
-
-    // Block IPv6 unique local (fc00::/7) and link-local (fe80::/10)
-    if (hostname.includes(':')) {
-      if (/^(fc|fd|fe[89ab])[0-9a-f]{0,2}:/i.test(hostname)) {
-        return false;
-      }
+    if (isBlockedIpAddress(hostname)) {
+      return false;
     }
 
     return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function isSafeWebhookTarget(
+  rawUrl: string,
+  resolveDns: (hostname: string) => Promise<Array<{ address: string }>> = (h) => lookup(h, { all: true }),
+): Promise<boolean> {
+  if (!isValidWebhookUrl(rawUrl)) {
+    return false;
+  }
+  try {
+    const parsed = new URL(rawUrl);
+    const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    // If hostname is already an IP literal, isValidWebhookUrl already validated it.
+    if (/^(?:::ffff:)?\d{1,3}(?:\.\d{1,3}){3}$/i.test(hostname) || hostname.includes(':')) {
+      return true;
+    }
+    const records = await resolveDns(hostname);
+    if (!records || records.length === 0) {
+      return false;
+    }
+    return records.every((record) => !isBlockedIpAddress(record.address));
   } catch {
     return false;
   }
@@ -242,7 +280,7 @@ class AlertManager {
     
     console.error(message);
     
-    if (this.config.webhookUrl && isValidWebhookUrl(this.config.webhookUrl)) {
+    if (this.config.webhookUrl && await isSafeWebhookTarget(this.config.webhookUrl)) {
       try {
         const response = await fetch(this.config.webhookUrl, {
           method: 'POST',
@@ -271,9 +309,9 @@ class AlertManager {
     return { ...this.config };
   }
   
-  testWebhook(): Promise<boolean> {
-    if (!this.config.webhookUrl || !isValidWebhookUrl(this.config.webhookUrl)) {
-      return Promise.resolve(false);
+  async testWebhook(): Promise<boolean> {
+    if (!this.config.webhookUrl || !(await isSafeWebhookTarget(this.config.webhookUrl))) {
+      return false;
     }
     
     return fetch(this.config.webhookUrl, {

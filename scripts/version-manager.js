@@ -6,7 +6,7 @@
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 
 function getCurrentVersion() {
   const packageJson = JSON.parse(readFileSync("package.json", "utf-8"));
@@ -41,6 +41,26 @@ function formatVersion(version) {
   return `${version.major}.${version.minor}.${version.patch}`;
 }
 
+function getChangesFromGit() {
+  try {
+    let range = [];
+    try {
+      const lastTag = execFileSync("git", ["describe", "--tags", "--abbrev=0"], { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+      if (lastTag) range = [`${lastTag}..HEAD`];
+    } catch {
+      range = ["-n", "10"];
+    }
+    const raw = execFileSync("git", ["log", ...range, "--pretty=format:%s"], { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] });
+    const subjects = raw
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0 && !line.startsWith("🚀 v"));
+    return subjects.length > 0 ? subjects : ["Maintenance and dependency updates"];
+  } catch {
+    return ["Maintenance and dependency updates"];
+  }
+}
+
 function updatePackageJson(version) {
   const packageJson = JSON.parse(readFileSync("package.json", "utf-8"));
   packageJson.version = version;
@@ -64,17 +84,8 @@ function updateChangelog(version, changes) {
   
   const newEntry = `## [${version}] - ${date}
 
-### ✨ New Features
+### Changes
 ${changes.map(change => `- ${change}`).join('\n')}
-
-### 🔧 Technical Improvements
-- Automated version management
-- Enhanced changelog generation
-- Improved documentation updates
-
-### 📚 Documentation
-- Updated version references
-- Enhanced feature documentation
 
 `;
   
@@ -89,14 +100,13 @@ ${changes.map(change => `- ${change}`).join('\n')}
 
 function commitAndTag(version) {
   try {
-    execSync("git add .", { stdio: "inherit" });
-    execSync(`git commit -m "🚀 v${version}: Automated version update
-
-- Updated package.json to v${version}
-- Updated README.md version badge
-- Updated CHANGELOG.md with new version
-- Automated version management process"`, { stdio: "inherit" });
-    execSync(`git tag v${version}`, { stdio: "inherit" });
+    execFileSync("git", ["add", "."], { stdio: "inherit" });
+    execFileSync("git", [
+      "commit",
+      "-m",
+      `🚀 v${version}: Automated version update\n\n- Updated package.json to v${version}\n- Updated README.md version badge\n- Updated CHANGELOG.md with new version`,
+    ], { stdio: "inherit" });
+    execFileSync("git", ["tag", `v${version}`], { stdio: "inherit" });
     console.log(`✅ Committed and tagged v${version}`);
   } catch (error) {
     console.log(`⚠️  Git operations failed: ${error}`);
@@ -119,7 +129,7 @@ function main() {
   // Update all files
   updatePackageJson(versionString);
   updateReadmeVersion(versionString);
-  updateChangelog(versionString, changes.length > 0 ? changes : ["Automated version update"]);
+  updateChangelog(versionString, changes.length > 0 ? changes : getChangesFromGit());
   
   // Commit and tag
   commitAndTag(versionString);
