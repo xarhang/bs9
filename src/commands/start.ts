@@ -78,6 +78,8 @@ export interface StartOptions {
   time?: boolean;
   maxLogSize?: string;
   maxLogFiles?: string;
+  waitReady?: boolean;
+  readyTimeout?: string;
   interpreter?: string;
   windowsServiceAccount?: "LocalService" | "LocalSystem";
 }
@@ -471,6 +473,21 @@ async function handleSingleServiceStart(file: string, options: StartOptions): Pr
   } else {
     console.error(`❌ Platform ${platformInfo.platform} is not supported`);
     process.exit(1);
+  }
+
+  const { recordAuditEvent } = await import("../utils/audit-log.js");
+  recordAuditEvent({ action: "start", target: finalServiceName, status: "success", details: `port=${port}` });
+
+  if (options.waitReady) {
+    const { waitForServiceReady } = await import("../utils/readiness.js");
+    const timeoutMs = options.readyTimeout ? parseInt(options.readyTimeout, 10) : 15000;
+    const result = await waitForServiceReady({
+      host,
+      port: parseInt(port, 10) || 3000,
+      protocol: protocol === "https" ? "https" : "http",
+      timeoutMs,
+    });
+    console.log(`✅ Service '${finalServiceName}' is ready (HTTP ${result.status}, ${result.elapsedMs}ms)`);
   }
 }
 

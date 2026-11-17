@@ -24,6 +24,7 @@ import { randomBytes, timingSafeEqual, createHash } from "node:crypto";
 import { appendFileSync, existsSync, lstatSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { getPlatformInfo } from "../platform/detect.js";
+import { recordAuditEvent } from "../utils/audit-log.js";
 
 
 // Detach from console on Windows if running in background
@@ -602,6 +603,7 @@ export function startDashboardServer() {
       try {
         const body = await req.json() as { token?: string };
         if (body.token && safeCompare(body.token, SESSION_TOKEN)) {
+          recordAuditEvent({ action: "web_login", target: "dashboard", status: "success" });
           const isHttps = expectedDashboardOrigin()?.startsWith("https://") || url.protocol === "https:";
           const cookieVal = `bs9_session=${encodeURIComponent(SESSION_TOKEN)}; HttpOnly; SameSite=Strict; Path=/${isHttps ? "; Secure" : ""}; Max-Age=86400`;
           return new Response(JSON.stringify({ ok: true }), {
@@ -611,6 +613,7 @@ export function startDashboardServer() {
             },
           });
         }
+        recordAuditEvent({ action: "web_login", target: "dashboard", status: "denied", details: "invalid_token" });
         return new Response(JSON.stringify({ error: "Invalid session token" }), {
           status: 401,
           headers: { "Content-Type": "application/json" },

@@ -1,16 +1,23 @@
 # BS9 (Bun Sentinel 9)
 
 [![License: AGPL v3+](https://img.shields.io/badge/License-AGPL_v3%2B-blue.svg)](https://www.gnu.org/licenses/agpl-3.0.html)
-[![Version](https://img.shields.io/badge/version-1.6.18-blue.svg)](https://github.com/xarhang/bs9)
+[![Version](https://img.shields.io/badge/version-1.7.0-blue.svg)](https://github.com/xarhang/bs9)
 [![Security](https://img.shields.io/badge/security-hardened-green.svg)](SECURITY.md)
-[![Tests](https://img.shields.io/badge/tests-2%2C428%20passing-brightgreen.svg)](https://github.com/xarhang/bs9/actions)
+[![Tests](https://img.shields.io/badge/tests-2%2C445%2B%20passing-brightgreen.svg)](https://github.com/xarhang/bs9/actions)
 [![Cross-Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](https://github.com/xarhang/bs9)
 
 **Self-healing process manager for Bun with zero-downtime clustering, real-time dashboards, TypeScript build support, and durable same-host state.**
 
 Works on Windows, macOS, and Linux.
 
-Every release is gated by 2,428 automated tests plus GitHub-hosted native and packaged qualification across Linux, Windows, and macOS. The compatibility matrix also exercises major Linux distributions in containers, including Debian, CentOS Stream, Red Hat UBI, Rocky Linux, AlmaLinux, Fedora, openSUSE, Arch Linux, Alpine Linux, and Linux Mint. See [Testing and release qualification](docs/TESTING.md).
+Every release is gated by 2,445+ automated tests (including Playwright browser E2E, security tests, and 1,000-service scale stress tests) plus GitHub-hosted native and packaged qualification across Linux, Windows, and macOS. The compatibility matrix also exercises major Linux distributions in containers, including Debian, CentOS Stream, Red Hat UBI, Rocky Linux, AlmaLinux, Fedora, openSUSE, Arch Linux, Alpine Linux, and Linux Mint. See [Testing and release qualification](docs/TESTING.md).
+
+### What's New in v1.7.0
+- **Built-in Log Rotation**: Non-blocking buffered logging with size-based `.gz` rotation (`--max-log-size 50M --max-log-files 5`) and symlink protection.
+- **Reverse Proxy & Grafana Exports**: Generate hardened configs via `bs9 export --format nginx|caddy|grafana`.
+- **Startup Readiness Gate**: Wait for `/healthz` before returning via `bs9 start app.ts --wait-ready --ready-timeout 15000`.
+- **Web Dashboard Upgrades**: Live Log Viewer modal (with 2s auto-refresh), instant Search/Filter for 100–1,000 services, and tamper-safe `audit.log`.
+- **Programmatic SDK & Observability**: `import { bs9, HealthAnomalyDetector, formatAlertPayload } from "bs9"` for embedded lifecycle, memory-leak trend detection, and Telegram/Discord/Slack alerts.
 
 ---
 

@@ -290,3 +290,29 @@ jobs:
         github_token: ${{ secrets.GITHUB_TOKEN }}
         publish_dir: ./docs
         enable_jekyll: true
+
+  playwright-e2e:
+    name: Playwright Browser & 1000-Scale E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v2
+      with:
+        bun-version: latest
+
+    - name: Install dependencies
+      run: PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 bun install
+
+    - name: Ensure Chromium is available
+      run: |
+        if [ ! -x /usr/bin/google-chrome ] && [ ! -x /usr/bin/chromium ]; then
+          bunx playwright install chromium
+        fi
+
+    - name: Run Playwright & High-Scale Stress Tests
+      run: bun test tests/playwright-dashboard.test.ts tests/high-scale-stress.test.ts tests/lightweight-features.test.ts --timeout 30000
+

@@ -124,6 +124,16 @@ export {
   type MemoryLeakResult,
   type HealthAnomalyOptions,
 } from "./utils/health-anomaly.js";
+export {
+  recordAuditEvent,
+  readAuditEvents,
+  getAuditLogPath,
+  type AuditEvent,
+} from "./utils/audit-log.js";
+export {
+  waitForServiceReady,
+  type ReadinessOptions,
+} from "./utils/readiness.js";
 
 // If executed directly, run the CLI
 if (import.meta.main) {

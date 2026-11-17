@@ -82,6 +82,8 @@ program
   .option("--cron <pattern>", "Cron pattern to force restart application")
   .option("--max-log-size <size>", "Max log file size before rotation (e.g. 50M, 1G)")
   .option("--max-log-files <n>", "Max rotated log archives to retain")
+  .option("--wait-ready", "Wait until service /healthz endpoint responds before exiting")
+  .option("--ready-timeout <ms>", "Timeout in ms for --wait-ready (default: 15000)")
   .option("--interpreter <bin>", "Custom interpreter (e.g. python3, go, node, none for binary)")
   .option("--windows-service-account <account>", "Windows native service identity: LocalService by default; choose LocalSystem only for legacy permission requirements")
   .action(startCommand);

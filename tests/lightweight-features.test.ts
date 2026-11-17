@@ -20,6 +20,9 @@ import {
   getNextCronDelayMs,
   HealthAnomalyDetector,
   startCommand,
+  recordAuditEvent,
+  readAuditEvents,
+  waitForServiceReady,
 } from "../src/index.js";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
@@ -328,5 +331,64 @@ describe("Lightweight Production Features (Unit, Security & CLI E2E)", () => {
     await expect(startCommand(["app.ts"], { cron: "invalid cron" })).rejects.toThrow(/Invalid cron expression/);
     await expect(startCommand(["app.ts"], { maxLogSize: "50M; rm -rf /" })).rejects.toThrow(/Invalid --max-log-size/);
     await expect(startCommand(["app.ts"], { maxLogFiles: "-5" })).rejects.toThrow(/Invalid --max-log-files/);
+  });
+
+  test("Tamper-safe Audit Log and Startup Readiness Gate work securely", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "bs9-audit-"));
+    try {
+      const auditFile = join(dir, "audit.log");
+      const ok = recordAuditEvent(
+        {
+          action: "start\ninjected",
+          target: "api\rprod",
+          status: "success",
+          details: "port=3000",
+        },
+        auditFile
+      );
+      expect(ok).toBe(true);
+
+      const events = readAuditEvents(10, auditFile);
+      expect(events.length).toBe(1);
+      expect(events[0].action).toBe("start injected");
+      expect(events[0].target).toBe("api prod");
+
+      // Security: Refuse symlinked audit.log
+      const victim = join(dir, "victim.txt");
+      const linkAudit = join(dir, "evil-audit.log");
+      writeFileSync(victim, "ORIGINAL", "utf8");
+      symlinkSync(victim, linkAudit);
+      expect(recordAuditEvent({ action: "test", target: "x", status: "denied" }, linkAudit)).toBe(false);
+      expect(readFileSync(victim, "utf8")).toBe("ORIGINAL");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+
+    // Readiness Gate: polls until server responds < 500
+    let readyFlag = false;
+    const srv = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch(req) {
+        if (new URL(req.url).pathname === "/healthz") {
+          return readyFlag ? new Response("ok", { status: 200 }) : new Response("booting", { status: 503 });
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+    setTimeout(() => { readyFlag = true; }, 180);
+
+    try {
+      const readyRes = await waitForServiceReady({
+        host: "0.0.0.0",
+        port: srv.port!,
+        timeoutMs: 3000,
+        intervalMs: 50,
+      });
+      expect(readyRes.ready).toBe(true);
+      expect(readyRes.status).toBe(200);
+    } finally {
+      srv.stop(true);
+    }
   });
 });
