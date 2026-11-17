@@ -16,7 +16,8 @@ Every release is gated by 2,445+ automated tests (including Playwright browser E
 - **Built-in Log Rotation**: Non-blocking buffered logging with size-based `.gz` rotation (`--max-log-size 50M --max-log-files 5`) and symlink protection.
 - **Reverse Proxy & Grafana Exports**: Generate hardened configs via `bs9 export --format nginx|caddy|grafana`.
 - **Startup Readiness Gate**: Wait for `/healthz` before returning via `bs9 start app.ts --wait-ready --ready-timeout 15000`.
-- **Web Dashboard Upgrades**: Live Log Viewer modal (with 2s auto-refresh), instant Search/Filter for 100–1,000 services, and tamper-safe `audit.log`.
+- **Web Dashboard Upgrades**: Live Log Viewer modal (WebSocket real-time delta streaming + 2s fallback), instant Search/Filter for 100–1,000 services, and tamper-safe `audit.log` (`bs9 audit`).
+- **AI-Safe MCP Server (`bs9 mcp`)**: Read-only guardrails (`--readonly` / `BS9_MCP_READONLY=true`), automatic secret redaction in `bs9_describe_process`, `mcp-agent` audit logging, plus `bs9_audit_log` and `bs9_export_config` tools.
 - **Programmatic SDK & Observability**: `import { bs9, HealthAnomalyDetector, formatAlertPayload } from "bs9"` for embedded lifecycle, memory-leak trend detection, and Telegram/Discord/Slack alerts.
 
 ---
@@ -270,8 +271,14 @@ bs9 unstartup                                      # Remove auto-resurrect on re
 bs9 env myapp                                      # Dump configured environment variables
 
 # 🤖 Native Model Context Protocol (MCP) for AI Assistants (Claude, Cursor)
-bs9 mcp                                            # Launch stdio MCP server
+bs9 mcp                                            # Launch stdio MCP server (16 tools)
+bs9 mcp --readonly                                 # Read-only mode: blocks mutating tools & redacts secrets
 bs9 mcp --install                                  # Output JSON snippet for Claude Desktop / Cursor
+bs9 mcp --install --readonly                       # Output read-only MCP config snippet
+
+# 🔐 Tamper-Safe Security & Lifecycle Audit Log
+bs9 audit                                          # View recent lifecycle & MCP agent audit events
+bs9 audit --action bs9_restart_process --json      # Filter by action in JSON format
 
 # 🐛 Issue & Exception Tracker Dashboard
 bs9 issues                                         # Aggregated exceptions & crash traces across all services
