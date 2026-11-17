@@ -1,9 +1,10 @@
 import { describe, expect, test, afterAll, beforeAll } from "bun:test";
-import { existsSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { chromium, type Browser } from "playwright";
 import { AdvancedMonitoring } from "../src/monitoring/advanced.js";
+import { getPlatformInfo } from "../src/platform/detect.js";
 
 function findChromiumExecutable(): string | undefined {
   const candidates = [
@@ -192,6 +193,49 @@ describe.skipIf(!CHROMIUM_PATH)("Playwright Browser E2E & Security Tests", () =>
       await page.selectOption("#stateFilter", "active");
       const searchXss = await page.evaluate(() => (window as any).__searchXss);
       expect(searchXss).toBeUndefined();
+
+      // Realistic WebSocket Live Log Streaming E2E + XSS payload test
+      const svcName = `pw-live-${Date.now()}`;
+      const logDir = getPlatformInfo().logDir;
+      mkdirSync(logDir, { recursive: true });
+      const outLog = join(logDir, `${svcName}.out.log`);
+      writeFileSync(outLog, "booting...\n", "utf8");
+
+      try {
+        const wsStreamPromise = page.evaluate(async (name) => {
+          return await new Promise<{ received: string; xss: unknown }>((resolvePromise, rejectPromise) => {
+            const wsUrl = (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws";
+            const sock = new WebSocket(wsUrl);
+            const timer = setTimeout(() => {
+              sock.close();
+              rejectPromise(new Error("Timed out waiting for WebSocket log_delta"));
+            }, 5000);
+
+            sock.onopen = () => {
+              sock.send(JSON.stringify({ type: "subscribe_logs", service: name }));
+            };
+            sock.onmessage = (ev) => {
+              const msg = JSON.parse(ev.data);
+              if (msg.type === "log_delta" && msg.service === name) {
+                clearTimeout(timer);
+                sock.close();
+                resolvePromise({ received: msg.out || "", xss: (window as any).__wsLogXss });
+              }
+            };
+            sock.onerror = () => rejectPromise(new Error("WebSocket error"));
+          });
+        }, svcName);
+
+        // Give subscription a moment to register, then append a live log line with XSS payload
+        await new Promise((r) => setTimeout(r, 200));
+        appendFileSync(outLog, '<script>window.__wsLogXss=true</script>live-request-ok\n', "utf8");
+
+        const wsResult = await wsStreamPromise;
+        expect(wsResult.received).toContain("live-request-ok");
+        expect(wsResult.xss).toBeUndefined();
+      } finally {
+        rmSync(outLog, { force: true });
+      }
 
       expect(pageErrors).toEqual([]);
     } finally {

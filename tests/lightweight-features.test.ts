@@ -391,4 +391,34 @@ describe("Lightweight Production Features (Unit, Security & CLI E2E)", () => {
       srv.stop(true);
     }
   });
+
+  test("CLI E2E: bs9 audit outputs JSON and filters by action", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bs9-audit-cli-"));
+    try {
+      const auditFile = join(dir, "audit.log");
+      recordAuditEvent({ action: "start", target: "api-1", status: "success", details: "port=3000" }, auditFile);
+      recordAuditEvent({ action: "web_login", target: "dashboard", status: "denied" }, auditFile);
+
+      const jsonRes = spawnSync("bun", ["run", BIN_BS9, "audit", "--json", "--limit", "10"], {
+        cwd: REPO_ROOT,
+        env: { ...process.env, BS9_AUDIT_LOG: auditFile },
+        encoding: "utf8",
+      });
+      expect(jsonRes.status).toBe(0);
+      const parsed = JSON.parse(jsonRes.stdout);
+      expect(parsed.length).toBe(2);
+      expect(parsed[0].action).toBe("start");
+
+      const filteredRes = spawnSync("bun", ["run", BIN_BS9, "audit", "--action", "web_login"], {
+        cwd: REPO_ROOT,
+        env: { ...process.env, BS9_AUDIT_LOG: auditFile },
+        encoding: "utf8",
+      });
+      expect(filteredRes.status).toBe(0);
+      expect(filteredRes.stdout).toContain("web_login");
+      expect(filteredRes.stdout).not.toContain("api-1");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

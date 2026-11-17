@@ -21,7 +21,7 @@ import { listServices, ServiceMetrics as UnifiedMetrics } from "../utils/service
 import { spawn } from "node:child_process";
 import { resolve, join } from "node:path";
 import { randomBytes, timingSafeEqual, createHash } from "node:crypto";
-import { appendFileSync, existsSync, lstatSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, lstatSync, openSync, readFileSync, readSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { getPlatformInfo } from "../platform/detect.js";
 import { recordAuditEvent } from "../utils/audit-log.js";
@@ -62,6 +62,7 @@ const ALLOWED_ACTIONS = new Set(["restart", "stop"]);
 
 // --- Active WebSocket clients ---
 const clients = new Set<{ send: (data: string) => void }>();
+const logSubscriptions = new Map<any, { service: string; outOffset: number; errOffset: number }>();
 
 // --- Data helpers ---
 const getMetrics = async (): Promise<UnifiedMetrics[]> => {
@@ -275,6 +276,49 @@ const startPushLoop = () => {
       }
     } catch {}
   }, 2000);
+};
+
+const readDelta = (filePath: string, offset: number): { text: string; nextOffset: number } => {
+  if (!existsSync(filePath)) return { text: "", nextOffset: 0 };
+  try {
+    const st = lstatSync(filePath);
+    if (st.isSymbolicLink() || !st.isFile()) return { text: "", nextOffset: offset };
+    if (st.size < offset) offset = 0; // Handle log truncation/rotation
+    if (st.size === offset) return { text: "", nextOffset: offset };
+    const toRead = Math.min(32768, st.size - offset);
+    const buf = Buffer.allocUnsafe(toRead);
+    const fd = openSync(filePath, "r");
+    try {
+      const bytesRead = readSync(fd, buf, 0, toRead, offset);
+      return { text: buf.subarray(0, bytesRead).toString("utf8"), nextOffset: offset + bytesRead };
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return { text: "", nextOffset: offset };
+  }
+};
+
+const startLogStreamLoop = () => {
+  const timer = setInterval(() => {
+    if (logSubscriptions.size === 0) return;
+    const logDir = getPlatformInfo().logDir;
+    for (const [ws, sub] of logSubscriptions.entries()) {
+      const cleanName = sub.service.replace(/^(BS9_|bs9\.)/, "");
+      const outRes = readDelta(join(logDir, `${cleanName}.out.log`), sub.outOffset);
+      const errRes = readDelta(join(logDir, `${cleanName}.err.log`), sub.errOffset);
+      sub.outOffset = outRes.nextOffset;
+      sub.errOffset = errRes.nextOffset;
+      if (outRes.text || errRes.text) {
+        try {
+          ws.send(JSON.stringify({ type: "log_delta", service: sub.service, out: outRes.text, err: errRes.text }));
+        } catch {
+          logSubscriptions.delete(ws);
+        }
+      }
+    }
+  }, 500);
+  if (typeof timer.unref === "function") timer.unref();
 };
 
 // --- Login Page Template (when authentication is required) ---
@@ -539,6 +583,9 @@ async function openLogs(name) {
   modal.style.display = 'flex';
   document.getElementById('logTitle').textContent = 'Logs: ' + name;
   await refreshLogs();
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'subscribe_logs', service: name }));
+  }
 }
 
 async function refreshLogs() {
@@ -553,6 +600,9 @@ async function refreshLogs() {
 
 function closeLogs() {
   if (logRefreshTimer) { clearInterval(logRefreshTimer); logRefreshTimer = null; }
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'unsubscribe_logs' }));
+  }
   const cb = document.getElementById('logAutoRefresh');
   if (cb) cb.checked = false;
   const modal = document.getElementById('logModal');
@@ -576,8 +626,24 @@ async function logout() {
 
 function connect() {
   ws = new WebSocket(wsUrl);
-  ws.onopen = () => { document.getElementById('ws-dot').style.background = '#22c55e'; };
-  ws.onmessage = (e) => { const m = JSON.parse(e.data); if (m.type === 'metrics') render(m.data); };
+  ws.onopen = () => {
+    document.getElementById('ws-dot').style.background = '#22c55e';
+    if (activeLogService) {
+      ws.send(JSON.stringify({ type: 'subscribe_logs', service: activeLogService }));
+    }
+  };
+  ws.onmessage = (e) => {
+    const m = JSON.parse(e.data);
+    if (m.type === 'metrics') render(m.data);
+    if (m.type === 'log_delta' && m.service === activeLogService) {
+      const el = document.getElementById('logContent');
+      if (el) {
+        if (el.textContent === '(no stdout)' || el.textContent === 'Loading...') el.textContent = '';
+        el.textContent += (m.out || '') + (m.err ? '\\n[STDERR] ' + m.err : '');
+        el.scrollTop = el.scrollHeight;
+      }
+    }
+  };
   ws.onclose = () => { document.getElementById('ws-dot').style.background = '#ef4444'; setTimeout(connect, 3000); };
 }
 connect();
@@ -768,12 +834,42 @@ export function startDashboardServer() {
 
   websocket: {
     open(ws) { clients.add(ws); },
-    close(ws) { clients.delete(ws); },
-    message(_ws, _msg) {},
+    close(ws) {
+      clients.delete(ws);
+      logSubscriptions.delete(ws);
+    },
+    message(ws, msg) {
+      try {
+        const parsed = JSON.parse(typeof msg === "string" ? msg : Buffer.from(msg).toString("utf8"));
+        if (parsed?.type === "unsubscribe_logs") {
+          logSubscriptions.delete(ws);
+          return;
+        }
+        if (parsed?.type === "subscribe_logs" && typeof parsed.service === "string" && isValidServiceName(parsed.service)) {
+          const cleanName = parsed.service.replace(/^(BS9_|bs9\.)/, "");
+          const logDir = getPlatformInfo().logDir;
+          const getSize = (p: string): number => {
+            if (!existsSync(p)) return 0;
+            try {
+              const st = lstatSync(p);
+              return !st.isSymbolicLink() && st.isFile() ? st.size : 0;
+            } catch {
+              return 0;
+            }
+          };
+          logSubscriptions.set(ws, {
+            service: parsed.service,
+            outOffset: getSize(join(logDir, `${cleanName}.out.log`)),
+            errOffset: getSize(join(logDir, `${cleanName}.err.log`)),
+          });
+        }
+      } catch {}
+    },
   },
 });
 
   startPushLoop();
+  startLogStreamLoop();
   console.log(`🌐 BS9 Dashboard → http://${HOST}:${PORT} (WebSocket live push enabled)`);
   if (SESSION_TOKEN) console.log(`🔑 Session authentication active`);
 

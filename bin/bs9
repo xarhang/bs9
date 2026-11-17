@@ -48,6 +48,7 @@ import { issuesCommand } from "../src/commands/issues.js";
 import { inspectHaCommand } from "../src/commands/inspect-ha.js";
 import { verifyHaCommand } from "../src/commands/verify-ha.js";
 import { daemonCommand } from "../src/commands/daemon.js";
+import { auditCommand } from "../src/commands/audit.js";
 import { initializePlatformDirectories } from "../src/platform/detect.js";
 
 // Initialize platform directories at startup
@@ -120,6 +121,14 @@ program
   .option("--json", "Output status as formatted JSON")
   .option("--raw", "Output raw minified JSON status")
   .action(statusCommand);
+
+program
+  .command("audit")
+  .description("View tamper-safe security and lifecycle audit log")
+  .option("-n, --limit <n>", "Number of recent events to display", "50")
+  .option("-a, --action <action>", "Filter by action (e.g. start, web_login)")
+  .option("--json", "Output audit events as JSON")
+  .action(auditCommand);
 
 program
   .command("show")
