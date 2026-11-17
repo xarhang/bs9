@@ -80,6 +80,8 @@ export function findFullyCoveredClusters(
 
 export async function deleteCommand(names: string[], options: DeleteOptions): Promise<void> {
   const platformInfo = getPlatformInfo();
+  const { recordAuditEvent } = await import("../utils/audit-log.js");
+  recordAuditEvent({ action: "delete", target: names.join(",") || (options.all ? "all" : "unknown"), status: "success" });
 
   try {
     // Handle multi-service if: multiple args, single arg with array syntax, or 'all' keyword

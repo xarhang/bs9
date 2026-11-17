@@ -39,6 +39,8 @@ export const DRAIN_TIMEOUT_MS = 10000;
 
 export async function reloadCommand(names: string[] = [], options: ReloadOptions = {}): Promise<void> {
   const target = names[0] || "all";
+  const { recordAuditEvent } = await import("../utils/audit-log.js");
+  recordAuditEvent({ action: "reload", target, status: "success" });
   const allServices = await listServices();
 
   // If target is 'all', find all cluster apps or reload all

@@ -26,14 +26,18 @@ function isValidServiceName(name: string): boolean {
 }
 
 export async function stopCommand(names: string[], options: StopOptions): Promise<void> {
+  const { recordAuditEvent } = await import("../utils/audit-log.js");
+  const targetLabel = names.join(",") || "unknown";
   // Handle multi-service if: multiple args, single arg with array syntax, or 'all' keyword
   if (names.length > 1 || (names.length === 1 && (names[0].includes('[') || names[0] === 'all'))) {
     await handleMultiServiceStop(names, options);
+    recordAuditEvent({ action: "stop", target: targetLabel, status: "success" });
     return;
   }
 
   // Single service operation
   await handleSingleServiceStop(names[0] || '');
+  recordAuditEvent({ action: "stop", target: targetLabel, status: "success" });
 }
 
 async function handleMultiServiceStop(name: string | string[], options: StopOptions): Promise<void> {
