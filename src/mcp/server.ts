@@ -38,6 +38,46 @@ import { scaleCommand } from "../commands/scale.js";
 import { deleteCommand } from "../commands/delete.js";
 import { flushCommand } from "../commands/flush.js";
 import { sendSignalCommand } from "../commands/send-signal.js";
+import { readAuditEvents, recordAuditEvent } from "../utils/audit-log.js";
+import { generateCaddyConfig, generateNginxConfig } from "../utils/proxy-config.js";
+import { generateGrafanaDashboard } from "../utils/grafana-export.js";
+
+export const MUTATING_MCP_TOOLS = new Set([
+  "bs9_restart_process",
+  "bs9_reload_process",
+  "bs9_scale_process",
+  "bs9_stop_process",
+  "bs9_delete_process",
+  "bs9_reset_crash",
+  "bs9_flush_logs",
+  "bs9_send_signal",
+]);
+
+const SENSITIVE_KEY_RE = /secret|token|password|passwd|api[_-]?key|private[_-]?key|auth|database_url|db_url|connection_string/i;
+
+export function redactSensitiveEnv<T>(input: T): T {
+  if (input === null || input === undefined || typeof input !== "object") {
+    return input;
+  }
+  if (Array.isArray(input)) {
+    return input.map((item) => redactSensitiveEnv(item)) as unknown as T;
+  }
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
+    if (SENSITIVE_KEY_RE.test(k) && typeof v === "string" && v.length > 0) {
+      out[k] = "***REDACTED***";
+    } else if (v && typeof v === "object") {
+      out[k] = redactSensitiveEnv(v);
+    } else {
+      out[k] = v;
+    }
+  }
+  return out as T;
+}
+
+export interface McpServerOptions {
+  readOnly?: boolean;
+}
 
 export const MCP_TOOLS = [
   {
@@ -186,16 +226,103 @@ export const MCP_TOOLS = [
         lines: { type: "number", description: "Number of log lines to analyze (default 100)", default: 100 }
       }
     }
+  },
+  {
+    name: "bs9_audit_log",
+    description: "Read recent tamper-safe security and lifecycle audit log events (who triggered start/stop/restart/login/mcp actions).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "Max events to return (default 50)", default: 50 },
+        action: { type: "string", description: "Optional action filter (e.g. start, web_login, bs9_restart_process)" }
+      }
+    }
+  },
+  {
+    name: "bs9_export_config",
+    description: "Generate hardened Nginx, Caddy, or Grafana configuration in memory without modifying the filesystem.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        format: { type: "string", enum: ["nginx", "caddy", "grafana"], description: "Target format: nginx, caddy, or grafana" },
+        serviceName: { type: "string", description: "Service name (default: app)" },
+        domain: { type: "string", description: "Public domain name (for nginx/caddy)" },
+        port: { type: "number", description: "Backend port (default: 3000)" },
+        ssl: { type: "boolean", description: "Enable TLS block for nginx" }
+      },
+      required: ["format"]
+    }
   }
 ];
 
-export async function handleToolCall(name: string, args: Record<string, any> = {}): Promise<string> {
+export async function handleToolCall(
+  name: string,
+  args: Record<string, any> = {},
+  options: McpServerOptions = {}
+): Promise<string> {
+  const isReadOnly = options.readOnly ?? process.env.BS9_MCP_READONLY === "true";
+  if (isReadOnly && MUTATING_MCP_TOOLS.has(name)) {
+    recordAuditEvent({
+      action: name,
+      target: String(args.name || "all"),
+      status: "denied",
+      actor: "mcp-agent",
+      details: "blocked_by_readonly_mode",
+    });
+    throw new Error(`Security: Tool '${name}' is blocked in BS9 MCP read-only mode`);
+  }
+
+  if (MUTATING_MCP_TOOLS.has(name)) {
+    recordAuditEvent({
+      action: name,
+      target: String(args.name || "all"),
+      status: "success",
+      actor: "mcp-agent",
+    });
+  }
+
   const platformInfo = getPlatformInfo();
 
   switch (name) {
     case "bs9_list_processes": {
       const services = await listServices();
       return JSON.stringify(services, null, 2);
+    }
+
+    case "bs9_audit_log": {
+      const limit = Math.min(500, Math.max(1, Number(args.limit) || 50));
+      let events = readAuditEvents(limit);
+      if (args.action) {
+        const filter = String(args.action).trim().toLowerCase();
+        events = events.filter((e) => e.action.toLowerCase() === filter);
+      }
+      return JSON.stringify(events, null, 2);
+    }
+
+    case "bs9_export_config": {
+      const format = String(args.format || "").toLowerCase();
+      const serviceName = String(args.serviceName || "app");
+      if (format === "grafana") {
+        return generateGrafanaDashboard({ serviceName });
+      }
+      const port = Number(args.port) || 3000;
+      const domain = String(args.domain || "localhost");
+      if (format === "nginx") {
+        return generateNginxConfig({
+          serviceName,
+          domain,
+          upstreams: [{ host: "127.0.0.1", port }],
+          ssl: Boolean(args.ssl),
+        });
+      }
+      if (format === "caddy") {
+        return generateCaddyConfig({
+          serviceName,
+          domain,
+          upstreams: [{ host: "127.0.0.1", port }],
+        });
+      }
+      throw new Error(`Unsupported export format '${format}'. Use nginx, caddy, or grafana.`);
     }
 
     case "bs9_describe_process": {
@@ -229,7 +356,7 @@ export async function handleToolCall(name: string, args: Record<string, any> = {
           backoffMs: crash.backoffMs,
           recentCrashes: crash.crashes
         } : null,
-        metadata: metadata || null
+        metadata: metadata ? redactSensitiveEnv(metadata) : null
       }, null, 2);
     }
 
@@ -438,7 +565,8 @@ export async function handleToolCall(name: string, args: Record<string, any> = {
   }
 }
 
-export async function runMcpServer(): Promise<void> {
+export async function runMcpServer(options: McpServerOptions = {}): Promise<void> {
+  const isReadOnly = options.readOnly ?? process.env.BS9_MCP_READONLY === "true";
   const rl = createInterface({
     input: process.stdin,
     output: process.stdout,
@@ -477,7 +605,7 @@ export async function runMcpServer(): Promise<void> {
             },
             serverInfo: {
               name: "bs9-mcp",
-              version: "1.6.0"
+              version: "1.7.0"
             }
           }
         });
@@ -486,18 +614,21 @@ export async function runMcpServer(): Promise<void> {
       } else if (method === "ping") {
         send({ jsonrpc: "2.0", id, result: {} });
       } else if (method === "tools/list") {
+        const tools = isReadOnly
+          ? MCP_TOOLS.filter((t) => !MUTATING_MCP_TOOLS.has(t.name))
+          : MCP_TOOLS;
         send({
           jsonrpc: "2.0",
           id,
           result: {
-            tools: MCP_TOOLS
+            tools
           }
         });
       } else if (method === "tools/call") {
         const toolName = params?.name;
         const toolArgs = params?.arguments || {};
         try {
-          const output = await handleToolCall(toolName, toolArgs);
+          const output = await handleToolCall(toolName, toolArgs, { readOnly: isReadOnly });
           send({
             jsonrpc: "2.0",
             id,

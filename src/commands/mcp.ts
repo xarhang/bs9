@@ -14,16 +14,19 @@ import { join } from "node:path";
 
 interface McpOptions {
   install?: boolean;
+  readonly?: boolean;
 }
 
 export async function mcpCommand(options: McpOptions = {}): Promise<void> {
+  const isReadOnly = Boolean(options.readonly || process.env.BS9_MCP_READONLY === "true");
   if (options.install) {
     const binPath = join(process.cwd(), "bin", "bs9");
+    const args = ["run", binPath, "mcp", ...(isReadOnly ? ["--readonly"] : [])];
     const mcpConfig = {
       mcpServers: {
         bs9: {
           command: process.execPath, // bun
-          args: ["run", binPath, "mcp"]
+          args
         }
       }
     };
@@ -31,10 +34,10 @@ export async function mcpCommand(options: McpOptions = {}): Promise<void> {
     console.log(`\n📋 Claude Desktop / Cursor MCP Configuration:`);
     console.log(`Add the following block to your MCP config file (e.g. claude_desktop_config.json):\n`);
     console.log(JSON.stringify(mcpConfig, null, 2));
-    console.log(`\n💡 To start the MCP server directly, run: bs9 mcp\n`);
+    console.log(`\n💡 To start the MCP server directly, run: bs9 mcp${isReadOnly ? " --readonly" : ""}\n`);
     return;
   }
 
   // Run the stdio JSON-RPC MCP server
-  await runMcpServer();
+  await runMcpServer({ readOnly: isReadOnly });
 }

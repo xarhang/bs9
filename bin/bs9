@@ -204,6 +204,7 @@ program
   .command("mcp")
   .description("🤖 Start native Model Context Protocol (MCP) server for AI assistants (Claude, Cursor)")
   .option("--install", "Output configuration snippet for Claude Desktop / Cursor")
+  .option("--readonly", "Run MCP server in read-only mode (blocks stop/delete/restart/scale/signal)")
   .action(mcpCommand);
 
 program
