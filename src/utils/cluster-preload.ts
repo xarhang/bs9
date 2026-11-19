@@ -20,7 +20,9 @@ let activeServer: any = null;
 let inFlightRequests = 0;
 let lifecycleClient: LifecycleClient | null = null;
 
-const drainTimeoutMs = parseInt(process.env.BS9_DRAIN_TIMEOUT_MS || "10000", 10);
+const rawDrainTimeout = parseInt(process.env.BS9_DRAIN_TIMEOUT_MS || "10000", 10);
+const drainTimeoutMs = Number.isFinite(rawDrainTimeout) && rawDrainTimeout > 0 ? rawDrainTimeout : 10000;
+const WRAPPED_FETCH = Symbol.for("bs9.wrappedFetch");
 
 /**
  * Perform server drain: stop accepting new connections and await active requests.
@@ -66,21 +68,26 @@ if (typeof Bun !== "undefined" && typeof Bun.serve === "function") {
 
   // @ts-ignore
   Bun.serve = function (options: any) {
+    let serveOptions = options;
     if (options && typeof options === "object") {
+      serveOptions = { ...options };
       // Enforce reusePort in cluster mode
-      if (process.env.BS9_REUSE_PORT === "true" && options.reusePort === undefined) {
-        options.reusePort = true;
+      if (process.env.BS9_REUSE_PORT === "true" && serveOptions.reusePort === undefined) {
+        serveOptions.reusePort = true;
       }
 
       // Override or set port from environment if requested
-      if ((options.port === undefined || process.env.BS9_OVERRIDE_PORT === "true") && process.env.PORT) {
-        options.port = parseInt(process.env.PORT, 10);
+      if ((serveOptions.port === undefined || process.env.BS9_OVERRIDE_PORT === "true") && process.env.PORT) {
+        const parsedPort = parseInt(process.env.PORT, 10);
+        if (Number.isInteger(parsedPort) && parsedPort > 0 && parsedPort <= 65535) {
+          serveOptions.port = parsedPort;
+        }
       }
 
       // Wrap fetch handler to track in-flight requests
-      const originalFetch = options.fetch;
-      if (typeof originalFetch === "function") {
-        options.fetch = function (...args: any[]) {
+      const originalFetch = serveOptions.fetch;
+      if (typeof originalFetch === "function" && !(originalFetch as any)[WRAPPED_FETCH]) {
+        const wrappedFetch = function (this: any, ...args: any[]) {
           // performDrain closes the listener. Requests already accepted by the
           // kernel must still complete normally; returning 503 here creates a
           // visible outage during an otherwise replace-first rolling reload.
@@ -99,10 +106,12 @@ if (typeof Bun !== "undefined" && typeof Bun.serve === "function") {
             throw err;
           }
         };
+        (wrappedFetch as any)[WRAPPED_FETCH] = true;
+        serveOptions.fetch = wrappedFetch;
       }
     }
 
-    const server = originalServe(options);
+    const server = originalServe(serveOptions);
     activeServer = server;
 
     // Report READY to controller once server binds successfully

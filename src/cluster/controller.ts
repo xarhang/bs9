@@ -93,7 +93,10 @@ export interface ControllerOptions {
 export function isValidClusterName(clusterName: string): boolean {
   return typeof clusterName === "string" &&
     /^[a-zA-Z0-9._-]+$/.test(clusterName) &&
+    clusterName.length > 0 &&
     clusterName.length <= 128 &&
+    !clusterName.startsWith("-") &&
+    clusterName !== "." &&
     !clusterName.includes("..") &&
     !clusterName.includes("/") &&
     !clusterName.includes("\\");
@@ -429,6 +432,9 @@ export class ClusterController extends EventEmitter {
         this.manifests.set(clusterName, data);
         return data;
       } catch {}
+    } else if (cached) {
+      this.manifests.delete(clusterName);
+      return undefined;
     }
     return cached;
   }
@@ -462,10 +468,17 @@ export class ClusterController extends EventEmitter {
     if (existsSync(platformInfo.clusterDir)) {
       try {
         const files = readdirSync(platformInfo.clusterDir);
+        const onDiskNames = new Set<string>();
         for (const file of files) {
           if (file.endsWith(".manifest.json")) {
             const clusterName = file.replace(/\.manifest\.json$/, "");
+            onDiskNames.add(clusterName);
             this.getManifest(clusterName);
+          }
+        }
+        for (const cachedName of this.manifests.keys()) {
+          if (!onDiskNames.has(cachedName)) {
+            this.manifests.delete(cachedName);
           }
         }
       } catch (error) {
@@ -723,6 +736,11 @@ export class ClusterController extends EventEmitter {
     socket.on("close", () => {
       clearTimeout(authTimer);
       if (authenticatedWorkerKey) {
+        const drainResolver = this.drainResolvers.get(authenticatedWorkerKey);
+        if (drainResolver) {
+          this.drainResolvers.delete(authenticatedWorkerKey);
+          drainResolver({ drained: true, inFlightRemaining: 0 });
+        }
         const worker = this.workers.get(authenticatedWorkerKey);
         if (worker && worker.socket === socket) {
           worker.status = "stopped";
@@ -741,6 +759,21 @@ export class ClusterController extends EventEmitter {
    * Handles admin operations from authorized admin connections.
    */
   private handleAdminMessage(socket: Socket, envelope: Bs9Envelope): void {
+    try {
+      this.dispatchAdminMessage(socket, envelope);
+    } catch (err) {
+      if (socket.destroyed || !socket.writable) return;
+      const errEnv = createEnvelope<AdminErrorPayload>(
+        "ADMIN_ERROR",
+        "system",
+        { error: (err as Error).message || "Internal controller error" },
+        envelope.id
+      );
+      try { socket.write(encodeFrame(errEnv)); } catch {}
+    }
+  }
+
+  private dispatchAdminMessage(socket: Socket, envelope: Bs9Envelope): void {
     switch (envelope.type) {
       case "ADMIN_REGISTER_CLUSTER": {
         const payload = envelope.payload as AdminRegisterClusterPayload;
@@ -1040,13 +1073,20 @@ export class ClusterController extends EventEmitter {
       return { drained: true, inFlightRemaining: 0 };
     }
 
+    const effectiveTimeout = Number.isFinite(timeoutMs) && timeoutMs > 0 ? Math.floor(timeoutMs) : 10000;
+    const prevResolver = this.drainResolvers.get(key);
+    if (prevResolver) {
+      this.drainResolvers.delete(key);
+      prevResolver({ drained: false, inFlightRemaining: -1 });
+    }
+
     worker.status = "draining";
 
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         this.drainResolvers.delete(key);
         resolve({ drained: false, inFlightRemaining: -1 });
-      }, timeoutMs);
+      }, effectiveTimeout);
 
       this.drainResolvers.set(key, (result) => {
         clearTimeout(timer);
@@ -1056,7 +1096,7 @@ export class ClusterController extends EventEmitter {
       const drainEnvelope = createEnvelope<DrainRequestPayload>(
         "DRAIN_REQUEST",
         worker.namespace,
-        { drainTimeoutMs: timeoutMs }
+        { drainTimeoutMs: effectiveTimeout }
       );
 
       try {

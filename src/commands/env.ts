@@ -11,13 +11,12 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
 import { getPlatformInfo } from "../platform/detect.js";
 import { listServices } from "../utils/service-discovery.js";
 
 function isValidServiceName(name: string): boolean {
   const validPattern = /^[a-zA-Z0-9._-]+$/;
-  return validPattern.test(name) && name.length <= 64 && !name.includes('..') && !name.includes('/');
+  return validPattern.test(name) && !name.startsWith("-") && name !== "." && name.length <= 64 && !name.includes('..') && !name.includes('/') && !name.includes('\\');
 }
 
 export async function envCommand(name: string): Promise<void> {
@@ -45,20 +44,24 @@ export async function envCommand(name: string): Promise<void> {
       } catch {}
     }
   } else if (platformInfo.isLinux) {
-    const unitPath = join(homedir(), ".config", "systemd", "user", `${cleanName}.service`);
+    const unitPath = join(platformInfo.serviceDir, `${cleanName}.service`);
     if (existsSync(unitPath)) {
       const content = readFileSync(unitPath, "utf-8");
       envMap = {};
       const envLines = content.split("\n").filter(l => l.startsWith("Environment="));
       for (const line of envLines) {
-        const match = line.match(/^Environment="?([^"=]+)=([^"]*)"?$/);
-        if (match) {
-          envMap[match[1]] = match[2];
+        let raw = line.slice("Environment=".length).trim();
+        if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) {
+          raw = raw.slice(1, -1).replace(/\\(.)/g, "$1");
+        }
+        const eqIdx = raw.indexOf("=");
+        if (eqIdx > 0) {
+          envMap[raw.slice(0, eqIdx)] = raw.slice(eqIdx + 1);
         }
       }
     }
   } else if (platformInfo.isMacOS) {
-    const configPath = join(homedir(), ".bs9", "launchd-services.json");
+    const configPath = join(platformInfo.configDir, "launchd-services.json");
     if (existsSync(configPath)) {
       try {
         const configs = JSON.parse(readFileSync(configPath, "utf-8"));

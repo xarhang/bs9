@@ -29,6 +29,14 @@ export async function daemonCommand(
       if (options.foreground) {
         console.log("Starting BS9 Persistent Daemon in foreground...");
         const daemon = new Bs9Daemon();
+        let stopping = false;
+        const shutdown = async () => {
+          if (stopping) return;
+          stopping = true;
+          try { await daemon.stop(); } finally { process.exit(0); }
+        };
+        process.once("SIGINT", shutdown);
+        process.once("SIGTERM", shutdown);
         await daemon.start();
         return;
       }
@@ -68,7 +76,7 @@ export async function daemonCommand(
       if (existsSync(pidFile)) {
         try {
           const pid = parseInt(readFileSync(pidFile, "utf-8").trim(), 10);
-          if (pid && !isNaN(pid)) {
+          if (Number.isInteger(pid) && pid > 0) {
             process.kill(pid, "SIGTERM");
             console.log(`   Sent SIGTERM to daemon PID ${pid}`);
             let running = true;

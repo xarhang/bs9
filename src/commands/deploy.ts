@@ -9,10 +9,8 @@
  * https://github.com/xarhang/bs9
  */
 
-import { existsSync, statSync } from "node:fs";
-import { join, basename, resolve, dirname } from "node:path";
-import { execSync } from "node:child_process";
-import { homedir } from "node:os";
+import { existsSync } from "node:fs";
+import { join, basename, resolve } from "node:path";
 import { getPlatformInfo, initializePlatformDirectories } from "../platform/detect.js";
 
 interface DeployOptions {
@@ -40,7 +38,7 @@ interface DeployOptions {
 // Security: Service name validation
 function isValidServiceName(name: string): boolean {
   const validPattern = /^[a-zA-Z0-9._-]+$/;
-  return validPattern.test(name) && name.length <= 64 && !name.includes('..') && !name.includes('/');
+  return validPattern.test(name) && !name.startsWith("-") && name !== "." && name.length <= 64 && !name.includes('..') && !name.includes('/') && !name.includes('\\');
 }
 
 // Security: Host validation
@@ -159,7 +157,7 @@ async function deployService(serviceName: string, file: string, options: DeployO
 
   // Step 6: Health check
   if (options.health !== false) {
-    await performHealthCheck(serviceName, options.port || "3000", options.host || "localhost");
+    await performHealthCheck(serviceName, options.port || "3000", options.host || "localhost", Boolean(options.https));
   }
 
   // Step 7: Show deployment summary
@@ -183,7 +181,7 @@ async function reloadService(serviceName: string, file: string, options: DeployO
 
     // Health check after reload
     if (options.health !== false) {
-      await performHealthCheck(serviceName, options.port || "3000", options.host || "localhost");
+      await performHealthCheck(serviceName, options.port || "3000", options.host || "localhost", Boolean(options.https));
     }
 
     console.log("✅ Service reloaded successfully");
@@ -193,18 +191,19 @@ async function reloadService(serviceName: string, file: string, options: DeployO
   }
 }
 
-async function performHealthCheck(serviceName: string, port: string, host: string): Promise<void> {
+async function performHealthCheck(serviceName: string, port: string, host: string, isHttps = false): Promise<void> {
   console.log("🏥 Performing health check...");
 
-  const healthUrl = `http://${host}:${port}/healthz`;
-  const metricsUrl = `http://${host}:${port}/metrics`;
+  const protocol = isHttps ? "https" : "http";
+  const healthUrl = `${protocol}://${host}:${port}/healthz`;
+  const metricsUrl = `${protocol}://${host}:${port}/metrics`;
 
   try {
     // Wait a moment for service to start
     await new Promise(resolve => setTimeout(resolve, 2000));
 
     // Check health endpoint
-    const healthResponse = await fetch(healthUrl);
+    const healthResponse = await fetch(healthUrl, { signal: AbortSignal.timeout(3000) });
     if (healthResponse.ok) {
       console.log(`✅ Health check passed: ${healthUrl}`);
     } else {
@@ -212,7 +211,7 @@ async function performHealthCheck(serviceName: string, port: string, host: strin
     }
 
     // Check metrics endpoint
-    const metricsResponse = await fetch(metricsUrl);
+    const metricsResponse = await fetch(metricsUrl, { signal: AbortSignal.timeout(3000) });
     if (metricsResponse.ok) {
       console.log(`✅ Metrics endpoint available: ${metricsUrl}`);
     } else {
@@ -226,13 +225,16 @@ async function performHealthCheck(serviceName: string, port: string, host: strin
 }
 
 function showDeploymentSummary(serviceName: string, options: DeployOptions): void {
+  const protocol = options.https ? "https" : "http";
+  const host = options.host || "localhost";
+  const port = options.port || "3000";
   console.log("\n" + "=".repeat(50));
   console.log("🎉 DEPLOYMENT SUMMARY");
   console.log("=".repeat(50));
   console.log(`📦 Service: ${serviceName}`);
-  console.log(`🌐 URL: http://${options.host || "localhost"}:${options.port || "3000"}`);
-  console.log(`🏥 Health: http://${options.host || "localhost"}:${options.port || "3000"}/healthz`);
-  console.log(`📊 Metrics: http://${options.host || "localhost"}:${options.port || "3000"}/metrics`);
+  console.log(`🌐 URL: ${protocol}://${host}:${port}`);
+  console.log(`🏥 Health: ${protocol}://${host}:${port}/healthz`);
+  console.log(`📊 Metrics: ${protocol}://${host}:${port}/metrics`);
   console.log(`📈 OpenTelemetry: ${options.otel !== false ? 'Enabled' : 'Disabled'}`);
   console.log(`📊 Prometheus: ${options.prometheus !== false ? 'Enabled' : 'Disabled'}`);
 

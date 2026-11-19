@@ -122,7 +122,8 @@ export class Bs9SessionStore extends ExpressSessionStoreBase {
   private async updateIndex(sid: string, expiresAt: number): Promise<void> {
     const now = Date.now();
     for (let attempt = 0; attempt < 5; attempt++) {
-      const curIndex = (await this.kv.get<Record<string, number>>(this.indexKey)) || {};
+      const existing = await this.kv.get<Record<string, number>>(this.indexKey);
+      const curIndex = existing || {};
       const nextIndex: Record<string, number> = {};
       for (const [s, exp] of Object.entries(curIndex)) {
         if (exp > now && s !== sid) {
@@ -130,7 +131,7 @@ export class Bs9SessionStore extends ExpressSessionStoreBase {
         }
       }
       nextIndex[sid] = expiresAt;
-      const res = await this.kv.cas(this.indexKey, curIndex, nextIndex);
+      const res = await this.kv.cas(this.indexKey, existing, nextIndex);
       if (res.success) return;
     }
     const cur = (await this.kv.get<Record<string, number>>(this.indexKey)) || {};

@@ -9,7 +9,7 @@
  * https://github.com/xarhang/bs9
  */
 
-import { writeFileSync, readFileSync, existsSync, mkdirSync } from "node:fs";
+import { writeFileSync, readFileSync, existsSync, mkdirSync, readdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
@@ -26,6 +26,17 @@ interface ServiceMetric {
   tasks: number;
   health: 'healthy' | 'unhealthy' | 'unknown';
   state: string;
+}
+
+function escapeCsvCell(val: unknown): string {
+  let str = String(val ?? "");
+  if (/^[=+\-@\t\r]/.test(str)) {
+    str = `'${str}`;
+  }
+  if (/[",\r\n]/.test(str)) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
 }
 
 class MetricsStorage {
@@ -66,12 +77,16 @@ class MetricsStorage {
       const files = this.getMetricFiles();
       
       for (const file of files) {
-        const filepath = join(this.storageDir, file);
-        const content = readFileSync(filepath, 'utf-8');
-        const snapshot: MetricSnapshot = JSON.parse(content);
-        
-        if (snapshot.timestamp >= cutoffTime) {
-          snapshots.push(snapshot);
+        try {
+          const filepath = join(this.storageDir, file);
+          const content = readFileSync(filepath, 'utf-8');
+          const snapshot: MetricSnapshot = JSON.parse(content);
+          
+          if (snapshot && typeof snapshot.timestamp === 'number' && snapshot.timestamp >= cutoffTime && Array.isArray(snapshot.services)) {
+            snapshots.push(snapshot);
+          }
+        } catch {
+          // Skip corrupt or unreadable metric file
         }
       }
     } catch (error) {
@@ -122,15 +137,17 @@ class MetricsStorage {
     for (const snapshot of snapshots) {
       for (const service of snapshot.services) {
         // Parse CPU from string like "12.3ms" to number
-        const cpuMatch = service.cpu.match(/([\d.]+)ms/);
+        const cpuStr = typeof service?.cpu === 'string' ? service.cpu : '';
+        const cpuMatch = cpuStr.match(/([\d.]+)ms/);
         if (cpuMatch) {
-          totalCpu += parseFloat(cpuMatch[1]);
+          const parsedCpu = parseFloat(cpuMatch[1]);
+          if (Number.isFinite(parsedCpu)) totalCpu += parsedCpu;
         }
         
-        totalMemory += service.memory;
+        totalMemory += Number.isFinite(service?.memory) ? service.memory : 0;
         totalCount++;
         
-        if (service.health === 'healthy') {
+        if (service?.health === 'healthy') {
           healthyCount++;
         }
       }
@@ -147,16 +164,15 @@ class MetricsStorage {
   
   private getMetricFiles(): string[] {
     try {
-      const { readdirSync } = require("node:fs");
       const files = readdirSync(this.storageDir);
       return files
         .filter((file: string) => file.startsWith('metrics-') && file.endsWith('.json'))
         .sort((a: string, b: string) => {
-          const timeA = parseInt(a.split('-')[1].split('.')[0]);
-          const timeB = parseInt(b.split('-')[1].split('.')[0]);
-          return timeB - timeA;
+          const timeA = parseInt(a.split('-')[1]?.split('.')[0] || '0', 10);
+          const timeB = parseInt(b.split('-')[1]?.split('.')[0] || '0', 10);
+          return (Number.isFinite(timeB) ? timeB : 0) - (Number.isFinite(timeA) ? timeA : 0);
         });
-    } catch (error) {
+    } catch {
       return [];
     }
   }
@@ -169,7 +185,6 @@ class MetricsStorage {
       
       for (const file of filesToDelete) {
         try {
-          const { unlinkSync } = require("node:fs");
           unlinkSync(join(this.storageDir, file));
         } catch (error) {
           console.error(`Failed to delete old metrics file ${file}:`, error);
@@ -178,8 +193,8 @@ class MetricsStorage {
     }
   }
   
-  exportData(format: 'json' | 'csv' = 'json'): string {
-    const snapshots = this.getHistoricalData(24 * 7); // Last week
+  exportData(format: 'json' | 'csv' = 'json', hours: number = 24 * 7): string {
+    const snapshots = this.getHistoricalData(hours);
     
     if (format === 'csv') {
       const headers = ['timestamp', 'service_name', 'cpu_ms', 'memory_bytes', 'uptime', 'tasks', 'health', 'state'];
@@ -187,19 +202,20 @@ class MetricsStorage {
       
       for (const snapshot of snapshots) {
         for (const service of snapshot.services) {
-          const cpuMatch = service.cpu.match(/([\d.]+)ms/);
+          const cpuStr = typeof service?.cpu === 'string' ? service.cpu : '';
+          const cpuMatch = cpuStr.match(/([\d.]+)ms/);
           const cpuMs = cpuMatch ? cpuMatch[1] : '0';
           
           rows.push([
             new Date(snapshot.timestamp).toISOString(),
-            service.name,
+            service?.name ?? '',
             cpuMs,
-            service.memory.toString(),
-            service.uptime,
-            service.tasks.toString(),
-            service.health,
-            service.state,
-          ].join(','));
+            String(service?.memory ?? 0),
+            service?.uptime ?? '',
+            String(service?.tasks ?? 0),
+            service?.health ?? '',
+            service?.state ?? '',
+          ].map(escapeCsvCell).join(','));
         }
       }
       

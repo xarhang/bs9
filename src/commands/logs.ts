@@ -9,10 +9,10 @@
  * https://github.com/xarhang/bs9
  */
 
-import { execSync, spawn, spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { getPlatformInfo } from "../platform/detect.js";
 import { join, win32 } from "node:path";
-import { existsSync, readFileSync, readdirSync, watch } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, readSync, readdirSync, statSync, watch } from "node:fs";
 import { listServices } from "../utils/service-discovery.js";
 
 interface LogsOptions {
@@ -22,7 +22,29 @@ interface LogsOptions {
 
 function isValidServiceName(name: string): boolean {
   const validPattern = /^[a-zA-Z0-9._-]+$/;
-  return validPattern.test(name) && name.length <= 64 && !name.includes('..') && !name.includes('/');
+  return validPattern.test(name) && !name.startsWith("-") && name !== "." && name.length <= 64 && !name.includes('..') && !name.includes('/') && !name.includes('\\');
+}
+
+function readIncrementalDelta(filePath: string, prevSize: number): { nextSize: number; text: string } {
+  const size = statSync(filePath).size;
+  if (size < prevSize) {
+    return { nextSize: size, text: "" };
+  }
+  if (size === prevSize) {
+    return { nextSize: size, text: "" };
+  }
+  const delta = size - prevSize;
+  const buf = Buffer.allocUnsafe(delta);
+  const fd = openSync(filePath, "r");
+  try {
+    const bytesRead = readSync(fd, buf, 0, delta, prevSize);
+    return {
+      nextSize: prevSize + bytesRead,
+      text: buf.subarray(0, bytesRead).toString("utf-8"),
+    };
+  } finally {
+    closeSync(fd);
+  }
 }
 
 export function getNativeWindowsServiceLogDir(serviceName: string, programData = process.env.ProgramData || "C:\\ProgramData"): string | null {
@@ -60,6 +82,7 @@ export async function logsCommand(name?: string, options: LogsOptions = {}): Pro
 
   let targetName = name;
   const clean = name.replace(/^(BS9_|bs9\.)/, "");
+  const escapedClean = clean.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   let journalTargets: string[] = [];
 
   try {
@@ -76,7 +99,7 @@ export async function logsCommand(name?: string, options: LogsOptions = {}): Pro
       // Logical slot match: e.g. "api-0" matching "api-0-g1", "api-0-g2"
       const slotWorkers = allServices.filter(s => {
         const sClean = s.name.replace(/^(BS9_|bs9\.)/, "");
-        return new RegExp(`^${clean}-g\\d+$`).test(sClean);
+        return new RegExp(`^${escapedClean}-g\\d+$`).test(sClean);
       });
       if (slotWorkers.length > 0) {
         const active = slotWorkers.find(s => s.active === "active") ||
@@ -87,7 +110,6 @@ export async function logsCommand(name?: string, options: LogsOptions = {}): Pro
         // A logical cluster name (for example "api") maps to physical units
         // such as api-0-g2 and api-1-g3. Query every active generation so
         // `bs9 logs api` reflects the whole live cluster on journald systems.
-        const escapedClean = clean.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         const clusterWorkers = allServices.filter(s => {
           const serviceName = s.name.replace(/^(BS9_|bs9\.)/, "");
           return new RegExp(`^${escapedClean}-\\d+-g\\d+$`).test(serviceName) && s.active === "active";
@@ -191,19 +213,14 @@ export async function logsCommand(name?: string, options: LogsOptions = {}): Pro
 
       const followFile = (filePath: string) => {
         if (!existsSync(filePath)) return;
-        let fileSize = readFileSync(filePath).length;
+        let fileSize = statSync(filePath).size;
 
         watch(filePath, (event) => {
           if (event === 'change') {
             try {
-              const currentContent = readFileSync(filePath);
-              if (currentContent.length < fileSize) {
-                fileSize = currentContent.length;
-              } else if (currentContent.length > fileSize) {
-                const newContent = currentContent.slice(fileSize).toString();
-                process.stdout.write(newContent);
-                fileSize = currentContent.length;
-              }
+              const { nextSize, text } = readIncrementalDelta(filePath, fileSize);
+              fileSize = nextSize;
+              if (text) process.stdout.write(text);
             } catch {}
           }
         });
@@ -238,7 +255,7 @@ async function showAllLogs(options: LogsOptions, platformInfo: any): Promise<voi
     return;
   }
 
-  const count = parseInt(options.lines || "20");
+  const count = options.lines ? Math.max(1, parseInt(options.lines, 10) || 20) : 20;
 
   console.log(`\n================================================================================`);
   console.log(`📜 Combined Logs for all BS9 Services (last ${count} lines)`);
@@ -260,18 +277,15 @@ async function showAllLogs(options: LogsOptions, platformInfo: any): Promise<voi
   if (options.follow) {
     console.log(`👀 Streaming combined logs... (Ctrl+C to stop)`);
     for (const { file, fullPath } of logFiles) {
-      let fileSize = readFileSync(fullPath).length;
+      let fileSize = statSync(fullPath).size;
       watch(fullPath, (event) => {
         if (event === "change") {
           try {
-            const currentContent = readFileSync(fullPath);
-            if (currentContent.length < fileSize) {
-              fileSize = currentContent.length;
-            } else if (currentContent.length > fileSize) {
-              const chunk = currentContent.slice(fileSize).toString();
-              const labeled = chunk.split("\n").map(l => l ? `[${file}] ${l}` : l).join("\n");
+            const { nextSize, text } = readIncrementalDelta(fullPath, fileSize);
+            fileSize = nextSize;
+            if (text) {
+              const labeled = text.split("\n").map(l => l ? `[${file}] ${l}` : l).join("\n");
               process.stdout.write(labeled);
-              fileSize = currentContent.length;
             }
           } catch {}
         }

@@ -81,8 +81,8 @@ export async function launchSupervisedDaemon(): Promise<void> {
         noAutorestart: false,
       });
       return;
-    } catch {
-      // Fallback to detached spawn
+    } catch (err) {
+      console.warn(`[daemon] Windows supervisor launch failed, falling back to detached spawn: ${err instanceof Error ? err.message : err}`);
     }
   } else if (platformInfo.isLinux) {
     try {
@@ -104,8 +104,8 @@ export async function launchSupervisedDaemon(): Promise<void> {
       writePrivateFile(serviceFile, unitContent);
       startUserSystemdUnit(serviceFile, "bs9-daemon.service");
       return;
-    } catch {
-      // Fallback to detached spawn
+    } catch (err) {
+      console.warn(`[daemon] systemd launch failed, falling back to detached spawn: ${err instanceof Error ? err.message : err}`);
     }
   } else if (platformInfo.isMacOS) {
     try {
@@ -123,8 +123,8 @@ export async function launchSupervisedDaemon(): Promise<void> {
       });
       await launchdCommand("start", { name: "com.bs9.daemon" });
       return;
-    } catch {
-      // Fallback to detached spawn
+    } catch (err) {
+      console.warn(`[daemon] launchd launch failed, falling back to detached spawn: ${err instanceof Error ? err.message : err}`);
     }
   }
 
@@ -173,28 +173,40 @@ export function spawnDetachedDaemon(): void {
   }
 }
 
+let inFlightEnsure: Promise<void> | null = null;
+
 /**
  * Ensures the BS9 persistent daemon is actively running and responsive.
  */
 export async function ensureDaemonRunning(options: EnsureDaemonOptions = {}): Promise<void> {
-  const timeoutMs = options.timeoutMs || 8000;
-
-  // 1. Check if already alive
-  if (await isDaemonResponsive(options)) {
-    return;
+  if (inFlightEnsure) {
+    return inFlightEnsure;
   }
 
-  // 2. Launch daemon under platform supervisor
-  await launchSupervisedDaemon();
+  inFlightEnsure = (async () => {
+    const timeoutMs = options.timeoutMs || 8000;
 
-  // 3. Poll with bounded timeout until responsive
-  const startTime = Date.now();
-  while (Date.now() - startTime < timeoutMs) {
-    await new Promise((r) => setTimeout(r, 100));
+    // 1. Check if already alive
     if (await isDaemonResponsive(options)) {
       return;
     }
-  }
 
-  throw new Error(`BS9 Daemon failed to start and respond to ping within ${timeoutMs}ms`);
+    // 2. Launch daemon under platform supervisor
+    await launchSupervisedDaemon();
+
+    // 3. Poll with bounded timeout until responsive
+    const startTime = Date.now();
+    while (Date.now() - startTime < timeoutMs) {
+      await new Promise((r) => setTimeout(r, 100));
+      if (await isDaemonResponsive(options)) {
+        return;
+      }
+    }
+
+    throw new Error(`BS9 Daemon failed to start and respond to ping within ${timeoutMs}ms`);
+  })().finally(() => {
+    inFlightEnsure = null;
+  });
+
+  return inFlightEnsure;
 }

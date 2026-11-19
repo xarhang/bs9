@@ -9,10 +9,6 @@
  * https://github.com/xarhang/bs9
  */
 
-import { execSync } from "node:child_process";
-import { join } from "node:path";
-import { getPlatformInfo } from "../platform/detect.js";
-import { readFileSync, existsSync } from "node:fs";
 import { parseServiceArray, getMultipleServiceInfo, escapeRegExp } from "../utils/array-parser.js";
 import { listServices, ServiceMetrics } from "../utils/service-discovery.js";
 
@@ -69,20 +65,26 @@ async function handleMultiServiceStatus(name: string | string[], options: Status
 
   if (options.watch) {
     console.log("\n🔄 Watching for changes (Ctrl+C to stop)...");
+    let refreshing = false;
     setInterval(async () => {
-      console.clear();
-      console.log(`📊 Multi-Service Status: ${Array.isArray(name) ? name.join(', ') : name}`);
-      console.log("=".repeat(80));
-
-      const updatedServiceInfo = await getMultipleServiceInfo(services);
-      displayMultiServiceStatus(updatedServiceInfo, name);
+      if (refreshing) return;
+      refreshing = true;
+      try {
+        const updatedServiceInfo = await getMultipleServiceInfo(services);
+        console.clear();
+        console.log(`📊 Multi-Service Status: ${Array.isArray(name) ? name.join(', ') : name}`);
+        console.log("=".repeat(80));
+        displayMultiServiceStatus(updatedServiceInfo, name);
+      } catch (err) {
+        console.error("⚠️  Status refresh error:", err);
+      } finally {
+        refreshing = false;
+      }
     }, 2000);
   }
 }
 
 async function handleStatus(options: StatusOptions, name?: string): Promise<void> {
-  const platformInfo = getPlatformInfo();
-
   try {
     let services = await listServices();
 
@@ -112,27 +114,35 @@ async function handleStatus(options: StatusOptions, name?: string): Promise<void
 
     if (options.watch) {
       console.log("\n🔄 Watching for changes (Ctrl+C to stop)...");
+      let refreshing = false;
       setInterval(async () => {
-        console.clear();
-        console.log("🔍 BS9 Service Status");
-        console.log("=".repeat(80));
+        if (refreshing) return;
+        refreshing = true;
+        try {
+          let updatedServices = await listServices();
 
-        let updatedServices = await listServices();
+          // Filter by specific service if provided
+          if (name) {
+            const clean = name.replace(/^(BS9_|bs9\.)/, "");
+            const escapedClean = escapeRegExp(clean);
+            const genRe = new RegExp(`^${escapedClean}-g\\d+$`);
+            const workerRe = new RegExp(`^${escapedClean}-\\d+(-g\\d+)?$`);
+            updatedServices = updatedServices.filter(service => {
+              const sClean = service.name.replace(/^(BS9_|bs9\.)/, "");
+              if (service.name === name || sClean === clean) return true;
+              return genRe.test(sClean) || workerRe.test(sClean);
+            });
+          }
 
-        // Filter by specific service if provided
-        if (name) {
-          const clean = name.replace(/^(BS9_|bs9\.)/, "");
-          const escapedClean = escapeRegExp(clean);
-          const genRe = new RegExp(`^${escapedClean}-g\\d+$`);
-          const workerRe = new RegExp(`^${escapedClean}-\\d+(-g\\d+)?$`);
-          updatedServices = updatedServices.filter(service => {
-            const sClean = service.name.replace(/^(BS9_|bs9\.)/, "");
-            if (service.name === name || sClean === clean) return true;
-            return genRe.test(sClean) || workerRe.test(sClean);
-          });
+          console.clear();
+          console.log("🔍 BS9 Service Status");
+          console.log("=".repeat(80));
+          displayServices(updatedServices);
+        } catch (err) {
+          console.error("⚠️  Status refresh error:", err);
+        } finally {
+          refreshing = false;
         }
-
-        displayServices(updatedServices);
       }, 2000);
     }
   } catch (error) {

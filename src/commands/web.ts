@@ -9,9 +9,9 @@
  * https://github.com/xarhang/bs9
  */
 
-import { execSync, spawn, spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync, rmSync, mkdirSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, writeFileSync, rmSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
@@ -25,8 +25,9 @@ export interface WebOptions {
 
 // Security: Port validation
 export function isValidPort(port: string): boolean {
+  if (!/^\d+$/.test(port)) return false;
   const portNum = Number(port);
-  return !isNaN(portNum) && portNum >= 1 && portNum <= 65535;
+  return Number.isInteger(portNum) && portNum >= 1 && portNum <= 65535;
 }
 
 // Security: Generate secure session token
@@ -177,18 +178,17 @@ export async function webCommand(actionOrOptions?: string | WebOptions, maybeOpt
       mkdirSync(logDir, { recursive: true });
     }
     const webLog = join(logDir, 'web.log');
-    let outFd: any = 'ignore';
-    let errFd: any = 'ignore';
+    let outFd: number | 'ignore' = 'ignore';
+    let errFd: number | 'ignore' = 'ignore';
     try {
-      const fs = await import("node:fs");
-      outFd = fs.openSync(webLog, 'a');
-      errFd = fs.openSync(webLog, 'a');
+      outFd = openSync(webLog, 'a');
+      errFd = openSync(webLog, 'a');
     } catch {}
 
     // Run in background with security
     const child = spawn(process.execPath, ["run", dashboardPath], {
       detached: true,
-      stdio: 'ignore',
+      stdio: ['ignore', outFd, errFd],
       windowsHide: true,
       env: {
         ...process.env,
@@ -198,6 +198,8 @@ export async function webCommand(actionOrOptions?: string | WebOptions, maybeOpt
         NODE_ENV: "production",
       },
     });
+    if (typeof outFd === 'number') { try { closeSync(outFd); } catch {} }
+    if (typeof errFd === 'number') { try { closeSync(errFd); } catch {} }
 
     child.unref();
 
@@ -227,22 +229,20 @@ export async function webCommand(actionOrOptions?: string | WebOptions, maybeOpt
   } else {
     // Run in foreground with security
     console.log(`   URL: http://localhost:${port}`);
-    console.log(`   🔐 Session token: ${sessionToken}`);
     console.log(`   Press Ctrl+C to stop`);
     console.log('');
 
-    try {
-      execSync(`bun run "${dashboardPath}"`, {
-        stdio: "inherit",
-        env: {
-          ...process.env,
-          WEB_DASHBOARD_PORT: port,
-          WEB_SESSION_TOKEN: sessionToken,
-          NODE_ENV: "production",
-        }
-      });
-    } catch (error) {
-      console.error(`❌ Failed to start web dashboard: ${error}`);
+    const result = spawnSync(process.execPath, ["run", dashboardPath], {
+      stdio: "inherit",
+      env: {
+        ...process.env,
+        WEB_DASHBOARD_PORT: port,
+        WEB_SESSION_TOKEN: sessionToken,
+        NODE_ENV: "production",
+      }
+    });
+    if (result.error || (result.status !== null && result.status !== 0)) {
+      console.error(`❌ Failed to start web dashboard: ${result.error || `exit code ${result.status}`}`);
       process.exit(1);
     }
   }

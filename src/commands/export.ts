@@ -10,9 +10,9 @@
  */
 
 import { MetricsStorage } from "../storage/metrics.js";
-import { writeFileSync } from "node:fs";
+import { existsSync, lstatSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { resolve, sep } from "node:path";
+import { dirname, resolve, sep } from "node:path";
 import { generateCaddyConfig, generateNginxConfig } from "../utils/proxy-config.js";
 import { generateGrafanaDashboard } from "../utils/grafana-export.js";
 
@@ -31,8 +31,6 @@ const ALLOWED_EXPORT_FORMATS = new Set(['json', 'csv', 'grafana', 'nginx', 'cadd
 
 function isContainedExportPath(filePath: string): boolean {
   try {
-    const { existsSync, lstatSync, realpathSync } = require("node:fs") as typeof import("node:fs");
-    const { dirname } = require("node:path") as typeof import("node:path");
     const resolved = resolve(filePath);
     const allowedRoots = [process.cwd(), homedir(), tmpdir()].map((r) =>
       existsSync(r) ? realpathSync(r) : resolve(r)
@@ -118,7 +116,7 @@ export async function exportCommand(options: ExportOptions): Promise<void> {
       console.log(`📈 Exporting metrics for service: ${serviceName}`);
     } else {
       // Export all metrics
-      data = storage.exportData(format as 'json' | 'csv');
+      data = storage.exportData(format as 'json' | 'csv', hours);
       console.log(`📈 Exporting all metrics for last ${hours} hours`);
     }
     

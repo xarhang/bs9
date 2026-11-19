@@ -86,7 +86,7 @@ export class HubClient extends EventEmitter {
     this.namespace = options.namespace || "default";
     this.authToken = options.authToken || process.env.BS9_AUTH_TOKEN || "";
     this.requestTimeoutMs = options.requestTimeoutMs ?? 15000;
-    this.connectTimeoutMs = options.connectTimeoutMs || 5000;
+    this.connectTimeoutMs = options.connectTimeoutMs ?? 5000;
   }
 
   public get connected(): boolean {
@@ -100,6 +100,8 @@ export class HubClient extends EventEmitter {
     if (this.socket) {
       return this.isConnected && this.isAuthenticated;
     }
+
+    this.decoder = new StreamingFrameDecoder();
 
     return new Promise((resolve) => {
       let settled = false;
@@ -116,6 +118,7 @@ export class HubClient extends EventEmitter {
         this.socket = createConnection(this.socketPath);
       } catch {
         clearTimeout(timeoutTimer);
+        this.socket = null;
         return resolve(false);
       }
 
@@ -136,7 +139,15 @@ export class HubClient extends EventEmitter {
             });
           }
         } catch (err) {
-          this.emit("error", err);
+          if (!settled) {
+            settled = true;
+            clearTimeout(timeoutTimer);
+            resolve(false);
+          }
+          if (this.listenerCount("error") > 0) {
+            this.emit("error", err);
+          }
+          this.disconnect();
         }
       });
 
@@ -146,10 +157,13 @@ export class HubClient extends EventEmitter {
           clearTimeout(timeoutTimer);
           resolve(false);
         }
-        this.emit("error", err);
+        if (this.listenerCount("error") > 0) {
+          this.emit("error", err);
+        }
       });
 
       this.socket.on("close", () => {
+        this.socket = null;
         this.isConnected = false;
         this.isAuthenticated = false;
         this.rejectAllPending(new Error("Connection closed"));
@@ -371,6 +385,7 @@ export class HubClient extends EventEmitter {
   }
 
   public async disconnect(): Promise<void> {
+    this.decoder = new StreamingFrameDecoder();
     if (this.socket) {
       const sock = this.socket;
       this.socket = null;

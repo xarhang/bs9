@@ -205,8 +205,8 @@ export class QueueManager {
     createdAt: number,
     options?: Record<string, any>
   ): PreparedQueueMessage {
-    if (typeof queueName !== "string") {
-      throw new Error("Queue name must be a string");
+    if (typeof queueName !== "string" || queueName.length === 0) {
+      throw new Error("Queue name must be a non-empty string");
     }
 
     validateSafeData(payload);
@@ -345,13 +345,15 @@ export class QueueManager {
       return [];
     }
 
+    const limit = Number.isFinite(maxMessages) ? Math.max(1, Math.floor(maxMessages)) : 1;
+    const timeout = Number.isFinite(visibilityTimeoutMs) && visibilityTimeoutMs >= 0 ? visibilityTimeoutMs : 30000;
     const now = Date.now();
     const result: ReservedMessage[] = [];
 
     for (const msg of list) {
       if (msg.reservedUntil <= now) {
         msg.deliveryCount += 1;
-        msg.reservedUntil = now + visibilityTimeoutMs;
+        msg.reservedUntil = now + timeout;
         result.push({
           id: msg.id,
           payload: this.cloneJsonValue(msg.payload),
@@ -359,7 +361,7 @@ export class QueueManager {
           reservedUntil: msg.reservedUntil,
         });
 
-        if (result.length >= maxMessages) {
+        if (result.length >= limit) {
           break;
         }
       }

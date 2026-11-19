@@ -11,12 +11,13 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { spawn, execSync } from "node:child_process";
-import { openSync, closeSync, existsSync, readFileSync, writeFileSync, mkdirSync, watch as fsWatch, createWriteStream } from "node:fs";
+import { spawn, execFileSync } from "node:child_process";
+import { openSync, closeSync, existsSync, lstatSync, readFileSync, writeFileSync, mkdirSync, watch as fsWatch, createWriteStream, constants as fsConstants } from "node:fs";
 import { join } from "node:path";
 import { getPlatformInfo } from "../platform/detect.js";
 import { recordCrash, resetCrash, sleep, startHealthyTimer } from "./crash-tracker.js";
 import { rotateLogIfNeeded, parseLogSizeBytes, DEFAULT_MAX_LOG_FILES } from "./log-rotator.js";
+import { writePrivateFile } from "./private-files.js";
 
 // Detach completely from console on Windows so terminal closure does not terminate supervisor
 if (process.platform === "win32") {
@@ -39,7 +40,7 @@ process.on("SIGHUP", () => {
 
 function isValidServiceName(name: string): boolean {
   const validPattern = /^[a-zA-Z0-9._-]+$/;
-  return validPattern.test(name) && name.length <= 64 && !name.includes('..') && !name.includes('/');
+  return validPattern.test(name) && !name.startsWith("-") && name !== "." && name.length <= 64 && !name.includes('..') && !name.includes('/') && !name.includes('\\');
 }
 
 const serviceName = process.argv[2];
@@ -65,7 +66,63 @@ function getMetadata(): any {
 
 function saveMetadata(data: any): void {
   const metaPath = join(servicesDir, `${serviceName}.json`);
-  writeFileSync(metaPath, JSON.stringify(data, null, 2));
+  const content = JSON.stringify(data, null, 2);
+  if (process.platform === "linux" || process.platform === "darwin") {
+    writePrivateFile(metaPath, content);
+  } else {
+    writeFileSync(metaPath, content);
+  }
+}
+
+function openSafeLogAppend(logPath: string): number {
+  if (existsSync(logPath) && lstatSync(logPath).isSymbolicLink()) {
+    throw new Error(`Security: Refusing to write to symlinked log file '${logPath}'`);
+  }
+  if (process.platform === "win32") {
+    return openSync(logPath, "a");
+  }
+  const flags = fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_APPEND | (fsConstants.O_NOFOLLOW ?? 0);
+  return openSync(logPath, flags, 0o600);
+}
+
+function createSafeLogStream(logPath: string) {
+  const fd = openSafeLogAppend(logPath);
+  return createWriteStream(logPath, { fd, autoClose: true });
+}
+
+function getProcessRssBytes(pid: number): number | null {
+  if (!Number.isInteger(pid) || pid <= 0) return null;
+  try {
+    if (process.platform === "win32") {
+      const out = execFileSync(
+        "powershell",
+        ["-NoProfile", "-Command", `try { (Get-Process -Id ${pid} -ErrorAction Stop).WorkingSet64 } catch { 0 }`],
+        { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true }
+      ).trim();
+      const bytes = parseInt(out, 10);
+      return Number.isFinite(bytes) && bytes > 0 ? bytes : null;
+    }
+    if (process.platform === "linux") {
+      const status = readFileSync(`/proc/${pid}/status`, "utf-8");
+      const match = status.match(/^VmRSS:\s+(\d+)\s+kB/m);
+      if (match) {
+        const kb = parseInt(match[1], 10);
+        return Number.isFinite(kb) && kb > 0 ? kb * 1024 : null;
+      }
+      return null;
+    }
+    if (process.platform === "darwin") {
+      const out = execFileSync("ps", ["-o", "rss=", "-p", String(pid)], {
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim();
+      const kb = parseInt(out, 10);
+      return Number.isFinite(kb) && kb > 0 ? kb * 1024 : null;
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 function parseMemoryBytes(val?: string): number | null {
@@ -164,8 +221,8 @@ async function runSupervisor() {
 
     if (withTime) {
       // Stream with timestamp prefix using non-blocking buffered WriteStream
-      outStream = createWriteStream(outPath, { flags: "a" });
-      errStream = createWriteStream(errPath, { flags: "a" });
+      outStream = createSafeLogStream(outPath);
+      errStream = createSafeLogStream(errPath);
       let outBytes = 0;
       let errBytes = 0;
 
@@ -186,7 +243,9 @@ async function runSupervisor() {
         outBytes += Buffer.byteLength(formatted);
         if (outBytes >= logRotationOpts.maxBytes) {
           outBytes = 0;
+          try { outStream?.end(); } catch {}
           rotateLogIfNeeded(outPath, logRotationOpts);
+          outStream = createSafeLogStream(outPath);
         }
       });
 
@@ -198,12 +257,14 @@ async function runSupervisor() {
         errBytes += Buffer.byteLength(formatted);
         if (errBytes >= logRotationOpts.maxBytes) {
           errBytes = 0;
+          try { errStream?.end(); } catch {}
           rotateLogIfNeeded(errPath, logRotationOpts);
+          errStream = createSafeLogStream(errPath);
         }
       });
     } else {
-      const out = openSync(outPath, "a");
-      const err = openSync(errPath, "a");
+      const out = openSafeLogAppend(outPath);
+      const err = openSafeLogAppend(errPath);
       child = spawn(exe, args, {
         cwd: currentMeta.workingDir,
         env: { ...process.env, ...currentMeta.environment },
@@ -222,30 +283,25 @@ async function runSupervisor() {
     saveMetadata(currentMeta);
 
     let healthyTimer = startHealthyTimer(serviceName);
-    const logRotateInterval = setInterval(() => {
+    const logRotateInterval = !withTime ? setInterval(() => {
       rotateLogIfNeeded(outPath, logRotationOpts);
       rotateLogIfNeeded(errPath, logRotationOpts);
-    }, 30_000);
-    if (typeof logRotateInterval.unref === "function") logRotateInterval.unref();
+    }, 30_000) : null;
+    if (logRotateInterval && typeof logRotateInterval.unref === "function") logRotateInterval.unref();
 
     // Memory monitoring loop if maxMemoryRestart is configured
     let memoryMonitorInterval: any = null;
     if (memoryLimitBytes && child.pid) {
       memoryMonitorInterval = setInterval(() => {
         try {
-          if (process.platform === "win32") {
-            const out = execSync(
-              `powershell -NoProfile -Command "try { (Get-Process -Id ${child.pid} -ErrorAction Stop).WorkingSet64 } catch { 0 }"`,
-              { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true }
-            ).trim();
-            const bytes = parseInt(out, 10);
-            if (bytes > memoryLimitBytes) {
-              console.warn(`⚠️ [Watchdog] Service '${serviceName}' memory limit exceeded (${Math.round(bytes / 1024 / 1024)}MB > ${Math.round(memoryLimitBytes / 1024 / 1024)}MB). Auto-restarting...`);
-              child.kill("SIGTERM");
-            }
+          const bytes = getProcessRssBytes(child.pid);
+          if (bytes !== null && bytes > memoryLimitBytes) {
+            console.warn(`⚠️ [Watchdog] Service '${serviceName}' memory limit exceeded (${Math.round(bytes / 1024 / 1024)}MB > ${Math.round(memoryLimitBytes / 1024 / 1024)}MB). Auto-restarting...`);
+            try { child.kill("SIGTERM"); } catch {}
           }
         } catch {}
       }, 5000);
+      if (typeof memoryMonitorInterval.unref === "function") memoryMonitorInterval.unref();
     }
 
     let cronTimer: ReturnType<typeof setTimeout> | null = null;
@@ -253,25 +309,39 @@ async function runSupervisor() {
       try {
         const { getNextCronDelayMs } = await import("./cron.js");
         const delayMs = getNextCronDelayMs(currentMeta.cron);
+        const safeDelayMs = Math.min(Math.max(0, delayMs), 2_147_483_647);
         cronTimer = setTimeout(() => {
           console.log(`⏰ [Cron] Scheduled restart triggered for '${serviceName}' (${currentMeta.cron})`);
           restartTriggeredByWatch = true;
           try { child.kill("SIGTERM"); } catch {}
-        }, delayMs);
+        }, safeDelayMs);
         if (typeof cronTimer.unref === "function") cronTimer.unref();
       } catch (err) {
         console.warn(`⚠️ [Cron] Invalid cron expression '${currentMeta.cron}': ${err}`);
       }
     }
 
-    // Wait for child to exit
+    // Wait for child to exit or fail to spawn
     const exitCode: number | null = await new Promise((resolve) => {
-      child.on("exit", (code: number | null) => resolve(code));
+      let settled = false;
+      child.on("exit", (code: number | null) => {
+        if (!settled) {
+          settled = true;
+          resolve(code);
+        }
+      });
+      child.on("error", (err: Error) => {
+        console.error(`❌ [Watchdog] Failed to spawn '${serviceName}': ${err.message}`);
+        if (!settled) {
+          settled = true;
+          resolve(1);
+        }
+      });
     });
 
     if (cronTimer) clearTimeout(cronTimer);
-    clearInterval(logRotateInterval);
-    clearInterval(memoryMonitorInterval);
+    if (logRotateInterval) clearInterval(logRotateInterval);
+    if (memoryMonitorInterval) clearInterval(memoryMonitorInterval);
     clearTimeout(healthyTimer);
     try { outStream?.end(); } catch {}
     try { errStream?.end(); } catch {}

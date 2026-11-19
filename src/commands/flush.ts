@@ -8,13 +8,13 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { existsSync, writeFileSync, readdirSync } from "node:fs";
+import { existsSync, lstatSync, writeFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { getPlatformInfo } from "../platform/detect.js";
 
 function isValidServiceName(name: string): boolean {
   const validPattern = /^[a-zA-Z0-9._-]+$/;
-  return validPattern.test(name) && name.length <= 64 && !name.includes('..') && !name.includes('/');
+  return validPattern.test(name) && !name.startsWith("-") && name !== "." && name.length <= 64 && !name.includes('..') && !name.includes('/') && !name.includes('\\');
 }
 
 export async function flushCommand(name?: string): Promise<void> {
@@ -39,16 +39,26 @@ export async function flushCommand(name?: string): Promise<void> {
 
     if (name) {
       const cleanName = name.replace(/^(BS9_|bs9\.)/, "");
+      const isOutOrErr = file.endsWith(".out.log") || file.endsWith(".err.log");
       const isTarget =
         file === `${cleanName}.out.log` || file === `${cleanName}.err.log` ||
         file === `BS9_${cleanName}.out.log` || file === `BS9_${cleanName}.err.log` ||
         file === `bs9.${cleanName}.out.log` || file === `bs9.${cleanName}.err.log` ||
-        (file.startsWith(`${cleanName}-`) && (file.endsWith(".out.log") || file.endsWith(".err.log")));
+        (isOutOrErr && (
+          file.startsWith(`${cleanName}-`) ||
+          file.startsWith(`BS9_${cleanName}-`) ||
+          file.startsWith(`bs9.${cleanName}-`)
+        ));
       if (!isTarget) continue;
     }
 
     const fullPath = join(logDir, file);
     try {
+      const stat = lstatSync(fullPath);
+      if (stat.isSymbolicLink() || !stat.isFile()) {
+        console.warn(`⚠️  Refusing to flush non-regular or symlinked log file: ${file}`);
+        continue;
+      }
       writeFileSync(fullPath, "");
       flushedCount++;
     } catch (e) {

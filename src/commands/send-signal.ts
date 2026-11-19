@@ -19,7 +19,7 @@ const ALLOWED_SIGNALS = new Set([
 ]);
 
 function isValidServiceName(name: string): boolean {
-  return /^[a-zA-Z0-9._-]+$/.test(name) && name.length <= 64 && !name.includes('..') && !name.includes('/');
+  return /^[a-zA-Z0-9._-]+$/.test(name) && !name.startsWith("-") && name !== "." && name.length <= 64 && !name.includes('..') && !name.includes('/') && !name.includes('\\');
 }
 
 export async function sendSignalCommand(signal: string, appName: string): Promise<void> {
@@ -59,11 +59,13 @@ export async function sendSignalCommand(signal: string, appName: string): Promis
   }
 
   const allServices = await listServices();
+  const escapedClean = cleanName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const workerRegex = new RegExp(`^${escapedClean}-\\d+(-g\\d+)?$`);
+  const slotRegex = new RegExp(`^${escapedClean}-g\\d+$`);
 
   const matched = allServices.filter(s => {
     const clean = s.name.replace(/^(BS9_|bs9\.)/, "");
-    const isWorker = clean.startsWith(`${cleanName}-`) && /^\d+$/.test(clean.slice(cleanName.length + 1));
-    return clean === cleanName || isWorker;
+    return clean === cleanName || workerRegex.test(clean) || slotRegex.test(clean);
   });
 
   if (matched.length === 0) {

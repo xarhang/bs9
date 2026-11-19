@@ -13,7 +13,7 @@ import { listServices, parseWorkerSlot } from "../utils/service-discovery.js";
 import { stopCommand } from "./stop.js";
 import { deleteCommand } from "./delete.js";
 import { getPlatformInfo } from "../platform/detect.js";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { escapeRegExp } from "../utils/array-parser.js";
 import { startUserSystemdUnit } from "../utils/systemd.js";
@@ -40,7 +40,7 @@ export function cloneSystemdWorkerUnit(
 
 function isValidServiceName(name: string): boolean {
   const validPattern = /^[a-zA-Z0-9._-]+$/;
-  return validPattern.test(name) && name.length <= 64 && !name.includes('..') && !name.includes('/');
+  return validPattern.test(name) && !name.startsWith("-") && name !== "." && name.length <= 64 && !name.includes('..') && !name.includes('/') && !name.includes('\\');
 }
 
 export async function scaleCommand(name: string, countStr: string): Promise<void> {
@@ -52,6 +52,11 @@ export async function scaleCommand(name: string, countStr: string): Promise<void
   const cleanName = name.replace(/^(BS9_|bs9\.)/, "");
   if (!isValidServiceName(cleanName)) {
     console.error(`❌ Security: Invalid service name: ${name}`);
+    process.exit(1);
+  }
+
+  if (!/^[+-]?\d+$/.test(countStr.trim())) {
+    console.error(`❌ Invalid instance target '${countStr}'. Must be a positive integer or relative +/- offset.`);
     process.exit(1);
   }
 
@@ -83,13 +88,14 @@ export async function scaleCommand(name: string, countStr: string): Promise<void
 
   const currentCount = workers.length;
   let targetCount: number;
+  const trimmedCount = countStr.trim();
 
-  if (countStr.startsWith("+")) {
-    targetCount = currentCount + parseInt(countStr.slice(1), 10);
-  } else if (countStr.startsWith("-")) {
-    targetCount = currentCount - parseInt(countStr.slice(1), 10);
+  if (trimmedCount.startsWith("+")) {
+    targetCount = currentCount + parseInt(trimmedCount.slice(1), 10);
+  } else if (trimmedCount.startsWith("-")) {
+    targetCount = currentCount - parseInt(trimmedCount.slice(1), 10);
   } else {
-    targetCount = parseInt(countStr, 10);
+    targetCount = parseInt(trimmedCount, 10);
   }
 
   if (isNaN(targetCount) || targetCount < 1) {
@@ -311,6 +317,9 @@ export async function scaleCommand(name: string, countStr: string): Promise<void
         await deleteCommand([worker.name], { force: true, remove: true });
         await lockSession.assertActive();
       } catch (err) {
+        if (lockSession?.isLost()) {
+          throw err;
+        }
         console.warn(`   ⚠️ Warning while stopping ${worker.name}: ${err}`);
       }
     }

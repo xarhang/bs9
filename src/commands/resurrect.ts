@@ -9,9 +9,8 @@
  * https://github.com/xarhang/bs9
  */
 
-import { execSync } from "node:child_process";
 import { join } from "node:path";
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { getPlatformInfo, initializePlatformDirectories } from "../platform/detect.js";
 import { ensurePrivateDirectory, securePrivateFile, writePrivateFile } from "../utils/private-files.js";
 
@@ -29,7 +28,7 @@ function isValidServiceName(name: string): boolean {
   // Only allow alphanumeric, hyphens, underscores, and dots
   // Prevent command injection and path traversal
   const validPattern = /^[a-zA-Z0-9._-]+$/;
-  return validPattern.test(name) && name.length <= 64 && !name.includes('..') && !name.includes('/');
+  return validPattern.test(name) && !name.startsWith("-") && name !== "." && name.length <= 64 && !name.includes('..') && !name.includes('/') && !name.includes('\\');
 }
 
 export async function resurrectCommand(name: string, options: ResurrectOptions): Promise<void> {
@@ -65,7 +64,7 @@ export async function resurrectCommand(name: string, options: ResurrectOptions):
 
   try {
     if (platformInfo.isLinux) {
-      // Security: Use shell escaping to prevent injection
+      // Security: Use sanitized name
       const escapedName = name.replace(/[^a-zA-Z0-9._-]/g, '');
 
       // Check if service exists in backup
@@ -83,18 +82,21 @@ export async function resurrectCommand(name: string, options: ResurrectOptions):
       securePrivateFile(backupFile);
       const backupConfig = JSON.parse(readFileSync(backupFile, 'utf8'));
 
-      // Check if the file exists
-      const filePath = backupConfig.file;
-      if (!existsSync(filePath)) {
-        console.error(`❌ Service file not found: ${filePath}`);
+      // Validate backup fields
+      const filePath = backupConfig?.file;
+      if (typeof filePath !== "string" || filePath.length === 0 || !existsSync(filePath)) {
+        console.error(`❌ Service file not found or invalid in backup: ${filePath}`);
         process.exitCode = 1;
         return;
+      }
+      if (backupConfig.name && (typeof backupConfig.name !== "string" || !isValidServiceName(backupConfig.name))) {
+        throw new Error(`Security: Invalid service name in backup: ${backupConfig.name}`);
       }
 
       // Restore service using backup configuration
       const { startCommand } = await import("./start.js");
-      await startCommand([backupConfig.file], {
-        name: backupConfig.name,
+      await startCommand([filePath], {
+        name: backupConfig.name || name,
         port: backupConfig.port?.toString(),
         host: backupConfig.host,
         env: backupConfig.env,
@@ -176,11 +178,17 @@ async function resurrectAllServices(platformInfo: any, options: ResurrectOptions
           const backupPath = join(platformInfo.backupDir, backupFile);
           securePrivateFile(backupPath);
           const backupConfig = JSON.parse(readFileSync(backupPath, 'utf8'));
+          if (typeof backupConfig?.file !== "string" || !backupConfig.file || !existsSync(backupConfig.file)) {
+            throw new Error(`Invalid or missing file path in backup '${backupFile}'`);
+          }
+          if (backupConfig.name && (typeof backupConfig.name !== "string" || !isValidServiceName(backupConfig.name))) {
+            throw new Error(`Security: Invalid service name in backup '${backupFile}'`);
+          }
 
           // Restore service using backup configuration
           const { startCommand } = await import("./start.js");
           await startCommand([backupConfig.file], {
-            name: backupConfig.name,
+            name: backupConfig.name || serviceName,
             port: backupConfig.port?.toString(),
             host: backupConfig.host,
             env: backupConfig.env,

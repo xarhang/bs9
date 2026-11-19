@@ -21,7 +21,7 @@
  */
 
 import { existsSync, writeFileSync, unlinkSync, mkdtempSync, rmSync } from "node:fs";
-import { resolve, join } from "node:path";
+import { resolve, join, dirname } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { execSync } from "node:child_process";
@@ -204,7 +204,9 @@ async function runEphemeralVerification(file: string, options: VerifyHaOptions):
     : join(tmpdir(), `bs9-v-${verificationId.slice(0, 16)}.sock`);
 
   const controller = options.controller || new ClusterController({ socketPath });
-  const preloadUrl = pathToFileURL(join(process.cwd(), "src", "utils", "cluster-preload.ts")).href;
+  const preloadTs = resolve(join(dirname(import.meta.path), "..", "utils", "cluster-preload.ts"));
+  const preloadJs = resolve(join(dirname(import.meta.path), "..", "utils", "cluster-preload.js"));
+  const preloadUrl = pathToFileURL(existsSync(preloadTs) ? preloadTs : preloadJs).href;
   const targetUrl = pathToFileURL(resolvedFile).href;
   const tempDir = createVerificationTempDirectory();
   const wrapperScriptPath = join(tempDir, "entry.ts");
@@ -452,7 +454,12 @@ if (userModule.default && typeof userModule.default.fetch === "function") {
  */
 async function runLiveVerification(clusterName: string, options: VerifyHaOptions): Promise<VerifyHaResult> {
   const services = await listServices();
-  const clusterWorkers = services.filter((s) => s.name.includes(clusterName));
+  const escapedCluster = clusterName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const clusterWorkerRe = new RegExp(`^${escapedCluster}-\\d+(-g\\d+)?$`);
+  const clusterWorkers = services.filter((s) => {
+    const clean = s.name.replace(/^(BS9_|bs9\.)/, "");
+    return clusterWorkerRe.test(clean);
+  });
 
   if (clusterWorkers.length === 0) {
     throw new Error(`Live cluster '${clusterName}' not found. Verify with 'bs9 status' or omit --live for isolated verification.`);
@@ -505,12 +512,15 @@ async function runLiveVerification(clusterName: string, options: VerifyHaOptions
     // still flowing. The surviving worker must absorb every request and the
     // platform supervisor must bring the victim service back with a new PID.
     const postReloadServices = await listServices();
-    const victim = postReloadServices.find((service) =>
-      service.name.includes(clusterName) &&
-      service.active === "active" &&
-      service.pid !== "-" &&
-      Number.isFinite(Number(service.pid))
-    );
+    const victim = postReloadServices.find((service) => {
+      const clean = service.name.replace(/^(BS9_|bs9\.)/, "");
+      return (
+        clusterWorkerRe.test(clean) &&
+        service.active === "active" &&
+        service.pid !== "-" &&
+        Number.isFinite(Number(service.pid))
+      );
+    });
     const victimPid = victim ? Number(victim.pid) : 0;
     const crashStartIdx = records.length;
     let supervisorRecovered = false;

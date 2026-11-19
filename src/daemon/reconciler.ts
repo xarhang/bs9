@@ -122,6 +122,23 @@ export class ClusterReconciler extends EventEmitter {
 
     try {
       const manifests = this.controller.getAllManifests();
+      const activeSlots = new Set<string>();
+      for (const manifest of manifests) {
+        const desiredInstances = manifest.instances ?? 1;
+        for (let slot = 0; slot < desiredInstances; slot++) {
+          activeSlots.add(`${manifest.clusterName}:${slot}`);
+        }
+      }
+      for (const key of this.inFlightResurrections.keys()) {
+        if (!activeSlots.has(key)) this.inFlightResurrections.delete(key);
+      }
+      for (const key of this.missingSince.keys()) {
+        if (!activeSlots.has(key)) this.missingSince.delete(key);
+      }
+      for (const key of this.failureBackoff.keys()) {
+        if (!activeSlots.has(key)) this.failureBackoff.delete(key);
+      }
+
       for (const manifest of manifests) {
         const clusterName = manifest.clusterName;
 
@@ -250,9 +267,11 @@ export class ClusterReconciler extends EventEmitter {
                 this.inFlightResurrections.set(slotKey, { nextGen, timestamp: Date.now() });
                 try {
                   await this.onResurrectSlot(updatedManifest, slot, nextGen);
-                  this.controller.setManifest(updatedManifest);
-                  manifest.currentGeneration = nextGen;
-                  manifest.updatedAt = updatedManifest.updatedAt;
+                  if (!lockLost && this.controller.renewClusterLock(clusterName, lockToken, 120_000).renewed) {
+                    this.controller.setManifest(updatedManifest);
+                    manifest.currentGeneration = nextGen;
+                    manifest.updatedAt = updatedManifest.updatedAt;
+                  }
                   this.emit("slot:resurrected", { clusterName, slot, nextGen });
                 } catch (err) {
                   this.inFlightResurrections.delete(slotKey);

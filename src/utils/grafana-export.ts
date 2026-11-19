@@ -16,14 +16,16 @@ export interface GrafanaExportOptions {
 
 export function generateGrafanaDashboard(options: GrafanaExportOptions = {}): string {
   const title = (options.title || "BS9 Process Manager Overview").slice(0, 120);
-  const serviceFilter = options.serviceName
-    ? `{service="${options.serviceName.replace(/[^a-zA-Z0-9._-]/g, "")}"}`
+  const cleanService = options.serviceName
+    ? options.serviceName.replace(/[^a-zA-Z0-9._-]/g, "")
     : "";
+  const serviceFilter = cleanService ? `{service="${cleanService}"}` : "";
+  const uid = "bs9-overview";
   const datasource = options.datasource || "Prometheus";
 
   const dashboard = {
     id: null,
-    uid: "bs9-overview",
+    uid,
     title,
     tags: ["bs9", "bun", "process-manager"],
     timezone: "browser",

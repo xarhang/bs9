@@ -146,5 +146,9 @@ if (import.meta.main) {
     env: process.env,
     windowsHide: true,
   });
+  child.on("error", (err) => {
+    console.error(`Failed to spawn bun: ${err.message}`);
+    process.exit(1);
+  });
   child.on("exit", (code) => process.exit(code ?? 0));
 }

@@ -124,7 +124,7 @@ export function generateSystemdUnit(options: {
   const description = options.description.replace(/[\r\n]+/g, " ");
   const workingDir = escapeSystemdArg(options.workingDir);
   const execStart = formatSystemdExecStart(options.executable, options.args || []);
-  const restartSec = options.restartSec ?? 2;
+  const restartSec = Number.isFinite(options.restartSec) && (options.restartSec as number) >= 0 ? options.restartSec : 2;
 
   const envLines: string[] = [];
   if (options.env) {

@@ -11,12 +11,11 @@
 
 import { spawnSync } from "node:child_process";
 import { existsSync, writeFileSync, mkdirSync, cpSync, readdirSync, readFileSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join, dirname, isAbsolute, resolve } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import semver from "semver";
 import { getPlatformInfo } from "../platform/detect.js";
-import * as fs from "node:fs";
 
 interface UpdateOptions {
   check?: boolean;
@@ -206,11 +205,31 @@ export class BS9Updater {
     };
   }
 
+  private getPackageRoot(): string {
+    const currentFilePath = fileURLToPath(import.meta.url);
+    const candidates = [
+      dirname(dirname(dirname(currentFilePath))),
+      dirname(dirname(currentFilePath)),
+      process.cwd(),
+    ];
+    for (const candidate of candidates) {
+      const pkgPath = join(candidate, "package.json");
+      if (existsSync(pkgPath)) {
+        try {
+          const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
+          if (pkg.name === "bs9") return candidate;
+        } catch {}
+      }
+    }
+    return process.cwd();
+  }
+
   public createBackup(): BackupInfo {
     const timestamp = Date.now();
     const currentVersion = this.getCurrentVersion();
     const backupName = `backup-${currentVersion}-${timestamp}`;
     const backupPath = join(this.backupDir, backupName);
+    const packageRoot = this.getPackageRoot();
 
     mkdirSync(backupPath, { recursive: true });
 
@@ -226,7 +245,7 @@ export class BS9Updater {
     const backedUpFiles: string[] = [];
 
     for (const file of filesToBackup) {
-      const sourcePath = join(process.cwd(), file);
+      const sourcePath = join(packageRoot, file);
       const targetPath = join(backupPath, file);
 
       try {
@@ -329,10 +348,16 @@ export class BS9Updater {
         console.error('❌ No backup found for rollback');
         return;
       }
-      backupInfo = JSON.parse(fs.readFileSync(backupInfoPath, 'utf-8'));
+      backupInfo = JSON.parse(readFileSync(backupInfoPath, 'utf-8'));
     }
 
-    const backupPath = join(this.backupDir, `backup-${backupInfo.version}-${backupInfo.timestamp}`);
+    if (!backupInfo || !isValidVersion(String(backupInfo.version)) || !Number.isFinite(Number(backupInfo.timestamp))) {
+      console.error('❌ Security: Invalid backup metadata');
+      return;
+    }
+
+    const backupPath = resolve(this.backupDir, `backup-${backupInfo.version}-${backupInfo.timestamp}`);
+    const packageRoot = resolve(this.getPackageRoot());
 
     if (!existsSync(backupPath)) {
       console.error(`❌ Backup not found: ${backupPath}`);
@@ -340,9 +365,17 @@ export class BS9Updater {
     }
 
     // Restore files
-    for (const file of backupInfo.files) {
-      const sourcePath = join(backupPath, file);
-      const targetPath = join(process.cwd(), file);
+    for (const file of backupInfo.files || []) {
+      if (typeof file !== "string" || isAbsolute(file) || file.split(/[\\/]/).includes("..")) {
+        console.warn(`⚠️  Skipping unsafe backup path: ${file}`);
+        continue;
+      }
+      const sourcePath = resolve(backupPath, file);
+      const targetPath = resolve(packageRoot, file);
+      if (!sourcePath.startsWith(backupPath) || !targetPath.startsWith(packageRoot)) {
+        console.warn(`⚠️  Skipping out-of-bounds backup path: ${file}`);
+        continue;
+      }
 
       try {
         cpSync(sourcePath, targetPath, { recursive: true, force: true });
@@ -355,7 +388,7 @@ export class BS9Updater {
     // Reinstall dependencies
     console.log('📦 Reinstalling dependencies...');
     try {
-      const res = spawnSync("bun", ["install"], { stdio: 'inherit', cwd: process.cwd() });
+      const res = spawnSync("bun", ["install"], { stdio: 'inherit', cwd: packageRoot });
       if (res.status !== 0) {
         throw new Error(`Process exited with code ${res.status}`);
       }

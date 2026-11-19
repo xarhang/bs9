@@ -165,7 +165,7 @@ async function getLinuxServices(): Promise<ServiceMetrics[]> {
                     };
 
                     const cpuNs = getData("CPUUsageNSec");
-                    if (cpuNs && cpuNs !== "0") svc.cpu = `${(Number(cpuNs) / 1000000).toFixed(1)}ms`;
+                    if (cpuNs && cpuNs !== "0" && cpuNs !== "[not set]" && /^\d+$/.test(cpuNs)) svc.cpu = `${(Number(cpuNs) / 1000000).toFixed(1)}ms`;
 
                     const memBytes = getData("MemoryCurrent");
                     if (memBytes && memBytes !== "[not set]") svc.memory = formatMemory(Number(memBytes));

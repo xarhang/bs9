@@ -217,12 +217,15 @@ export class LifecycleClient extends EventEmitter {
           if (!settled) {
             settled = true;
             cleanupListeners();
+            this.cleanup();
             resolve(false);
           }
         }, 5000);
       } catch (err) {
         this.cleanup();
-        this.emit("error", err);
+        if (this.listenerCount("error") > 0) {
+          this.emit("error", err);
+        }
         if (!this.isExplicitlyStopped) {
           this.scheduleReconnect();
         }

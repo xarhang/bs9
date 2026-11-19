@@ -17,8 +17,7 @@ import { ControllerAdminClient, ClusterLockSession } from "../cluster/admin-clie
 import { ensureDaemonRunning } from "../daemon/ensure.js";
 import { getPlatformInfo } from "../platform/detect.js";
 import { join } from "node:path";
-import { existsSync, readFileSync, unlinkSync } from "node:fs";
-import { execSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import { startUserSystemdUnit } from "../utils/systemd.js";
 import { ensurePrivateDirectory, securePrivateFile, writePrivateFile } from "../utils/private-files.js";
 
@@ -77,7 +76,7 @@ export async function reloadCommand(names: string[] = [], options: ReloadOptions
         return;
       }
       console.log(`🔄 Reloading all services...`);
-      await restartCommand(names, options);
+      await restartCommand(names.length > 0 ? names : ["all"], options);
       recordAuditEvent({ action: "reload", target, status: "success" });
       return;
     }
@@ -522,38 +521,36 @@ async function spawnReplacementWorker(
       );
       const newServiceFile = join(platformInfo.serviceDir, `${nextPhysicalName}.service`);
       writePrivateFile(newServiceFile, content);
-      try { startUserSystemdUnit(newServiceFile, `${nextPhysicalName}.service`); } catch {}
+      startUserSystemdUnit(newServiceFile, `${nextPhysicalName}.service`);
 
     }
   } else if (platformInfo.isMacOS) {
     const { launchdCommand } = await import("../macos/launchd.js");
     const configPath = join(platformInfo.configDir, 'launchd-services.json');
     if (existsSync(configPath)) {
-      try {
-        const configs = JSON.parse(readFileSync(configPath, 'utf-8'));
-        const oldLabel = `bs9.${currentPhysicalName}`;
-        if (configs[oldLabel]) {
-          const newLabel = `bs9.${nextPhysicalName}`;
-          const oldCfg = configs[oldLabel];
-          const environmentVariables = {
-            ...(oldCfg.environmentVariables || {}),
-            BS9_CLUSTER_GENERATION: String(nextGen),
-            SERVICE_NAME: nextPhysicalName,
-          };
-          await launchdCommand('create', {
-            name: newLabel,
-            file: oldCfg.programArguments?.[0],
-            args: oldCfg.programArguments?.slice(1) || [],
-            workingDir: oldCfg.workingDirectory,
-            env: JSON.stringify(environmentVariables),
-            autoStart: oldCfg.runAtLoad,
-            keepAlive: oldCfg.keepAlive,
-            logOut: oldCfg.standardOutPath,
-            logErr: oldCfg.standardErrorPath,
-          });
-          await launchdCommand('start', { name: newLabel });
-        }
-      } catch {}
+      const configs = JSON.parse(readFileSync(configPath, 'utf-8'));
+      const oldLabel = `bs9.${currentPhysicalName}`;
+      if (configs[oldLabel]) {
+        const newLabel = `bs9.${nextPhysicalName}`;
+        const oldCfg = configs[oldLabel];
+        const environmentVariables = {
+          ...(oldCfg.environmentVariables || {}),
+          BS9_CLUSTER_GENERATION: String(nextGen),
+          SERVICE_NAME: nextPhysicalName,
+        };
+        await launchdCommand('create', {
+          name: newLabel,
+          file: oldCfg.programArguments?.[0],
+          args: oldCfg.programArguments?.slice(1) || [],
+          workingDir: oldCfg.workingDirectory,
+          env: JSON.stringify(environmentVariables),
+          autoStart: oldCfg.runAtLoad,
+          keepAlive: oldCfg.keepAlive,
+          logOut: oldCfg.standardOutPath,
+          logErr: oldCfg.standardErrorPath,
+        });
+        await launchdCommand('start', { name: newLabel });
+      }
     }
   }
 }

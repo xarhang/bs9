@@ -9,7 +9,7 @@
  * https://github.com/xarhang/bs9
  */
 
-import { execSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, unlinkSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { getPlatformInfo } from "../platform/detect.js";
@@ -18,7 +18,7 @@ import { ensurePrivateDirectory, securePrivateFile, writePrivateFile } from "../
 export function isValidServiceName(name: string): boolean {
   const clean = name.replace(/^bs9\./, '');
   const validPattern = /^[a-zA-Z0-9._-]+$/;
-  return validPattern.test(clean) && clean.length <= 64 && !clean.includes('..') && !clean.includes('/');
+  return validPattern.test(clean) && clean.length > 0 && clean.length <= 64 && !clean.startsWith('-') && clean !== '.' && !clean.includes('..') && !clean.includes('/') && !clean.includes('\\');
 }
 
 export interface LaunchdServiceConfig {

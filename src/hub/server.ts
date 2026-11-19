@@ -110,14 +110,14 @@ export function isValidNamespace(namespace: string): boolean {
 }
 
 function assertFiniteDuration(value: number | undefined, field: string): void {
-  if (value !== undefined && (typeof value !== "number" || !Number.isFinite(value))) {
-    throw new Error(`${field} must be a finite number`);
+  if (value !== undefined && (typeof value !== "number" || !Number.isFinite(value) || value <= 0)) {
+    throw new Error(`${field} must be a finite number greater than 0`);
   }
 }
 
 function assertRequiredFiniteDuration(value: number, field: string): void {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new Error(`${field} must be a finite number`);
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    throw new Error(`${field} must be a finite number greater than 0`);
   }
 }
 
@@ -236,7 +236,7 @@ export class HubServer extends EventEmitter {
         const content = readFileSync(this.authTokenFile, "utf-8").trim();
         if (content.startsWith("{")) {
           const parsed = JSON.parse(content);
-          if (parsed[namespace]) {
+          if (parsed && typeof parsed === "object" && Object.hasOwn(parsed, namespace) && parsed[namespace]) {
             return String(parsed[namespace]);
           }
         } else if (content.length > 0) {
@@ -294,15 +294,21 @@ export class HubServer extends EventEmitter {
     }
 
     return new Promise((resolve, reject) => {
-      this.server = createServer((socket: Socket) => {
+      const srv = createServer((socket: Socket) => {
         this.handleClientConnection(socket);
       });
+      this.server = srv;
 
-      this.server.on("error", (err: Error) => {
+      const onListenError = (err: Error) => {
+        if (this.server === srv) {
+          this.server = null;
+        }
         reject(err);
-      });
+      };
+      srv.once("error", onListenError);
 
-      this.server.listen(this.socketPath, () => {
+      srv.listen(this.socketPath, () => {
+        srv.off("error", onListenError);
         if (!platformInfo.isWindows) {
           try {
             chmodSync(this.socketPath, 0o600);
@@ -576,6 +582,12 @@ export class HubServer extends EventEmitter {
     ownerId: string
   ): LeaseAcquireResult {
     this.ensureRecovered(namespace);
+    if (typeof leaseName !== "string" || leaseName.length === 0) {
+      throw new Error("leaseName must be a non-empty string");
+    }
+    if (typeof ownerId !== "string" || ownerId.length === 0) {
+      throw new Error("ownerId must be a non-empty string");
+    }
     assertRequiredFiniteDuration(ttlMs, "Lease TTL");
     const existing = this.leases.get(namespace, leaseName);
     if (existing) return this.leases.acquire(namespace, leaseName, ttlMs, ownerId);
@@ -603,6 +615,9 @@ export class HubServer extends EventEmitter {
     ttlMs: number
   ): LeaseRenewResult {
     this.ensureRecovered(namespace);
+    if (typeof leaseName !== "string" || leaseName.length === 0) {
+      throw new Error("leaseName must be a non-empty string");
+    }
     assertRequiredFiniteDuration(ttlMs, "Lease TTL");
     const existing = this.leases.exportState(namespace)[leaseName]?.record;
     if (!existing || existing.fencingToken !== fencingToken) {

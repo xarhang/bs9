@@ -42,8 +42,12 @@ export function sanitizeSQL(sql: string): string {
     throw new Error(`❌ Security: Dangerous SQL pattern detected`);
   }
 
+  // Neutralize quoted string literals first so a literal like '/*' cannot swallow
+  // subsequent SQL into a fake block comment during comment stripping.
+  const withoutLiterals = sql.replace(/'(?:[^']|'')*'/g, "'STR'");
+
   // Strip SQL comments before pattern matching to prevent comment-splitting bypasses (e.g. DROP/**/TABLE)
-  const stripped = sql
+  const stripped = withoutLiterals
     .replace(/\/\*[\s\S]*?\*\//g, " ")
     .replace(/--[^\r\n]*/g, " ")
     .replace(/#[^\r\n]*/g, " ")
@@ -135,6 +139,8 @@ export class DatabasePool {
     timestamp: number;
   }> = [];
   private reapingInterval?: NodeJS.Timeout;
+  private isClosing = false;
+  private isReaping = false;
   
   constructor(config: DatabaseConfig) {
     // Security: Validate configuration
@@ -247,6 +253,9 @@ export class DatabasePool {
   }
   
   async acquire(): Promise<DatabaseConnection> {
+    if (this.isClosing) {
+      throw new Error('Pool is closing');
+    }
     const now = Date.now();
     
     const availableConnection = this.connections.find(conn => !conn.inUse);
@@ -260,6 +269,10 @@ export class DatabasePool {
       this.pendingConnections++;
       try {
         const newConnection = await this.createConnection();
+        if (this.isClosing) {
+          await newConnection.close().catch(() => {});
+          throw new Error('Pool is closing');
+        }
         newConnection.inUse = true;
         this.connections.push(newConnection);
         return newConnection;
@@ -300,6 +313,12 @@ export class DatabasePool {
   }
   
   async release(connection: DatabaseConnection): Promise<void> {
+    if (this.isClosing) {
+      const idx = this.connections.indexOf(connection);
+      if (idx !== -1) this.connections.splice(idx, 1);
+      await connection.close().catch(() => {});
+      return;
+    }
     connection.inUse = false;
     connection.lastUsed = Date.now();
     
@@ -314,24 +333,31 @@ export class DatabasePool {
     this.reapingInterval = setInterval(async () => {
       await this.reapIdleConnections();
     }, this.config.reapIntervalMillis);
+    if (typeof this.reapingInterval.unref === "function") {
+      this.reapingInterval.unref();
+    }
   }
   
   private async reapIdleConnections(): Promise<void> {
-    const now = Date.now();
-    const minConnections = this.config.minConnections!;
-    
-    const idleConnections = this.connections.filter(conn => 
-      !conn.inUse && 
-      now - conn.lastUsed > this.config.idleTimeoutMillis! &&
-      this.connections.length > minConnections
-    );
-    
-    for (const conn of idleConnections) {
-      const index = this.connections.indexOf(conn);
-      if (index !== -1) {
-        await conn.close();
-        this.connections.splice(index, 1);
+    if (this.isReaping || this.isClosing) return;
+    this.isReaping = true;
+    try {
+      const now = Date.now();
+      const minConnections = this.config.minConnections!;
+      
+      const snapshot = [...this.connections];
+      for (const conn of snapshot) {
+        if (this.connections.length <= minConnections) break;
+        if (!conn.inUse && now - conn.lastUsed > this.config.idleTimeoutMillis!) {
+          const index = this.connections.indexOf(conn);
+          if (index !== -1) {
+            this.connections.splice(index, 1);
+            await conn.close().catch(() => {});
+          }
+        }
       }
+    } finally {
+      this.isReaping = false;
     }
   }
   
@@ -349,13 +375,16 @@ export class DatabasePool {
   }
   
   async close(): Promise<void> {
+    this.isClosing = true;
     if (this.reapingInterval) {
       clearInterval(this.reapingInterval);
+      this.reapingInterval = undefined;
     }
     
-    const closePromises = this.connections.map(conn => conn.close());
-    await Promise.all(closePromises);
+    const conns = this.connections;
     this.connections = [];
+    const closePromises = conns.map(conn => conn.close().catch(() => {}));
+    await Promise.all(closePromises);
     
     for (const waiting of this.waitingQueue) {
       waiting.reject(new Error('Pool is closing'));

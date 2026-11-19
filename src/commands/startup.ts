@@ -139,17 +139,26 @@ export async function unstartupCommand(): Promise<void> {
 
   if (platformInfo.isWindows) {
     try {
-      spawnSync("schtasks", ["/Delete", "/TN", "BS9_AutoResurrect", "/F"], { stdio: "ignore" });
+      const res = spawnSync("schtasks", ["/Delete", "/TN", "BS9_AutoResurrect", "/F"], { stdio: "ignore" });
+      if (res.status !== 0) {
+        throw new Error(`schtasks exited with code ${res.status ?? 1}`);
+      }
       console.log(`✅ Removed Windows Scheduled Task 'BS9_AutoResurrect'.`);
     } catch (err: any) {
       console.warn(`⚠️  Task not found or already deleted: ${err.message}`);
     }
   } else if (platformInfo.isLinux) {
     try {
-      spawnSync("systemctl", ["--user", "disable", "bs9-resurrect.service"], { stdio: "ignore" });
+      const disableRes = spawnSync("systemctl", ["--user", "disable", "bs9-resurrect.service"], { stdio: "ignore" });
+      if (disableRes.status !== 0) {
+        console.warn(`⚠️  systemctl --user disable returned status ${disableRes.status ?? 1}`);
+      }
       const unitPath = join(homedir(), ".config", "systemd", "user", "bs9-resurrect.service");
       if (existsSync(unitPath)) unlinkSync(unitPath);
-      spawnSync("systemctl", ["--user", "daemon-reload"], { stdio: "ignore" });
+      const reloadRes = spawnSync("systemctl", ["--user", "daemon-reload"], { stdio: "ignore" });
+      if (reloadRes.status !== 0) {
+        console.warn(`⚠️  systemctl --user daemon-reload returned status ${reloadRes.status ?? 1}`);
+      }
       console.log(`✅ Removed Linux systemd user service 'bs9-resurrect.service'.`);
     } catch (err: any) {
       console.warn(`⚠️  Failed to remove systemd startup: ${err.message}`);
@@ -158,7 +167,10 @@ export async function unstartupCommand(): Promise<void> {
     try {
       const plistPath = join(homedir(), "Library", "LaunchAgents", "com.bs9.resurrect.plist");
       if (existsSync(plistPath)) {
-        spawnSync("launchctl", ["unload", plistPath], { stdio: "ignore" });
+        const unloadRes = spawnSync("launchctl", ["unload", plistPath], { stdio: "ignore" });
+        if (unloadRes.status !== 0) {
+          console.warn(`⚠️  launchctl unload returned status ${unloadRes.status ?? 1}`);
+        }
         unlinkSync(plistPath);
       }
       console.log(`✅ Removed macOS LaunchAgent.`);

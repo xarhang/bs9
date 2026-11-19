@@ -151,7 +151,7 @@ export class WalManager {
 
   public listNamespacesOnDisk(): string[] {
     if (!existsSync(this.baseDataDir)) return [];
-    if (process.platform === "linux") {
+    if ((process.platform === "linux" || process.platform === "darwin")) {
       ensurePrivateDirectory(this.stateDir);
       ensurePrivateDirectory(this.baseDataDir);
     }
@@ -166,7 +166,7 @@ export class WalManager {
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       const entryDir = join(this.baseDataDir, entry.name);
-      if (process.platform === "linux") {
+      if ((process.platform === "linux" || process.platform === "darwin")) {
         ensurePrivateDirectory(entryDir);
         for (const filename of ["snapshot.json", "wal.log"]) {
           const filePath = join(entryDir, filename);
@@ -247,7 +247,7 @@ export class WalManager {
 
   private readSnapshotIdentity(snapshotPath: string): SnapshotData | null {
     try {
-      if (process.platform === "linux") securePrivateFile(snapshotPath);
+      if ((process.platform === "linux" || process.platform === "darwin")) securePrivateFile(snapshotPath);
       const snapshot = JSON.parse(readFileSync(snapshotPath, "utf-8")) as SnapshotData;
       return snapshot && snapshot.version === 1 && typeof snapshot.namespace === "string"
         ? snapshot
@@ -334,7 +334,7 @@ export class WalManager {
     try {
       this.ensureDir(temporaryDir);
       copyFileSync(legacySnapshotPath, temporarySnapshotPath);
-      if (process.platform === "linux") securePrivateFile(temporarySnapshotPath);
+      if ((process.platform === "linux" || process.platform === "darwin")) securePrivateFile(temporarySnapshotPath);
       const snapshotFd = openSync(temporarySnapshotPath, "r+");
       try { fsyncSync(snapshotFd); } finally { closeSync(snapshotFd); }
       renameSync(temporaryDir, targetDir);
@@ -350,7 +350,7 @@ export class WalManager {
     const legacyDir = this.getLegacyNamespaceDir(namespace);
     if (targetDir === legacyDir || !existsSync(legacyDir)) return;
 
-    if (process.platform === "linux") {
+    if ((process.platform === "linux" || process.platform === "darwin")) {
       ensurePrivateDirectory(this.stateDir);
       ensurePrivateDirectory(this.baseDataDir);
       ensurePrivateDirectory(legacyDir);
@@ -358,7 +358,7 @@ export class WalManager {
 
     const legacySnapshotPath = join(legacyDir, "snapshot.json");
     const legacyWalPath = join(legacyDir, "wal.log");
-    if (process.platform === "linux") {
+    if ((process.platform === "linux" || process.platform === "darwin")) {
       if (existsSync(legacySnapshotPath)) securePrivateFile(legacySnapshotPath);
       if (existsSync(legacyWalPath)) securePrivateFile(legacyWalPath);
     }
@@ -385,7 +385,7 @@ export class WalManager {
   }
 
   private ensureDir(dir: string): void {
-    if (process.platform === "linux") {
+    if ((process.platform === "linux" || process.platform === "darwin")) {
       ensurePrivateDirectory(this.stateDir);
       ensurePrivateDirectory(this.baseDataDir);
       ensurePrivateDirectory(dir);
@@ -402,7 +402,7 @@ export class WalManager {
       this.ensureDir(dir);
       const walPath = this.getWalPath(namespace);
       fd = openSync(walPath, "a+", 0o600);
-      if (process.platform === "linux") fchmodSync(fd, 0o600);
+      if ((process.platform === "linux" || process.platform === "darwin")) fchmodSync(fd, 0o600);
       this.namespaceFd.set(namespace, fd);
     }
     return fd;
@@ -452,7 +452,7 @@ export class WalManager {
     const fd = this.namespaceFd.get(namespace);
     if (fd !== undefined) return fstatSync(fd).size;
     const walPath = this.getWalPath(namespace);
-    if (process.platform === "linux" && existsSync(walPath)) securePrivateFile(walPath);
+    if ((process.platform === "linux" || process.platform === "darwin") && existsSync(walPath)) securePrivateFile(walPath);
     return existsSync(walPath) ? statSync(walPath).size : 0;
   }
 
@@ -643,7 +643,7 @@ export class WalManager {
     this.closeNamespaceFd(namespace);
     const walPath = this.getWalPath(namespace);
     if (existsSync(walPath)) {
-      if (process.platform === "linux") securePrivateFile(walPath);
+      if ((process.platform === "linux" || process.platform === "darwin")) securePrivateFile(walPath);
       const walFd = openSync(walPath, "r+");
       try {
         ftruncateSync(walFd, 0);
@@ -682,7 +682,7 @@ export class WalManager {
 
     const snapshotPath = this.getSnapshotPath(namespace);
     if (existsSync(snapshotPath)) {
-      if (process.platform === "linux") securePrivateFile(snapshotPath);
+      if ((process.platform === "linux" || process.platform === "darwin")) securePrivateFile(snapshotPath);
       let snapshot: SnapshotData;
       try {
         const rawJson = readFileSync(snapshotPath, "utf-8");
@@ -732,7 +732,7 @@ export class WalManager {
     let truncatedBytes = 0;
 
     if (existsSync(walPath)) {
-      if (process.platform === "linux") securePrivateFile(walPath);
+      if ((process.platform === "linux" || process.platform === "darwin")) securePrivateFile(walPath);
       const fd = openSync(walPath, "r+");
       const fileSize = fstatSync(fd).size;
       let offset = 0;

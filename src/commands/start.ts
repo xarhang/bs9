@@ -12,7 +12,6 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, basename, resolve, dirname } from "node:path";
 import { execSync, spawnSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { homedir, cpus } from "node:os";
 import { getPlatformInfo } from "../platform/detect.js";
@@ -146,7 +145,7 @@ async function handleEcosystemStart(configFile: string, options: StartOptions): 
     entries = await parseEcosystemConfig(configFile);
   } catch (err) {
     console.error(`❌ Failed to parse ecosystem config: ${err}`);
-    process.exit(1);
+    throw err;
   }
 
   console.log(`Starting ${entries.length} app(s) from ecosystem config...`);
@@ -187,7 +186,14 @@ async function handleEcosystemStart(configFile: string, options: StartOptions): 
 /** Handle cluster mode: spawn N workers sharing the same port via reusePort preload */
 async function handleClusterStart(file: string, options: StartOptions, instanceCount: number): Promise<void> {
   const baseName = options.name || basename(file).replace(/\.[a-zA-Z0-9]+$/, '');
+  if (!/^[a-zA-Z0-9._-]+$/.test(baseName) || baseName.startsWith("-") || baseName === "." || baseName.length > 64 || baseName.includes("..")) {
+    throw new Error(`Security: Invalid cluster name: '${baseName}'`);
+  }
   const port = options.port || '3000';
+  const portNum = /^\d+$/.test(port) ? parseInt(port, 10) : NaN;
+  if (!Number.isInteger(portNum) || portNum < 1 || portNum > 65535) {
+    throw new Error(`Security: Invalid port number: ${port}. Must be 1-65535`);
+  }
 
   console.log(`🔀 Starting ${instanceCount} cluster workers for '${baseName}' on port ${port}...`);
   if (process.platform === 'win32') {
@@ -376,8 +382,7 @@ async function handleSingleServiceStart(file: string, options: StartOptions): Pr
   // Security: Validate and sanitize file path
   const fullPath = resolve(file);
   if (!existsSync(fullPath)) {
-    console.error(`❌ File not found: ${fullPath}`);
-    process.exit(1);
+    throw new Error(`File not found: ${fullPath}`);
   }
 
   // Security: Prevent directory traversal/symlink escape and ensure file is within allowed paths
@@ -408,8 +413,7 @@ async function handleSingleServiceStart(file: string, options: StartOptions): Pr
     return realFullNorm === allowedNorm || realFullNorm.startsWith(prefix);
   });
   if (!isAllowedPath) {
-    console.error(`❌ Security: File path outside allowed directories: ${fullPath}`);
-    process.exit(1);
+    throw new Error(`Security: File path outside allowed directories: ${fullPath}`);
   }
 
   // Security: Validate and sanitize service name
@@ -418,17 +422,15 @@ async function handleSingleServiceStart(file: string, options: StartOptions): Pr
 
   // Security: Validate port number
   const port = options.port || "3000";
-  const portNum = Number(port);
-  if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
-    console.error(`❌ Security: Invalid port number: ${port}. Must be 1-65535`);
-    process.exit(1);
+  const portNum = /^\d+$/.test(port) ? parseInt(port, 10) : NaN;
+  if (!Number.isInteger(portNum) || portNum < 1 || portNum > 65535) {
+    throw new Error(`Security: Invalid port number: ${port}. Must be 1-65535`);
   }
 
   // Security: Validate host
   const host = options.host || "localhost";
   if (!isValidHost(host)) {
-    console.error(`❌ Security: Invalid host: ${host}`);
-    process.exit(1);
+    throw new Error(`Security: Invalid host: ${host}`);
   }
 
   const protocol = options.https ? "https" : "http";
@@ -460,8 +462,7 @@ async function handleSingleServiceStart(file: string, options: StartOptions): Pr
       const outputFile = join(buildDir, basename(fullPath, '.ts') + '.js');
       const res = spawnSync("bun", ["build", fullPath, "--outdir", buildDir, "--target", "bun", "--minify", "--splitting"], { stdio: "inherit", windowsHide: true });
       if (res.status !== 0) {
-        console.error(`❌ Build failed`);
-        process.exit(1);
+        throw new Error(`Build failed for '${fullPath}'`);
       }
       execPath = outputFile;
       isBuilt = true;
@@ -477,8 +478,7 @@ async function handleSingleServiceStart(file: string, options: StartOptions): Pr
   if (auditResult.critical.length > 0) {
     console.error("🚨 Critical security issues found:");
     auditResult.critical.forEach(issue => console.error(`  - ${issue}`));
-    console.error("\nRefusing to start. Fix issues or use --force to override.");
-    process.exit(1);
+    throw new Error(`Critical security issues found in '${execPath}'. Fix issues before starting.`);
   }
 
   if (auditResult.warning.length > 0) {
@@ -494,8 +494,7 @@ async function handleSingleServiceStart(file: string, options: StartOptions): Pr
   } else if (platformInfo.isWindows) {
     await createWindowsService(finalServiceName, execPath, host, port, protocol, options);
   } else {
-    console.error(`❌ Platform ${platformInfo.platform} is not supported`);
-    process.exit(1);
+    throw new Error(`Platform ${platformInfo.platform} is not supported`);
   }
 
   const { recordAuditEvent } = await import("../utils/audit-log.js");
@@ -503,10 +502,11 @@ async function handleSingleServiceStart(file: string, options: StartOptions): Pr
 
   if (options.waitReady) {
     const { waitForServiceReady } = await import("../utils/readiness.js");
-    const timeoutMs = options.readyTimeout ? parseInt(options.readyTimeout, 10) : 15000;
+    const parsedTimeout = options.readyTimeout ? parseInt(options.readyTimeout, 10) : 15000;
+    const timeoutMs = Number.isFinite(parsedTimeout) && parsedTimeout > 0 ? parsedTimeout : 15000;
     const result = await waitForServiceReady({
       host,
-      port: parseInt(port, 10) || 3000,
+      port: portNum,
       protocol: protocol === "https" ? "https" : "http",
       timeoutMs,
     });
@@ -644,7 +644,7 @@ async function createLinuxService(serviceName: string, execPath: string, host: s
     console.log(`   Metrics: ${protocol}://${host}:${port}/metrics`);
   } catch (error) {
     console.error(`❌ Failed to start service: ${error}`);
-    process.exit(1);
+    throw error;
   }
 }
 
@@ -671,8 +671,10 @@ async function createMacOSService(serviceName: string, execPath: string, host: s
   if (options.maxLogSize) envVars.BS9_MAX_LOG_SIZE = options.maxLogSize;
   if (options.maxLogFiles) envVars.BS9_MAX_LOG_FILES = options.maxLogFiles;
 
-  const isClusterWorker = (options.env || []).some(e => e.includes("BS9_REUSE_PORT=true"));
-  const preloadPath = resolve(join(dirname(import.meta.path), '..', 'utils', 'cluster-preload.ts'));
+  const isClusterWorker = (options.env || []).some(e => e === "BS9_REUSE_PORT=true");
+  const preloadTs = resolve(join(dirname(import.meta.path), '..', 'utils', 'cluster-preload.ts'));
+  const preloadJs = resolve(join(dirname(import.meta.path), '..', 'utils', 'cluster-preload.js'));
+  const preloadPath = existsSync(preloadTs) ? preloadTs : preloadJs;
   const preloadArgs = isClusterWorker && existsSync(preloadPath) ? ['--preload', preloadPath] : [];
 
   const runtime = resolveRuntime(execPath, options.interpreter, preloadArgs);
@@ -695,15 +697,17 @@ async function createMacOSService(serviceName: string, execPath: string, host: s
     console.log(`   Metrics: ${protocol}://${host}:${port}/metrics`);
   } catch (error) {
     console.error(`❌ Failed to start macOS service: ${error}`);
-    process.exit(1);
+    throw error;
   }
 }
 
 async function createWindowsService(serviceName: string, execPath: string, host: string, port: string, protocol: string, options: StartOptions): Promise<void> {
   const { windowsCommand } = await import("../windows/service.js");
 
-  const isClusterWorker = (options.env || []).some(e => e.includes("BS9_REUSE_PORT=true"));
-  const preloadPath = resolve(join(dirname(import.meta.path), '..', 'utils', 'cluster-preload.ts'));
+  const isClusterWorker = (options.env || []).some(e => e === "BS9_REUSE_PORT=true");
+  const preloadTs = resolve(join(dirname(import.meta.path), '..', 'utils', 'cluster-preload.ts'));
+  const preloadJs = resolve(join(dirname(import.meta.path), '..', 'utils', 'cluster-preload.js'));
+  const preloadPath = existsSync(preloadTs) ? preloadTs : preloadJs;
   const preloadArgs = isClusterWorker && existsSync(preloadPath) ? ['--preload', preloadPath] : [];
 
   const runtime = resolveRuntime(execPath, options.interpreter, preloadArgs);
@@ -754,7 +758,7 @@ async function createWindowsService(serviceName: string, execPath: string, host:
     console.log(`   Health: ${protocol}://${host}:${port}/healthz`);
   } catch (error) {
     console.error(`❌ Failed to start Windows service: ${error}`);
-    process.exit(1);
+    throw error;
   }
 }
 
@@ -765,7 +769,6 @@ interface SecurityAuditResult {
 
 async function securityAudit(filePath: string): Promise<SecurityAuditResult> {
   const result: SecurityAuditResult = { critical: [], warning: [] };
-  const content = readFileSync(filePath, "utf-8");
   const stat = statSync(filePath);
 
   // Check file permissions (Unix-style world-writable check is unreliable on Windows
@@ -781,6 +784,13 @@ async function securityAudit(filePath: string): Promise<SecurityAuditResult> {
   if (process.platform !== "win32" && !hasSyntheticPerms && (stat.mode & 0o002)) {
     result.critical.push("File is world-writable");
   }
+
+  const rawBuffer = readFileSync(filePath);
+  // Skip static JS/TS pattern scanning on binary executables
+  if (rawBuffer.subarray(0, 8192).includes(0)) {
+    return result;
+  }
+  const content = rawBuffer.toString("utf-8");
 
   // Check for dangerous patterns
   const dangerousPatterns = [
@@ -851,8 +861,10 @@ export function generateLinuxServiceUnit(opts: SystemdUnitOptions): string {
   }).join("\n");
   const workingDir = escapeSystemdArg(dirname(opts.fullPath));
 
-  const isClusterWorker = opts.env.some(e => e.includes("BS9_REUSE_PORT=true"));
-  const preloadPath = resolve(join(dirname(import.meta.path), '..', 'utils', 'cluster-preload.ts'));
+  const isClusterWorker = opts.env.some(e => e === "BS9_REUSE_PORT=true");
+  const preloadTs = resolve(join(dirname(import.meta.path), '..', 'utils', 'cluster-preload.ts'));
+  const preloadJs = resolve(join(dirname(import.meta.path), '..', 'utils', 'cluster-preload.js'));
+  const preloadPath = existsSync(preloadTs) ? preloadTs : preloadJs;
   const preloadArgs = isClusterWorker && existsSync(preloadPath) ? ["--preload", preloadPath] : [];
 
   const runtime = resolveRuntime(opts.fullPath, opts.interpreter, preloadArgs);

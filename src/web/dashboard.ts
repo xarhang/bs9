@@ -21,7 +21,7 @@ import { listServices, ServiceMetrics as UnifiedMetrics } from "../utils/service
 import { spawn } from "node:child_process";
 import { resolve, join } from "node:path";
 import { randomBytes, timingSafeEqual, createHash } from "node:crypto";
-import { appendFileSync, closeSync, constants, existsSync, fstatSync, lstatSync, openSync, readFileSync, readSync, writeFileSync } from "node:fs";
+import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { getPlatformInfo } from "../platform/detect.js";
 import { recordAuditEvent } from "../utils/audit-log.js";
@@ -109,10 +109,11 @@ const getMetrics = async (): Promise<UnifiedMetrics[]> => {
 };
 
 const formatMemory = (bytes: number): string => {
-  if (bytes === 0) return "0B";
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0B";
+  if (bytes < 1) return `${bytes}B`;
   const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  const sizes = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.min(sizes.length - 1, Math.floor(Math.log(bytes) / Math.log(k)));
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))}${sizes[i]}`;
 };
 
@@ -806,7 +807,8 @@ export function startDashboardServer() {
       }
       const cleanName = name.replace(/^(BS9_|bs9\.)/, "");
       const prefix = getLogFilePrefix(cleanName);
-      const rawLines = Number(url.searchParams.get("lines"));
+      const rawLinesParam = url.searchParams.get("lines");
+      const rawLines = rawLinesParam !== null && rawLinesParam.trim() !== "" ? Number(rawLinesParam) : NaN;
       const linesLimit = Number.isFinite(rawLines) ? Math.min(500, Math.max(1, Math.floor(rawLines))) : 100;
       const logDir = getPlatformInfo().logDir;
       const readTail = (filePath: string): string => {
@@ -874,7 +876,12 @@ export function startDashboardServer() {
       }
 
       // Security: Verify service existence against current discovered services
-      const currentServices = await listServices();
+      let currentServices: UnifiedMetrics[];
+      try {
+        currentServices = await listServices();
+      } catch (e) {
+        return new Response(JSON.stringify({ error: `Failed to list services: ${e}` }), { status: 500, headers: { "Content-Type": "application/json" } });
+      }
       const cleanName = name.replace(/^(BS9_|bs9\.)/, "");
       const serviceExists = currentServices.some(s => {
         const sClean = s.name.replace(/^(BS9_|bs9\.)/, "");
@@ -961,7 +968,9 @@ export function startDashboardServer() {
 
   if (process.env.BS9_DASHBOARD_DETACH) {
     try {
-      const pidFile = join(homedir(), '.bs9', 'web.pid');
+      const bs9Dir = join(homedir(), '.bs9');
+      if (!existsSync(bs9Dir)) mkdirSync(bs9Dir, { recursive: true });
+      const pidFile = join(bs9Dir, 'web.pid');
       writeFileSync(pidFile, JSON.stringify({ pid: process.pid, port: PORT, startedAt: Date.now() }), 'utf8');
     } catch {}
   }

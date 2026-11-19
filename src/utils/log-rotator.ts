@@ -143,6 +143,7 @@ export function rotateLogIfNeeded(logPath: string, options: LogRotationOptions =
 
   if (renamed) {
     try {
+      writeFileNoFollow(logPath, Buffer.alloc(0));
       if (compress) {
         const content = readFileSync(rotatedRaw);
         const compressed = gzipSync(content);

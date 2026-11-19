@@ -9,7 +9,6 @@
  * https://github.com/xarhang/bs9
  */
 
-import { execSync } from "node:child_process";
 import { setTimeout } from "node:timers/promises";
 import { listServices } from "../utils/service-discovery.js";
 
@@ -51,12 +50,22 @@ interface PerformanceProfile {
 
 function isValidServiceName(name: string): boolean {
   const validPattern = /^[a-zA-Z0-9._-]+$/;
-  return validPattern.test(name) && name.length <= 64 && !name.includes('..') && !name.includes('/');
+  return validPattern.test(name) && name.length > 0 && name.length <= 64 && !name.startsWith('-') && name !== '.' && !name.includes('..') && !name.includes('/') && !name.includes('\\');
 }
 
 export async function profileCommand(options: ProfileOptions): Promise<void> {
-  const duration = Number(options.duration) || 60; // Default 60 seconds
-  const interval = Number(options.interval) || 1000; // Default 1 second
+  const rawDuration = options.duration !== undefined ? Number(options.duration) : 60;
+  const rawInterval = options.interval !== undefined ? Number(options.interval) : 1000;
+  if (!Number.isFinite(rawDuration) || rawDuration <= 0) {
+    console.error(`❌ Invalid duration '${options.duration}'. Must be a positive number of seconds.`);
+    process.exit(1);
+  }
+  if (!Number.isFinite(rawInterval) || rawInterval < 10) {
+    console.error(`❌ Invalid interval '${options.interval}'. Must be >= 10ms.`);
+    process.exit(1);
+  }
+  const duration = rawDuration;
+  const interval = rawInterval;
   const serviceName = options.service;
 
   if (!serviceName) {
@@ -111,7 +120,8 @@ export async function profileCommand(options: ProfileOptions): Promise<void> {
 async function checkServiceStatus(serviceName: string): Promise<string> {
   try {
     const services = await listServices();
-    const service = services.find(s => s.name === serviceName);
+    const cleanTarget = serviceName.replace(/^(BS9_|bs9\.)/, "");
+    const service = services.find(s => s.name === serviceName || s.name.replace(/^(BS9_|bs9\.)/, "") === cleanTarget);
 
     if (service) {
       return service.active === 'active' ? 'active' : service.active;
@@ -128,19 +138,22 @@ function getServicePort(serviceName: string): number | null {
   const path = require("node:path");
   const platform = os.platform();
   const userHome = os.homedir();
+  const cleanName = serviceName.replace(/^(BS9_|bs9\.)/, "");
 
   try {
     let serviceContent = '';
 
     if (platform === 'win32') {
       // Windows: Read from BS9 service config
-      const configPath = path.join(userHome, '.bs9', 'services', `${serviceName}.json`);
-      if (fs.existsSync(configPath)) {
-        const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      const configPath = path.join(userHome, '.bs9', 'services', `BS9_${cleanName}.json`);
+      const altConfigPath = path.join(userHome, '.bs9', 'services', `${cleanName}.json`);
+      const targetConfig = fs.existsSync(configPath) ? configPath : altConfigPath;
+      if (fs.existsSync(targetConfig)) {
+        const config = JSON.parse(fs.readFileSync(targetConfig, 'utf-8'));
         return config.port || 3000;
       }
       // Fallback: Try to read from backup
-      const backupPath = path.join(userHome, '.bs9', 'backups', `${serviceName}.json`);
+      const backupPath = path.join(userHome, '.bs9', 'backups', `${cleanName}.json`);
       if (fs.existsSync(backupPath)) {
         const config = JSON.parse(fs.readFileSync(backupPath, 'utf-8'));
         return config.port || 3000;
@@ -148,11 +161,12 @@ function getServicePort(serviceName: string): number | null {
       return 3000; // Default port
     } else if (platform === 'darwin') {
       // macOS: Read from launchd plist
-      const plistPath = path.join(userHome, 'Library', 'LaunchAgents', `${serviceName}.plist`);
+      const plistName = cleanName.startsWith('bs9.') ? cleanName : `bs9.${cleanName}`;
+      const plistPath = path.join(userHome, 'Library', 'LaunchAgents', `${plistName}.plist`);
       serviceContent = fs.readFileSync(plistPath, 'utf-8');
     } else {
       // Linux: Read from systemd service
-      const servicePath = path.join(userHome, '.config', 'systemd', 'user', `${serviceName}.service`);
+      const servicePath = path.join(userHome, '.config', 'systemd', 'user', `${cleanName}.service`);
       serviceContent = fs.readFileSync(servicePath, 'utf-8');
     }
 
@@ -216,7 +230,9 @@ async function collectPerformanceData(
 }
 
 async function collectSample(port: number): Promise<ProfileData> {
-  const response = await fetch(`http://localhost:${port}/metrics`);
+  const response = await fetch(`http://localhost:${port}/metrics`, {
+    signal: AbortSignal.timeout(3000),
+  });
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
   }
@@ -300,15 +316,26 @@ function calculateSummary(samples: ProfileData[]): PerformanceProfile['summary']
 
   const count = samples.length;
 
+  let maxCpu = 0;
+  let maxMemory = 0;
+  let maxHeapUsed = 0;
+  let maxEventLoopLag = 0;
+  for (const s of samples) {
+    if (s.cpu > maxCpu) maxCpu = s.cpu;
+    if (s.memory > maxMemory) maxMemory = s.memory;
+    if (s.heapUsed > maxHeapUsed) maxHeapUsed = s.heapUsed;
+    if (s.eventLoopLag > maxEventLoopLag) maxEventLoopLag = s.eventLoopLag;
+  }
+
   return {
     avgCpu: sum.cpu / count,
-    maxCpu: Math.max(...samples.map(s => s.cpu)),
+    maxCpu,
     avgMemory: sum.memory / count,
-    maxMemory: Math.max(...samples.map(s => s.memory)),
+    maxMemory,
     avgHeapUsed: sum.heapUsed / count,
-    maxHeapUsed: Math.max(...samples.map(s => s.heapUsed)),
+    maxHeapUsed,
     avgEventLoopLag: sum.eventLoopLag / count,
-    maxEventLoopLag: Math.max(...samples.map(s => s.eventLoopLag)),
+    maxEventLoopLag,
   };
 }
 
@@ -367,22 +394,32 @@ function displayProfileResults(profile: PerformanceProfile): void {
 }
 
 function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0B';
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0B';
+  if (bytes < 1) return `${bytes.toFixed(1)}B`;
   const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1);
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))}${sizes[i]}`;
 }
 
 async function saveProfileData(profile: PerformanceProfile, filename: string): Promise<void> {
-  const { resolve, sep } = await import("node:path");
+  const { dirname, join, resolve, sep } = await import("node:path");
+  const { existsSync, lstatSync, realpathSync } = await import("node:fs");
   const { homedir, tmpdir } = await import("node:os");
   if (!filename || filename.includes("\0")) {
     throw new Error("Invalid output file path");
   }
   const resolved = resolve(filename);
-  const allowedRoots = [resolve(process.cwd()), resolve(homedir()), resolve(tmpdir())];
-  const isContained = allowedRoots.some(root => resolved === root || resolved.startsWith(root + sep));
+  const parentDir = dirname(resolved);
+  const realParent = existsSync(parentDir) ? realpathSync(parentDir) : parentDir;
+  const realTarget = existsSync(resolved) ? realpathSync(resolved) : join(realParent, resolved.slice(parentDir.length + (parentDir.endsWith(sep) ? 0 : 1)));
+  if (existsSync(resolved) && lstatSync(resolved).isSymbolicLink()) {
+    throw new Error(`Security: Refusing to write through symbolic link '${filename}'`);
+  }
+  const allowedRoots = [resolve(process.cwd()), resolve(homedir()), resolve(tmpdir())].map((r) =>
+    existsSync(r) ? realpathSync(r) : r
+  );
+  const isContained = allowedRoots.some(root => realTarget === root || realTarget.startsWith(root + sep));
   if (!isContained) {
     throw new Error(`Security: Output path '${filename}' is outside allowed directories`);
   }

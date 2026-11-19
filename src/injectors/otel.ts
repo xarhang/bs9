@@ -9,10 +9,15 @@
  * https://github.com/xarhang/bs9
  */
 
-import { writeFileSync, readFileSync, existsSync } from "node:fs";
+import { writeFileSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 
 export function injectOpenTelemetry(entryFile: string, serviceName: string): void {
+  const originalContent = readFileSync(entryFile, "utf-8");
+  if (originalContent.includes("// BSN OpenTelemetry Auto-injection")) {
+    return;
+  }
+
   const wrapper = `
 // BSN OpenTelemetry Auto-injection
 import { NodeSDK } from "@opentelemetry/sdk-node";
@@ -33,8 +38,17 @@ sdk.start();
 // Original user code below
 `;
 
-  const originalContent = readFileSync(entryFile, "utf-8");
-  const newContent = wrapper + originalContent;
+  let newContent: string;
+  if (originalContent.startsWith("#!")) {
+    const firstNewline = originalContent.indexOf("\n");
+    if (firstNewline !== -1) {
+      newContent = originalContent.slice(0, firstNewline + 1) + wrapper + originalContent.slice(firstNewline + 1);
+    } else {
+      newContent = originalContent + "\n" + wrapper;
+    }
+  } else {
+    newContent = wrapper + originalContent;
+  }
   
   writeFileSync(entryFile, newContent, { encoding: "utf-8" });
 }

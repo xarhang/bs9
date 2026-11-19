@@ -9,7 +9,7 @@
  * https://github.com/xarhang/bs9
  */
 
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { getPlatformInfo, initializePlatformDirectories } from "../platform/detect.js";
@@ -26,7 +26,7 @@ function isValidServiceName(name: string): boolean {
   // Only allow alphanumeric, hyphens, underscores, and dots
   // Prevent command injection and path traversal
   const validPattern = /^[a-zA-Z0-9._-]+$/;
-  return validPattern.test(name) && name.length <= 64 && !name.includes('..') && !name.includes('/');
+  return validPattern.test(name) && !name.startsWith("-") && name !== "." && name.length <= 64 && !name.includes('..') && !name.includes('/') && !name.includes('\\');
 }
 
 export async function saveCommand(name: string, options: SaveOptions): Promise<void> {
@@ -50,11 +50,11 @@ export async function saveCommand(name: string, options: SaveOptions): Promise<v
 
   try {
     if (platformInfo.isLinux) {
-      // Security: Use shell escaping to prevent injection
+      // Security: Use sanitized name and execFileSync without shell
       const escapedName = name.replace(/[^a-zA-Z0-9._-]/g, '');
 
       // Get service status and configuration
-      const statusOutput = execSync(`systemctl --user show "${escapedName}"`, { encoding: "utf-8", windowsHide: true });
+      const statusOutput = execFileSync("systemctl", ["--user", "show", "--", escapedName], { encoding: "utf-8", windowsHide: true });
       const serviceFile = join(platformInfo.serviceDir, `${escapedName}.service`);
 
       if (!existsSync(serviceFile)) {
@@ -132,7 +132,7 @@ async function saveAllServices(platformInfo: any, options: SaveOptions): Promise
 
     if (platformInfo.isLinux) {
       // Get all BS9 services
-      const listOutput = execSync("systemctl --user list-units --type=service --no-pager --no-legend", { encoding: "utf-8", windowsHide: true });
+      const listOutput = execFileSync("systemctl", ["--user", "list-units", "--type=service", "--no-pager", "--no-legend"], { encoding: "utf-8", windowsHide: true });
       const lines = listOutput.split("\n").filter(line => line.includes(".service"));
 
       const bs9Services: string[] = [];
@@ -142,8 +142,8 @@ async function saveAllServices(platformInfo: any, options: SaveOptions): Promise
         if (match) {
           const [, , serviceName] = match; // Skip the status symbol, capture service name
 
-          // Only process BS9 services
-          if (match[5].includes("Bun Service:") || match[5].includes("BS9 Service:")) {
+          // Only process BS9 services with valid names
+          if ((match[5].includes("Bun Service:") || match[5].includes("BS9 Service:")) && isValidServiceName(serviceName)) {
             bs9Services.push(serviceName);
           }
         }
@@ -164,7 +164,7 @@ async function saveAllServices(platformInfo: any, options: SaveOptions): Promise
             ensurePrivateDirectory(platformInfo.serviceDir);
             securePrivateFile(serviceFile);
             const serviceConfig = readFileSync(serviceFile, 'utf8');
-            const statusOutput = execSync(`systemctl --user show "${serviceName}"`, { encoding: "utf-8", windowsHide: true });
+            const statusOutput = execFileSync("systemctl", ["--user", "show", "--", serviceName], { encoding: "utf-8", windowsHide: true });
             const config = parseServiceConfig(serviceConfig, statusOutput);
 
             const backupFile = join(platformInfo.backupDir, `${serviceName}.json`);
@@ -226,7 +226,7 @@ async function saveAllServices(platformInfo: any, options: SaveOptions): Promise
 }
 
 // Helper function to parse service configuration
-function parseServiceConfig(serviceConfig: string, statusOutput: string): any {
+function parseServiceConfig(serviceConfig: string, _statusOutput: string): any {
   const config: any = {};
 
   // Extract port from service config
@@ -241,10 +241,28 @@ function parseServiceConfig(serviceConfig: string, statusOutput: string): any {
     config.host = hostMatch[1];
   }
 
-  // Extract environment variables
+  // Extract environment variables from --env flags or systemd Environment= lines
+  const envList: string[] = [];
   const envMatches = serviceConfig.match(/--env[=\s]+([^\s]+)/g);
   if (envMatches) {
-    config.env = envMatches.map((env: string) => env.replace(/--env[=\s]+/, ''));
+    for (const env of envMatches) {
+      envList.push(env.replace(/--env[=\s]+/, ''));
+    }
+  }
+  const systemdEnvMatches = serviceConfig.match(/^Environment=(.+)$/gm);
+  if (systemdEnvMatches) {
+    for (const line of systemdEnvMatches) {
+      let val = line.slice('Environment='.length).trim();
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.slice(1, -1);
+      }
+      if (val && !envList.includes(val)) {
+        envList.push(val);
+      }
+    }
+  }
+  if (envList.length > 0) {
+    config.env = envList;
   }
 
   // Extract OpenTelemetry flag
@@ -264,26 +282,29 @@ function parseServiceConfig(serviceConfig: string, statusOutput: string): any {
 
 // Helper function to extract file path from service config
 function extractFileFromConfig(serviceConfig: string): string {
-  const execMatch = serviceConfig.match(/ExecStart=([^\n]+)/);
+  const execMatch = serviceConfig.match(/^ExecStart=(.+)$/m);
   if (execMatch) {
     const execLine = execMatch[1].trim();
-    // Handle both "bun run" and direct "bun" execution
-    let fileMatch;
-    if (execLine.includes('bun run')) {
-      // Extract the file path from "bun run <file>"
-      fileMatch = execLine.match(/bun run\s+(?:'([^']+)'|"([^"]+)"|([^\s]+))/);
-    } else {
-      // Extract the file path from "bun <file>"
-      fileMatch = execLine.match(/bun\s+(?:'([^']+)'|"([^"]+)"|([^\s]+))/);
-    }
-
-    if (fileMatch) {
-      const filePath = fileMatch[1] || fileMatch[2] || fileMatch[3];
-      // If it's a relative path, resolve it relative to the working directory
-      if (!filePath.startsWith('/') && !filePath.startsWith('~')) {
-        return resolve(filePath);
+    const tokens = execLine.match(/"([^"\\]*(?:\\.[^"\\]*)*)"|'([^']*)'|(\S+)/g) || [];
+    const args = tokens.map(t => {
+      if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
+        return t.slice(1, -1);
       }
-      return filePath;
+      return t;
+    });
+    // Skip bun executable and known flags (like run, --preload <val>, --hot, etc.)
+    for (let i = 1; i < args.length; i++) {
+      const tok = args[i];
+      if (tok === 'run') continue;
+      if (tok === '--preload' || tok === '--port' || tok === '--host' || tok === '--env') {
+        i++; // skip option value
+        continue;
+      }
+      if (tok.startsWith('-')) continue;
+      if (!tok.startsWith('/') && !tok.startsWith('~')) {
+        return resolve(tok);
+      }
+      return tok;
     }
   }
   return '';

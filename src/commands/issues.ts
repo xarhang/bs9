@@ -51,16 +51,17 @@ export function parseErrorLogs(rawContent: string, serviceName: string): ParsedI
   let currentStack: string[] = [];
 
   const flushCurrent = () => {
-    if (currentError && currentError.message) {
+    if (currentError) {
+      const msg = currentError.message ?? "";
       issues.push({
         service: serviceName,
         errorType: currentError.errorType || "Error",
-        message: currentError.message,
+        message: msg,
         fileLocation: currentError.fileLocation,
         stackTrace: currentStack.slice(0, 10),
         crashCount: 0,
         circuitState: "unknown",
-        suggestedFix: generateDiagnosticHint(currentError.errorType || "", currentError.message)
+        suggestedFix: generateDiagnosticHint(currentError.errorType || "", msg)
       });
       currentError = null;
       currentStack = [];
@@ -72,7 +73,7 @@ export function parseErrorLogs(rawContent: string, serviceName: string): ParsedI
     if (!trimmed) continue;
 
     // Detect JavaScript/TypeScript/Bun error
-    const jsErrorMatch = trimmed.match(/^(?:\[.*?\]\s*)?([A-Z][a-zA-Z0-9_]*(?:Error|Exception)?):\s*(.*)$/);
+    const jsErrorMatch = trimmed.match(/^(?:\[.*?\]\s*)?((?:[A-Z][a-zA-Z0-9_]*)?(?:Error|Exception)):\s*(.*)$/);
     // Detect Python Traceback
     const pyTraceback = trimmed.includes("Traceback (most recent call last):");
     // Detect Go panic
@@ -161,6 +162,11 @@ function generateDiagnosticHint(errorType: string, msg: string): string {
 }
 
 export async function issuesCommand(name?: string, options: IssuesOptions = {}): Promise<void> {
+  if (name && !isValidServiceName(name)) {
+    console.error(`❌ Security: Invalid service name: ${name}`);
+    process.exit(1);
+  }
+
   const platformInfo = getPlatformInfo();
   const logDir = platformInfo.logDir;
 
@@ -175,18 +181,27 @@ export async function issuesCommand(name?: string, options: IssuesOptions = {}):
 
   // If --clear requested:
   if (options.clear) {
+    const { lstatSync } = await import("node:fs");
     const files = readdirSync(logDir).filter(f => f.endsWith(".err.log"));
     const tClean = name ? name.replace(/^(BS9_|bs9\.)/, "") : "";
+    const safeTClean = escapeRegExp(tClean);
     let cleared = 0;
     for (const f of files) {
+      const targetFile = join(logDir, f);
+      try {
+        const st = lstatSync(targetFile);
+        if (st.isSymbolicLink() || !st.isFile()) continue;
+      } catch {
+        continue;
+      }
       if (!name) {
-        writeFileSync(join(logDir, f), "");
+        writeFileSync(targetFile, "");
         cleared++;
       } else {
         const fileBase = f.replace(/\.err\.log$/, "").replace(/^(BS9_|bs9\.)/, "");
-        const isWorker = new RegExp(`^${tClean}-\\d+$`).test(fileBase);
+        const isWorker = new RegExp(`^${safeTClean}-\\d+(-g\\d+)?$`).test(fileBase);
         if (fileBase === tClean || isWorker) {
-          writeFileSync(join(logDir, f), "");
+          writeFileSync(targetFile, "");
           cleared++;
         }
       }
@@ -196,11 +211,6 @@ export async function issuesCommand(name?: string, options: IssuesOptions = {}):
     }
     console.log(`🧹 Cleared error logs and reset issue records (${cleared} file(s) truncated).`);
     return;
-  }
-
-  if (name && !isValidServiceName(name)) {
-    console.error(`❌ Security: Invalid service name: ${name}`);
-    process.exit(1);
   }
 
   const allServices = await listServices();
@@ -214,7 +224,8 @@ export async function issuesCommand(name?: string, options: IssuesOptions = {}):
       })
     : allServices;
 
-  const maxLines = Number(options.lines) || 100;
+  const rawMaxLines = Number(options.lines);
+  const maxLines = Number.isFinite(rawMaxLines) && rawMaxLines > 0 ? Math.min(10_000, Math.floor(rawMaxLines)) : 100;
   const allIssues: ParsedIssue[] = [];
 
   // Check services
@@ -230,8 +241,25 @@ export async function issuesCommand(name?: string, options: IssuesOptions = {}):
     const crash = getCrashState(clean);
 
     if (existsSync(errPath)) {
-      const content = readFileSync(errPath, "utf-8");
-      const recentLines = content.split("\n").slice(-maxLines).join("\n");
+      const { openSync, fstatSync, readSync, closeSync, lstatSync } = await import("node:fs");
+      let recentLines = "";
+      try {
+        if (!lstatSync(errPath).isSymbolicLink()) {
+          const fd = openSync(errPath, "r");
+          try {
+            const st = fstatSync(fd);
+            const maxBytes = 512 * 1024;
+            const toRead = Math.min(st.size, maxBytes);
+            if (toRead > 0) {
+              const buf = Buffer.allocUnsafe(toRead);
+              readSync(fd, buf, 0, toRead, st.size - toRead);
+              recentLines = buf.toString("utf-8").split("\n").slice(-maxLines).join("\n");
+            }
+          } finally {
+            closeSync(fd);
+          }
+        }
+      } catch {}
       const parsed = parseErrorLogs(recentLines, clean);
 
       for (const issue of parsed) {

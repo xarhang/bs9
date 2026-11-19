@@ -50,7 +50,7 @@ export class LeaseManager {
   private fencingTokens: Map<string, number> = new Map();
 
   private getKey(namespace: string, leaseName: string): string {
-    return `${namespace}:${leaseName}`;
+    return JSON.stringify([namespace, leaseName]);
   }
 
   /**
@@ -249,13 +249,21 @@ export class LeaseManager {
   // --- Snapshot Export / Import ---
 
   public exportState(namespace: string): Record<string, LeaseSnapshotState> {
-    const prefix = `${namespace}:`;
     const result = Object.create(null) as Record<string, LeaseSnapshotState>;
     const now = Date.now();
 
     for (const [key, lastFencingToken] of this.fencingTokens.entries()) {
-      if (key.startsWith(prefix)) {
-        const leaseName = key.slice(prefix.length);
+      let ns: string;
+      let leaseName: string;
+      try {
+        const parsed = JSON.parse(key);
+        if (!Array.isArray(parsed) || parsed.length !== 2) continue;
+        ns = String(parsed[0]);
+        leaseName = String(parsed[1]);
+      } catch {
+        continue;
+      }
+      if (ns === namespace) {
         const record = this.leases.get(key);
         const activeRecord = record && now < record.expiresAt ? { ...record } : null;
         result[leaseName] = {

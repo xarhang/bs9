@@ -15,7 +15,7 @@
 import { createInterface } from "node:readline";
 import { closeSync, constants, existsSync, fstatSync, lstatSync, openSync, readdirSync, readFileSync, readSync, realpathSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
-import { homedir } from "node:os";
+import { constants as osConstants, homedir } from "node:os";
 
 const O_NOFOLLOW = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0;
 
@@ -117,8 +117,8 @@ export const MUTATING_MCP_TOOLS = new Set([
 ]);
 
 const SENSITIVE_KEY_RE = /secret|token|password|passwd|passphrase|api[_-]?key|private[_-]?key|access[_-]?key|encryption[_-]?key|master[_-]?key|credential|auth|cookie|session[_-]?id|jwt|bearer|database_url|db_url|redis_url|mongo_uri|postgres_url|connection_string/i;
-const INLINE_SECRET_ASSIGN_RE = /\b([A-Z0-9_]*(?:SECRET|TOKEN|PASSWORD|PASSWD|PASSPHRASE|API_KEY|PRIVATE_KEY|ACCESS_KEY|ENCRYPTION_KEY|MASTER_KEY|CREDENTIAL|DATABASE_URL|DB_URL|REDIS_URL|MONGO_URI|POSTGRES_URL)[A-Z0-9_]*)=([^\s"'`]+)/gi;
-const INLINE_FLAG_SECRET_RE = /(--?(?:token|password|passwd|secret|api-key|apikey|auth)=?)([^\s"'`]+)/gi;
+const INLINE_SECRET_ASSIGN_RE = /\b([A-Z0-9_]*(?:SECRET|TOKEN|PASSWORD|PASSWD|PASSPHRASE|API_KEY|PRIVATE_KEY|ACCESS_KEY|ENCRYPTION_KEY|MASTER_KEY|CREDENTIAL|AUTH|COOKIE|SESSION_ID|JWT|CONNECTION_STRING|DATABASE_URL|DB_URL|REDIS_URL|MONGO_URI|POSTGRES_URL)[A-Z0-9_]*)=(?:"([^"\r\n]*)"|'([^'\r\n]*)'|([^\s"'`]+))/gi;
+const INLINE_FLAG_SECRET_RE = /(--?(?:token|password|passwd|secret|api-key|apikey|auth)(?:=|\s+))(?:"([^"\r\n]*)"|'([^'\r\n]*)'|([^\s"'`]+))/gi;
 const INLINE_URI_CRED_RE = /([a-z][a-z0-9+.-]*:\/\/[^:\s/@]+:)([^@\s]+)(@)/gi;
 const INLINE_BEARER_RE = /\b(Bearer\s+)([A-Za-z0-9\-._~+/]+=*)/gi;
 
@@ -369,10 +369,10 @@ export async function handleToolCall(
       case "bs9_audit_log": {
         const rawLimit = Number(args.limit);
         const limit = Number.isFinite(rawLimit) ? Math.min(500, Math.max(1, Math.floor(rawLimit))) : 50;
-        let events = readAuditEvents(limit);
-        if (typeof args.action === "string" && args.action.trim()) {
-          const filter = args.action.trim().toLowerCase();
-          events = events.filter((e) => e.action.toLowerCase() === filter);
+        const actionFilter = typeof args.action === "string" && args.action.trim() ? args.action.trim().toLowerCase() : null;
+        let events = readAuditEvents(actionFilter ? 1000 : limit);
+        if (actionFilter) {
+          events = events.filter((e) => e.action.toLowerCase() === actionFilter).slice(-limit);
         }
         resultText = JSON.stringify(events, null, 2);
         break;
@@ -616,6 +616,10 @@ export async function handleToolCall(
         if (/^\d+$/.test(trimmedSig)) {
           const sigNum = parseInt(trimmedSig, 10);
           if (sigNum < 1 || sigNum > 31) throw new Error(`Invalid signal number: ${sigNum}`);
+          const sigEntry = Object.entries(osConstants.signals).find(([, num]) => num === sigNum);
+          if (!sigEntry || !allowedSignals.has(sigEntry[0])) {
+            throw new Error(`Signal '${args.signal}' is not allowed`);
+          }
         } else {
           const formatted = trimmedSig.toUpperCase().startsWith("SIG") ? trimmedSig.toUpperCase() : `SIG${trimmedSig.toUpperCase()}`;
           if (!allowedSignals.has(formatted)) throw new Error(`Signal '${args.signal}' is not allowed`);
@@ -669,7 +673,8 @@ export async function handleToolCall(
           ? allServices.filter(s => {
               const clean = s.name.replace(/^(BS9_|bs9\.)/, "");
               const tClean = targetName.replace(/^(BS9_|bs9\.)/, "");
-              return s.name === targetName || clean === tClean || clean.startsWith(`${tClean}-`);
+              const escaped = tClean.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+              return s.name === targetName || clean === tClean || new RegExp(`^${escaped}-\\d+(-g\\d+)?$`).test(clean);
             })
           : allServices;
 
@@ -742,7 +747,9 @@ export async function runMcpServer(options: McpServerOptions = {}): Promise<void
     process.stdout.write(JSON.stringify(msg) + "\n");
   };
 
-  rl.on("line", async (line) => {
+  let requestQueue: Promise<void> = Promise.resolve();
+
+  const processLine = async (line: string) => {
     if (!line.trim()) return;
     let request: any;
     try {
@@ -766,41 +773,57 @@ export async function runMcpServer(options: McpServerOptions = {}): Promise<void
     }
 
     const { id, method, params } = request;
+    const isNotification = id === undefined;
 
     try {
       if (method === "initialize") {
-        send({
-          jsonrpc: "2.0",
-          id,
-          result: {
-            protocolVersion: "2024-11-05",
-            capabilities: {
-              tools: {}
-            },
-            serverInfo: {
-              name: "bs9-mcp",
-              version: "1.7.0"
+        if (!isNotification) {
+          send({
+            jsonrpc: "2.0",
+            id,
+            result: {
+              protocolVersion: "2024-11-05",
+              capabilities: {
+                tools: {}
+              },
+              serverInfo: {
+                name: "bs9-mcp",
+                version: "1.7.0"
+              }
             }
-          }
-        });
-      } else if (method === "notifications/initialized") {
-        // Client ack, no response needed
+          });
+        }
+      } else if (method === "notifications/initialized" || (typeof method === "string" && method.startsWith("notifications/"))) {
+        // Client notification, no response needed
       } else if (method === "ping") {
-        send({ jsonrpc: "2.0", id, result: {} });
+        if (!isNotification) send({ jsonrpc: "2.0", id, result: {} });
       } else if (method === "tools/list") {
-        const tools = isReadOnly
-          ? MCP_TOOLS.filter((t) => !MUTATING_MCP_TOOLS.has(t.name))
-          : MCP_TOOLS;
-        send({
-          jsonrpc: "2.0",
-          id,
-          result: {
-            tools
-          }
-        });
+        if (!isNotification) {
+          const tools = isReadOnly
+            ? MCP_TOOLS.filter((t) => !MUTATING_MCP_TOOLS.has(t.name))
+            : MCP_TOOLS;
+          send({
+            jsonrpc: "2.0",
+            id,
+            result: {
+              tools
+            }
+          });
+        }
       } else if (method === "tools/call") {
         const toolName = params?.name;
-        const toolArgs = params?.arguments || {};
+        const rawArgs = params?.arguments;
+        if (rawArgs !== undefined && (typeof rawArgs !== "object" || rawArgs === null || Array.isArray(rawArgs))) {
+          if (!isNotification) {
+            send({
+              jsonrpc: "2.0",
+              id,
+              error: { code: -32602, message: "Invalid params: arguments must be a plain object" }
+            });
+          }
+          return;
+        }
+        const toolArgs = rawArgs || {};
         // Redirect console.log/info to stderr during tool execution so delegated CLI commands never corrupt stdio JSON-RPC
         const origLog = console.log;
         const origInfo = console.info;
@@ -808,50 +831,64 @@ export async function runMcpServer(options: McpServerOptions = {}): Promise<void
         console.info = (...a: any[]) => console.error(...a);
         try {
           const output = await handleToolCall(toolName, toolArgs, { readOnly: isReadOnly });
-          send({
-            jsonrpc: "2.0",
-            id,
-            result: {
-              content: [
-                {
-                  type: "text",
-                  text: output
-                }
-              ]
-            }
-          });
+          if (!isNotification) {
+            send({
+              jsonrpc: "2.0",
+              id,
+              result: {
+                content: [
+                  {
+                    type: "text",
+                    text: output
+                  }
+                ]
+              }
+            });
+          }
         } catch (err: any) {
-          send({
-            jsonrpc: "2.0",
-            id,
-            result: {
-              content: [
-                {
-                  type: "text",
-                  text: `Error executing ${toolName}: ${err.message}`
-                }
-              ],
-              isError: true
-            }
-          });
+          if (!isNotification) {
+            send({
+              jsonrpc: "2.0",
+              id,
+              result: {
+                content: [
+                  {
+                    type: "text",
+                    text: `Error executing ${toolName}: ${err.message}`
+                  }
+                ],
+                isError: true
+              }
+            });
+          }
         } finally {
           console.log = origLog;
           console.info = origInfo;
         }
       } else {
+        if (!isNotification) {
+          send({
+            jsonrpc: "2.0",
+            id,
+            error: { code: -32601, message: `Method '${method}' not found` }
+          });
+        }
+      }
+    } catch (err: any) {
+      if (!isNotification) {
         send({
           jsonrpc: "2.0",
           id,
-          error: { code: -32601, message: `Method '${method}' not found` }
+          error: { code: -32603, message: err.message || "Internal error" }
         });
       }
-    } catch (err: any) {
-      send({
-        jsonrpc: "2.0",
-        id,
-        error: { code: -32603, message: err.message || "Internal error" }
-      });
     }
+  };
+
+  rl.on("line", (line) => {
+    requestQueue = requestQueue.then(() => processLine(line)).catch((err) => {
+      process.stderr.write(`MCP line handler error: ${err?.message || err}\n`);
+    });
   });
 
   process.stderr.write("BS9 Model Context Protocol (MCP) Server running on stdio.\n");

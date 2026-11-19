@@ -71,20 +71,30 @@ export async function alertCommand(options: AlertOptions): Promise<void> {
   
   const updates: any = {};
   
-  if (options.enable !== undefined) {
+  if (options.disable) {
+    updates.enabled = false;
+  } else if (options.enable !== undefined) {
     updates.enabled = options.enable;
   }
   
   if (options.webhook) {
     updates.webhookUrl = options.webhook;
   }
+
+  const parseNonNegativeNumber = (raw: string, flag: string): number => {
+    const num = Number(raw);
+    if (!Number.isFinite(num) || num < 0) {
+      throw new Error(`Invalid ${flag} value: '${raw}' (must be a non-negative number)`);
+    }
+    return num;
+  };
   
   const thresholdUpdates: any = {};
-  if (options.cpu) thresholdUpdates.cpu = Number(options.cpu);
-  if (options.memory) thresholdUpdates.memory = Number(options.memory);
-  if (options.errorRate) thresholdUpdates.errorRate = Number(options.errorRate);
-  if (options.uptime) thresholdUpdates.uptime = Number(options.uptime);
-  if (options.cooldown) thresholdUpdates.cooldown = Number(options.cooldown);
+  if (options.cpu !== undefined) thresholdUpdates.cpu = parseNonNegativeNumber(options.cpu, "--cpu");
+  if (options.memory !== undefined) thresholdUpdates.memory = parseNonNegativeNumber(options.memory, "--memory");
+  if (options.errorRate !== undefined) thresholdUpdates.errorRate = parseNonNegativeNumber(options.errorRate, "--error-rate");
+  if (options.uptime !== undefined) thresholdUpdates.uptime = parseNonNegativeNumber(options.uptime, "--uptime");
+  if (options.cooldown !== undefined) updates.cooldown = parseNonNegativeNumber(options.cooldown, "--cooldown");
   
   if (Object.keys(thresholdUpdates).length > 0) {
     updates.thresholds = {
@@ -95,7 +105,7 @@ export async function alertCommand(options: AlertOptions): Promise<void> {
   
   if (options.service) {
     const serviceName = options.service;
-    const enabled = options.enable !== false;
+    const enabled = options.disable ? false : options.enable !== false;
     alertManager.setServiceAlert(serviceName, enabled, Object.keys(thresholdUpdates).length > 0 ? thresholdUpdates : undefined);
     console.log(`✅ Updated alert config for service: ${serviceName}`);
   } else if (Object.keys(updates).length > 0) {

@@ -433,7 +433,7 @@ export class LoadBalancer {
         if (lower === 'connection' || lower === 'transfer-encoding' || lower === 'keep-alive') {
           return;
         }
-        forwardedHeaders.set(key, val);
+        forwardedHeaders.append(key, val);
       });
 
       // Add generic load balancer header (redact internal backend IP/port topology)
@@ -577,9 +577,27 @@ export class LoadBalancer {
       backends: normalizedBackends,
     };
 
-    // Update backend stats if backends changed
+    // Update backend stats if backends changed (preserve counters for matching backend IDs)
     if (newConfig.backends) {
+      const prevStats = new Map(this.stats.backendStats.map((s) => [s.id, s]));
       this.initializeStats();
+      for (const stat of this.stats.backendStats) {
+        const prev = prevStats.get(stat.id);
+        if (prev) {
+          stat.connections = prev.connections;
+          stat.requestsHandled = prev.requestsHandled;
+        }
+      }
+    }
+
+    if (newConfig.healthCheck !== undefined) {
+      if (this.healthCheckTimer) {
+        clearInterval(this.healthCheckTimer);
+        this.healthCheckTimer = null;
+      }
+      if (this.config.healthCheck.enabled && !this.draining) {
+        this.startHealthChecking();
+      }
     }
   }
 }
@@ -613,7 +631,7 @@ async function startLoadBalancer(options?: any): Promise<void> {
       timeout: options?.healthTimeout || 5000,
       retries: options?.healthRetries || 3,
     },
-    backends: parseBackends(options?.backends || []),
+    backends: parseBackends(options?.backends || ""),
   };
 
   if (config.backends.length === 0) {
@@ -830,24 +848,25 @@ function adminHeaders(): Record<string, string> {
   return secret ? { Authorization: `Bearer ${secret}` } : {};
 }
 
-function parseBackends(backendsStr: string): BackendServer[] {
+export function parseBackends(backendsStr: string): BackendServer[] {
+  if (!backendsStr || !backendsStr.trim()) {
+    return [];
+  }
   const backends: BackendServer[] = [];
 
   for (const backendStr of backendsStr.split(',')) {
     const parts = backendStr.trim().split(':');
 
     if (parts.length < 2) {
-      console.error(`❌ Invalid backend format: ${backendStr}. Use host:port or host:port:weight`);
-      process.exit(1);
+      throw new Error(`Invalid backend format: ${backendStr}. Use host:port or host:port:weight`);
     }
 
     const host = parts[0];
-    const port = parseInt(parts[1]);
-    const weight = parts[2] ? parseInt(parts[2]) : 1;
+    const port = parseInt(parts[1], 10);
+    const weight = parts[2] ? parseInt(parts[2], 10) : 1;
 
-    if (!host || isNaN(port)) {
-      console.error(`❌ Invalid backend format: ${backendStr}`);
-      process.exit(1);
+    if (!host || !isValidHost(host) || !isValidPort(port) || !Number.isFinite(weight) || weight <= 0) {
+      throw new Error(`Invalid backend format: ${backendStr}`);
     }
 
     backends.push({

@@ -9,7 +9,7 @@
  * https://github.com/xarhang/bs9
  */
 
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { getPlatformInfo, PlatformInfo } from "../platform/detect.js";
@@ -181,7 +181,7 @@ function runSecurityInspection(platformInfo: PlatformInfo): InspectionResult[] {
       }
     } else {
       if (existsSync(configDir)) {
-        const stats = execSync(`find "${configDir}" -type f -perm /o+r 2>/dev/null`, { encoding: "utf-8" });
+        const stats = execFileSync("find", [configDir, "-type", "f", "-perm", "/o+r"], { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] });
         const worldReadableFiles = stats.trim().split('\n').filter(Boolean);
         if (worldReadableFiles.length > 0) {
           results.push({
@@ -254,8 +254,11 @@ function runPerformanceInspection(): InspectionResult[] {
     try {
       // Basic Windows performance check using wmic or similar
       const memInfo = execSync("wmic OS get FreePhysicalMemory,TotalVisibleMemorySize /Value", { encoding: "utf-8", windowsHide: true });
-      const freeMem = parseInt(memInfo.match(/FreePhysicalMemory=(\d+)/)?.[1] || "0");
-      const totalMem = parseInt(memInfo.match(/TotalVisibleMemorySize=(\d+)/)?.[1] || "1");
+      const freeMem = parseInt(memInfo.match(/FreePhysicalMemory=(\d+)/)?.[1] || "0", 10);
+      const totalMem = parseInt(memInfo.match(/TotalVisibleMemorySize=(\d+)/)?.[1] || "0", 10);
+      if (!Number.isFinite(freeMem) || !Number.isFinite(totalMem) || totalMem <= 0) {
+        throw new Error("Invalid Windows memory metrics");
+      }
       const memPercent = ((totalMem - freeMem) / totalMem) * 100;
 
       results.push({
@@ -279,7 +282,10 @@ function runPerformanceInspection(): InspectionResult[] {
 
   try {
     const cpuUsage = execSync("top -bn1 | grep 'Cpu(s)' | awk '{print $2}' | cut -d'%' -f1", { encoding: "utf-8" });
-    const cpuPercent = parseFloat(cpuUsage);
+    const cpuPercent = parseFloat(cpuUsage.trim());
+    if (!Number.isFinite(cpuPercent)) {
+      throw new Error("Non-numeric CPU output");
+    }
 
     results.push({
       name: "CPU Usage",
@@ -302,8 +308,11 @@ function runPerformanceInspection(): InspectionResult[] {
   try {
     const memInfo = execSync("free | grep Mem", { encoding: "utf-8" });
     const memParts = memInfo.trim().split(/\s+/);
-    const totalMem = parseInt(memParts[1]);
-    const usedMem = parseInt(memParts[2]);
+    const totalMem = parseInt(memParts[1], 10);
+    const usedMem = parseInt(memParts[2], 10);
+    if (!Number.isFinite(totalMem) || !Number.isFinite(usedMem) || totalMem <= 0) {
+      throw new Error("Non-numeric memory output");
+    }
     const memPercent = (usedMem / totalMem) * 100;
 
     results.push({
@@ -387,7 +396,7 @@ function runComplianceInspection(platformInfo: PlatformInfo): InspectionResult[]
   return results;
 }
 
-function runDeepInspection(platformInfo: PlatformInfo): InspectionResult[] {
+function runDeepInspection(_platformInfo: PlatformInfo): InspectionResult[] {
   const results: InspectionResult[] = [];
 
   try {
@@ -426,15 +435,15 @@ function runDeepInspection(platformInfo: PlatformInfo): InspectionResult[] {
   return results;
 }
 
-function displayInspectionReport(results: InspectionResult[], options: InspectOptions): void {
+function displayInspectionReport(results: InspectionResult[], _options: InspectOptions): void {
   console.log("\n🔍 INSPECTION REPORT");
   console.log("=".repeat(80));
 
   const categories = {
-    security: results.filter(r => ["User Permissions", "File Permissions", "File Permissions (Windows)", "Network Security"].includes(r.name)),
+    security: results.filter(r => ["User Permissions", "File Permissions", "File Permissions (Windows)", "Network Security", "Network Binding"].includes(r.name)),
     performance: results.filter(r => ["CPU Usage", "Memory Usage", "Memory Usage (Windows)", "Performance (Windows)"].includes(r.name)),
     configuration: results.filter(r => ["BS9 Configuration", "Service Manager"].includes(r.name)),
-    compliance: results.filter(r => ["Audit Trail", "Backup System"].includes(r.name))
+    compliance: results.filter(r => ["Audit Trail", "Backup System", "Hardware Inventory"].includes(r.name))
   };
 
   Object.entries(categories).forEach(([category, categoryResults]) => {

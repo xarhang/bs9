@@ -17,11 +17,11 @@ export interface AuditOptions {
 
 export async function auditCommand(options: AuditOptions = {}): Promise<void> {
   const limit = Math.min(1000, Math.max(1, Number(options.limit) || 50));
-  let events = readAuditEvents(limit);
+  let events = readAuditEvents(options.action ? 1000 : limit);
 
   if (options.action) {
     const filter = options.action.trim().toLowerCase();
-    events = events.filter((e) => e.action.toLowerCase() === filter);
+    events = events.filter((e) => e.action.toLowerCase() === filter).slice(-limit);
   }
 
   if (options.json) {

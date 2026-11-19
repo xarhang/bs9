@@ -9,7 +9,7 @@
  * https://github.com/xarhang/bs9
  */
 
-import { execSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { existsSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { getPlatformInfo } from "../platform/detect.js";
@@ -111,6 +111,7 @@ export async function deleteCommand(names: string[], options: DeleteOptions): Pr
     await handleSingleServiceDelete(names[0] || '', platformInfo, options);
     recordAuditEvent({ action: "delete", target: auditTarget, status: "success" });
   } catch (err: any) {
+    console.error(`❌ ${err?.message || err}`);
     recordAuditEvent({ action: "delete", target: auditTarget, status: "failure", details: err?.message ? String(err.message) : "error" });
     process.exitCode = 1;
   }

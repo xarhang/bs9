@@ -9,8 +9,6 @@
  * https://github.com/xarhang/bs9
  */
 
-import { execSync } from "node:child_process";
-
 interface ConsulService {
   ID: string;
   Name: string;
@@ -42,8 +40,6 @@ interface ConsulRegistration {
 
 class ConsulServiceDiscovery {
   private consulUrl: string;
-  private serviceName: string = '';
-  private serviceId: string = '';
   private registeredServices: Map<string, ConsulService> = new Map();
   
   constructor(consulUrl: string = 'http://localhost:8500') {
@@ -78,6 +74,7 @@ class ConsulServiceDiscovery {
     try {
       const response = await fetch(`${this.consulUrl}/v1/agent/service/register`, {
         method: 'PUT',
+        signal: AbortSignal.timeout(5000),
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(registration)
       });
@@ -104,8 +101,9 @@ class ConsulServiceDiscovery {
   
   async deregisterService(serviceId: string): Promise<void> {
     try {
-      const response = await fetch(`${this.consulUrl}/v1/agent/service/deregister/${serviceId}`, {
-        method: 'PUT'
+      const response = await fetch(`${this.consulUrl}/v1/agent/service/deregister/${encodeURIComponent(serviceId)}`, {
+        method: 'PUT',
+        signal: AbortSignal.timeout(5000),
       });
       
       if (response.ok) {
@@ -124,10 +122,10 @@ class ConsulServiceDiscovery {
     try {
       let url = `${this.consulUrl}/v1/agent/services`;
       if (serviceName) {
-        url += `?service=${serviceName}`;
+        url += `?service=${encodeURIComponent(serviceName)}`;
       }
       
-      const response = await fetch(url);
+      const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
       if (!response.ok) {
         throw new Error(`Failed to discover services: ${response.statusText}`);
       }
@@ -144,7 +142,9 @@ class ConsulServiceDiscovery {
   
   async getServiceHealth(serviceName: string): Promise<any[]> {
     try {
-      const response = await fetch(`${this.consulUrl}/v1/health/service/${serviceName}`);
+      const response = await fetch(`${this.consulUrl}/v1/health/service/${encodeURIComponent(serviceName)}`, {
+        signal: AbortSignal.timeout(5000),
+      });
       if (!response.ok) {
         throw new Error(`Failed to get service health: ${response.statusText}`);
       }
@@ -156,7 +156,7 @@ class ConsulServiceDiscovery {
     }
   }
   
-  async watchService(serviceName: string, callback: (services: ConsulService[]) => void): Promise<void> {
+  async watchService(serviceName: string, callback: (services: ConsulService[]) => void): Promise<() => void> {
     let lastServices: ConsulService[] = [];
     
     const checkServices = async () => {
@@ -179,7 +179,11 @@ class ConsulServiceDiscovery {
     await checkServices();
     
     // Set up periodic checking
-    setInterval(checkServices, 5000);
+    const timer = setInterval(checkServices, 5000);
+    if (typeof timer.unref === "function") {
+      timer.unref();
+    }
+    return () => clearInterval(timer);
   }
   
   getRegisteredServices(): ConsulService[] {
@@ -188,7 +192,9 @@ class ConsulServiceDiscovery {
   
   async isConsulAvailable(): Promise<boolean> {
     try {
-      const response = await fetch(`${this.consulUrl}/v1/status/leader`);
+      const response = await fetch(`${this.consulUrl}/v1/status/leader`, {
+        signal: AbortSignal.timeout(3000),
+      });
       return response.ok;
     } catch {
       return false;

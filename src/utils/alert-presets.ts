@@ -27,11 +27,12 @@ function clampText(val: unknown, maxLen: number): string {
 }
 
 export function formatTelegramAlert(event: Bs9AlertEvent): Record<string, unknown> {
-  const icon = event.severity === "critical" ? "🚨" : event.severity === "warning" ? "⚠️" : "ℹ️";
+  const severity = event.severity || "info";
+  const icon = severity === "critical" ? "🚨" : severity === "warning" ? "⚠️" : "ℹ️";
   const text = [
     `${icon} BS9 Alert: ${clampText(event.title, 120)}`,
     `Service: ${clampText(event.service, 64)}`,
-    `Severity: ${event.severity.toUpperCase()}`,
+    `Severity: ${severity.toUpperCase()}`,
     event.host ? `Host: ${clampText(event.host, 128)}` : "",
     `Details: ${clampText(event.message, 1000)}`,
     `Time: ${clampText(event.timestamp || new Date().toISOString(), 64)}`,
@@ -47,7 +48,8 @@ export function formatTelegramAlert(event: Bs9AlertEvent): Record<string, unknow
 }
 
 export function formatDiscordAlert(event: Bs9AlertEvent): Record<string, unknown> {
-  const color = event.severity === "critical" ? 0xef4444 : event.severity === "warning" ? 0xf59e0b : 0x3b82f6;
+  const severity = event.severity || "info";
+  const color = severity === "critical" ? 0xef4444 : severity === "warning" ? 0xf59e0b : 0x3b82f6;
   return {
     username: "BS9 Sentinel",
     embeds: [
@@ -57,7 +59,7 @@ export function formatDiscordAlert(event: Bs9AlertEvent): Record<string, unknown
         color,
         fields: [
           { name: "Service", value: clampText(event.service, 64), inline: true },
-          { name: "Severity", value: event.severity.toUpperCase(), inline: true },
+          { name: "Severity", value: severity.toUpperCase(), inline: true },
           ...(event.host ? [{ name: "Host", value: clampText(event.host, 128), inline: true }] : []),
         ],
         timestamp: event.timestamp || new Date().toISOString(),
@@ -67,7 +69,8 @@ export function formatDiscordAlert(event: Bs9AlertEvent): Record<string, unknown
 }
 
 export function formatSlackAlert(event: Bs9AlertEvent): Record<string, unknown> {
-  const icon = event.severity === "critical" ? ":rotating_light:" : event.severity === "warning" ? ":warning:" : ":information_source:";
+  const severity = event.severity || "info";
+  const icon = severity === "critical" ? ":rotating_light:" : severity === "warning" ? ":warning:" : ":information_source:";
   const summary = `${icon} *BS9 Alert — ${clampText(event.title, 150)}* (${clampText(event.service, 64)})`;
   return {
     text: summary,
@@ -76,7 +79,7 @@ export function formatSlackAlert(event: Bs9AlertEvent): Record<string, unknown> 
         type: "section",
         text: {
           type: "mrkdwn",
-          text: `${summary}\n*Severity:* ${event.severity.toUpperCase()}${event.host ? ` | *Host:* ${clampText(event.host, 128)}` : ""}\n${clampText(event.message, 1500)}`,
+          text: `${summary}\n*Severity:* ${severity.toUpperCase()}${event.host ? ` | *Host:* ${clampText(event.host, 128)}` : ""}\n${clampText(event.message, 1500)}`,
         },
       },
     ],

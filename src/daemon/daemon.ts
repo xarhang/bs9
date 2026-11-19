@@ -125,7 +125,9 @@ export class Bs9Daemon {
     const physicalName = `${clusterName}-${slot}-g${nextGen}`;
     const tokenFilePath = join(platformInfo.runtimeDir, "tokens", `${clusterName}.token`);
 
-    const preloadPath = resolve(join(dirname(import.meta.path), "..", "utils", "cluster-preload.ts"));
+    const preloadTs = resolve(join(dirname(import.meta.path), "..", "utils", "cluster-preload.ts"));
+    const preloadJs = resolve(join(dirname(import.meta.path), "..", "utils", "cluster-preload.js"));
+    const preloadPath = existsSync(preloadTs) ? preloadTs : preloadJs;
     const preloadArgs = existsSync(preloadPath) ? ["--preload", preloadPath] : [];
     const runtime = resolveRuntime(manifest.appFile, manifest.options?.interpreter, preloadArgs);
 
@@ -144,6 +146,7 @@ export class Bs9Daemon {
       BS9_CLUSTER_GENERATION: String(nextGen),
       BS9_AUTH_TOKEN_FILE: tokenFilePath,
       BS9_CONTROLLER_SOCKET: this.controller.getSocketPath(),
+      BS9_HUB_SOCKET: process.env.BS9_HUB_SOCKET || getDefaultHubSocketPath(),
     };
 
     if (platformInfo.isWindows) {
@@ -212,10 +215,18 @@ export class Bs9Daemon {
     this.isRunning = true;
 
     // Record PID securely
-    if (getPlatformInfo().isLinux || getPlatformInfo().isMacOS) {
-      writePrivateFile(this.pidFilePath, String(process.pid));
-    } else {
-      writeFileSync(this.pidFilePath, String(process.pid), { encoding: "utf-8" });
+    try {
+      if (getPlatformInfo().isLinux || getPlatformInfo().isMacOS) {
+        writePrivateFile(this.pidFilePath, String(process.pid));
+      } else {
+        writeFileSync(this.pidFilePath, String(process.pid), { encoding: "utf-8" });
+      }
+    } catch (err) {
+      this.isRunning = false;
+      this.reconciler.stop();
+      await this.controller.stop().catch(() => {});
+      await this.hub.stop().catch(() => {});
+      throw err;
     }
 
     console.log(`BS9 Unified Daemon running (PID: ${process.pid})`);
@@ -254,8 +265,11 @@ if (import.meta.main) {
     if (shuttingDown) return;
     shuttingDown = true;
     console.log(`\nReceived ${signal}, shutting down daemon...`);
-    await daemon.stop();
-    process.exit(0);
+    try {
+      await daemon.stop();
+    } finally {
+      process.exit(0);
+    }
   };
 
   process.on("SIGINT", () => handleSignal("SIGINT"));

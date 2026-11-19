@@ -11,40 +11,53 @@
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { ensurePrivateDirectory, securePrivateFile, writePrivateFile } from "../utils/private-files.js";
 
+function isPrivateIpv4Octets(a: number, b: number, c: number, d: number): boolean {
+  if (a > 255 || b > 255 || c > 255 || d > 255 || a < 0 || b < 0 || c < 0 || d < 0) return true;
+  return (
+    a === 0 ||                                  // 0.0.0.0/8
+    a === 10 ||                                 // 10.0.0.0/8
+    a === 127 ||                                // 127.0.0.0/8 (loopback)
+    (a === 169 && b === 254) ||                 // 169.254.0.0/16 (link-local / cloud metadata)
+    (a === 172 && b >= 16 && b <= 31) ||        // 172.16.0.0/12
+    (a === 192 && b === 168) ||                 // 192.168.0.0/16
+    (a === 100 && b >= 64 && b <= 127)          // 100.64.0.0/10 (CGNAT)
+  );
+}
+
 export function isBlockedIpAddress(rawIp: string): boolean {
-  const ip = rawIp.toLowerCase().replace(/^\[|\]$/g, '');
+  const ip = rawIp.toLowerCase().replace(/^\[|\]$/g, '').split('%')[0];
   if (!ip) return true;
 
   if (ip === '::' || ip === '::1') {
     return true;
   }
 
-  // Block private, loopback, and link-local IPv4 ranges (including IPv4-mapped IPv6)
+  // Block private, loopback, and link-local IPv4 ranges (including dotted IPv4-mapped IPv6)
   const ipv4Match = ip.match(/^(?:::ffff:)?(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/i);
   if (ipv4Match) {
     const [, a, b, c, d] = ipv4Match.map(Number);
-    if (a > 255 || b > 255 || c > 255 || d > 255) return true;
-    if (
-      a === 0 ||                                  // 0.0.0.0/8
-      a === 10 ||                                 // 10.0.0.0/8
-      a === 127 ||                                // 127.0.0.0/8 (loopback)
-      (a === 169 && b === 254) ||                 // 169.254.0.0/16 (link-local / cloud metadata)
-      (a === 172 && b >= 16 && b <= 31) ||        // 172.16.0.0/12
-      (a === 192 && b === 168) ||                 // 192.168.0.0/16
-      (a === 100 && b >= 64 && b <= 127)          // 100.64.0.0/10 (CGNAT)
-    ) {
-      return true;
-    }
-    return false;
+    return isPrivateIpv4Octets(a, b, c, d);
   }
 
-  // Block IPv6 unique local (fc00::/7) and link-local (fe80::/10)
+  // Handle hex IPv4-mapped IPv6 (e.g. ::ffff:7f00:1 or 0:0:0:0:0:ffff:7f00:0001)
+  const hexMappedMatch = ip.match(/^(?:::ffff:|(?:0{1,4}:){5}ffff:)([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
+  if (hexMappedMatch) {
+    const hi = parseInt(hexMappedMatch[1], 16);
+    const lo = parseInt(hexMappedMatch[2], 16);
+    return isPrivateIpv4Octets((hi >> 8) & 0xff, hi & 0xff, (lo >> 8) & 0xff, lo & 0xff);
+  }
+
+  // Block IPv6 unspecified/loopback in expanded form, unique local (fc00::/7), link-local (fe80::/10), multicast (ff00::/8)
   if (ip.includes(':')) {
-    if (/^(fc|fd|fe[89ab])[0-9a-f]{0,2}:/i.test(ip)) {
+    if (/^(?:0{1,4}:){7}0{0,3}[01]$/.test(ip)) {
+      return true;
+    }
+    if (/^(fc|fd|fe[89ab]|ff)[0-9a-f]{0,2}:/i.test(ip)) {
       return true;
     }
   }
@@ -91,9 +104,9 @@ export async function isSafeWebhookTarget(
   }
   try {
     const parsed = new URL(rawUrl);
-    const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '').split('%')[0];
     // If hostname is already an IP literal, isValidWebhookUrl already validated it.
-    if (/^(?:::ffff:)?\d{1,3}(?:\.\d{1,3}){3}$/i.test(hostname) || hostname.includes(':')) {
+    if (isIP(hostname) !== 0) {
       return true;
     }
     const records = await resolveDns(hostname);
@@ -166,6 +179,7 @@ class AlertManager {
         };
       } catch (error) {
         console.error('Failed to load alert config, using defaults:', error);
+        return defaultConfig;
       }
     }
     
@@ -227,10 +241,13 @@ class AlertManager {
     memory: number;
     health: 'healthy' | 'unhealthy' | 'unknown';
     uptime: number;
+    errorRate?: number;
   }): Promise<void> {
     if (!this.config.enabled) return;
     
-    const serviceConfig = this.config.services[serviceName];
+    const serviceConfig = Object.hasOwn(this.config.services, serviceName)
+      ? this.config.services[serviceName]
+      : undefined;
     if (serviceConfig && !serviceConfig.enabled) return;
     
     const thresholds = {
@@ -248,6 +265,11 @@ class AlertManager {
     // Check Memory threshold
     if (metrics.memory > thresholds.memory) {
       alerts.push(`Memory usage (${metrics.memory}%) exceeds threshold (${thresholds.memory}%)`);
+    }
+    
+    // Check Error Rate threshold
+    if (metrics.errorRate !== undefined && metrics.errorRate > thresholds.errorRate) {
+      alerts.push(`Error rate (${metrics.errorRate}%) exceeds threshold (${thresholds.errorRate}%)`);
     }
     
     // Check Uptime threshold
@@ -284,6 +306,8 @@ class AlertManager {
       try {
         const response = await fetch(this.config.webhookUrl, {
           method: 'POST',
+          redirect: 'error',
+          signal: AbortSignal.timeout(10000),
           headers: {
             'Content-Type': 'application/json',
           },
@@ -316,6 +340,8 @@ class AlertManager {
     
     return fetch(this.config.webhookUrl, {
       method: 'POST',
+      redirect: 'error',
+      signal: AbortSignal.timeout(10000),
       headers: {
         'Content-Type': 'application/json',
       },

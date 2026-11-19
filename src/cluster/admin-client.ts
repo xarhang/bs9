@@ -92,8 +92,17 @@ export class ControllerAdminClient extends EventEmitter {
   public async connect(timeoutMs = 5000): Promise<boolean> {
     if (this.isConnected && this.isAuthenticated) return true;
     this.lastConnectFailure = null;
+    this.decoder = new StreamingFrameDecoder();
 
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
+      let settled = false;
+      const settle = (ok: boolean) => {
+        if (!settled) {
+          settled = true;
+          resolve(ok);
+        }
+      };
+
       try {
         const sock = createConnection(this.socketPath);
         this.socket = sock;
@@ -103,7 +112,7 @@ export class ControllerAdminClient extends EventEmitter {
         const onConnectTimeout = setTimeout(() => {
           this.lastConnectFailure = "ambiguous";
           this.disconnect();
-          resolve(false);
+          settle(false);
         }, timeoutMs);
 
         sock.on("connect", () => {
@@ -117,16 +126,18 @@ export class ControllerAdminClient extends EventEmitter {
               this.handleMessage(env, () => {
                 clearTimeout(onConnectTimeout);
                 if (authTimeout) clearTimeout(authTimeout);
-                resolve(true);
+                settle(true);
               }, (_err) => {
                 clearTimeout(onConnectTimeout);
                 if (authTimeout) clearTimeout(authTimeout);
-                resolve(false);
+                settle(false);
               });
             }
           } catch {
             clearTimeout(onConnectTimeout);
-            resolve(false);
+            if (authTimeout) clearTimeout(authTimeout);
+            this.cleanup();
+            settle(false);
           }
         });
 
@@ -135,6 +146,7 @@ export class ControllerAdminClient extends EventEmitter {
           if (authTimeout) clearTimeout(authTimeout);
           this.cleanup();
           this.emit("close");
+          settle(false);
         });
 
         sock.on("error", (err: NodeJS.ErrnoException) => {
@@ -142,11 +154,11 @@ export class ControllerAdminClient extends EventEmitter {
           if (authTimeout) clearTimeout(authTimeout);
           this.lastConnectFailure = err.code === "ENOENT" || err.code === "ECONNREFUSED" ? "stopped" : "ambiguous";
           this.cleanup();
-          resolve(false);
+          settle(false);
         });
       } catch {
         this.cleanup();
-        resolve(false);
+        settle(false);
       }
     });
   }

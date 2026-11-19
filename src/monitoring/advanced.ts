@@ -145,8 +145,10 @@ export class AdvancedMonitoring {
   
   async detectAnomalies(serviceMetrics: Record<string, any>): Promise<AnomalyDetection[]> {
     const anomalies: AnomalyDetection[] = [];
+    if (!serviceMetrics || typeof serviceMetrics !== 'object') return anomalies;
     
     for (const [serviceName, metrics] of Object.entries(serviceMetrics)) {
+      if (!metrics || typeof metrics !== 'object') continue;
       for (const [metricName, value] of Object.entries(metrics)) {
         if (typeof value !== 'number' || !Number.isFinite(value)) continue;
         const key = `${serviceName}-${metricName}`;
@@ -183,12 +185,14 @@ export class AdvancedMonitoring {
   
   async correlateAlerts(alerts: Array<any>): Promise<AlertCorrelation[]> {
     const correlations: AlertCorrelation[] = [];
+    if (!Array.isArray(alerts)) return correlations;
     
     // Simple correlation based on time proximity and service relationships
     for (let i = 0; i < alerts.length; i++) {
       for (let j = i + 1; j < alerts.length; j++) {
         const alert1 = alerts[i];
         const alert2 = alerts[j];
+        if (!alert1 || !alert2 || !Number.isFinite(alert1.timestamp) || !Number.isFinite(alert2.timestamp)) continue;
         
         const timeDiff = Math.abs(alert1.timestamp - alert2.timestamp);
         const timeThreshold = 60000; // 1 minute
@@ -201,6 +205,10 @@ export class AdvancedMonitoring {
           };
           
           correlations.push(correlation);
+          if (this.correlations.size >= 1000) {
+            const oldestKey = this.correlations.keys().next().value;
+            if (oldestKey !== undefined) this.correlations.delete(oldestKey);
+          }
           this.correlations.set(correlation.id, correlation);
         }
       }
@@ -210,12 +218,17 @@ export class AdvancedMonitoring {
   }
   
   updateBaseline(service: string, metric: string, value: number): void {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return;
     const key = `${service}-${metric}`;
-    const currentBaseline = this.baselines.get(key) || 0;
+    const currentBaseline = this.baselines.get(key);
+    if (currentBaseline === undefined) {
+      this.baselines.set(key, value);
+      return;
+    }
     
     // Exponential moving average for baseline
     const alpha = 0.1;
-    const newBaseline = alpha * (value as number) + (1 - alpha) * currentBaseline;
+    const newBaseline = alpha * value + (1 - alpha) * currentBaseline;
     
     this.baselines.set(key, newBaseline);
   }
@@ -272,8 +285,22 @@ export class AdvancedMonitoring {
         }, 5000);
         
         function updateWidgets(data) {
-            // Update widget content based on data
-            console.log('Updating widgets with data:', data);
+            const alertsEl = document.getElementById('alert-status-alerts');
+            if (!alertsEl || !data || !Array.isArray(data.anomalies)) return;
+            alertsEl.textContent = '';
+            if (data.anomalies.length === 0) {
+                const item = document.createElement('div');
+                item.className = 'alert-item';
+                item.textContent = 'No active alerts';
+                alertsEl.appendChild(item);
+                return;
+            }
+            for (const a of data.anomalies.slice(0, 10)) {
+                const item = document.createElement('div');
+                item.className = 'anomaly-item';
+                item.textContent = String(a.service || 'unknown') + ': ' + String(a.metric || 'metric') + ' anomaly';
+                alertsEl.appendChild(item);
+            }
         }
     </script>
 </body>
@@ -331,7 +358,8 @@ export class AdvancedMonitoring {
   }
 }
 
-export async function advancedMonitoringCommand(options: any): Promise<void> {
+export async function advancedMonitoringCommand(options: any = {}): Promise<void> {
+  const opts = options && typeof options === "object" ? options : {};
   const monitoring = new AdvancedMonitoring();
   
   console.log('🔍 Starting Advanced Monitoring Dashboard...');
@@ -341,12 +369,14 @@ export async function advancedMonitoringCommand(options: any): Promise<void> {
   console.log('   - Alert correlation');
   console.log('   - Performance baselines');
   
-  const host = options.host || "127.0.0.1";
+  const host = opts.host || "127.0.0.1";
+  const rawPort = opts.port !== undefined ? Number(opts.port) : 8090;
+  const port = Number.isInteger(rawPort) && rawPort >= 1 && rawPort <= 65535 ? rawPort : 8090;
   const sessionToken = process.env.BS9_DASHBOARD_TOKEN || randomBytes(32).toString("hex");
 
-  const server = serve({
+  const _server = serve({
     hostname: host,
-    port: options.port || 8090,
+    port,
     async fetch(req) {
       const url = new URL(req.url);
       
@@ -359,10 +389,8 @@ export async function advancedMonitoringCommand(options: any): Promise<void> {
       if (url.pathname === '/api/advanced-metrics') {
         const authHeader = req.headers.get("Authorization") || "";
         const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
-        const tokenParam = url.searchParams.get("token") || "";
         const isValidBearer = bearerToken.length > 0 && safeCompare(bearerToken, sessionToken);
-        const isValidParam = tokenParam.length > 0 && safeCompare(tokenParam, sessionToken);
-        if (!isValidBearer && !isValidParam) {
+        if (!isValidBearer) {
           return new Response(JSON.stringify({ error: "Unauthorized" }), {
             status: 401,
             headers: { 'Content-Type': 'application/json' }
@@ -386,7 +414,7 @@ export async function advancedMonitoringCommand(options: any): Promise<void> {
     }
   });
   
-  console.log(`✅ Advanced monitoring dashboard started on http://${host}:${options.port || 8090}`);
+  console.log(`✅ Advanced monitoring dashboard started on http://${host}:${port}`);
   console.log(`🔐 Access token: ${sessionToken}`);
   console.log('🔗 Features available:');
   console.log('   - Real-time anomaly detection');

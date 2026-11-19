@@ -10,10 +10,10 @@
  */
 
 import { execSync } from "node:child_process";
-import { setTimeout } from "node:timers/promises";
 import { getPlatformInfo, PlatformInfo } from "../platform/detect.js";
-import { join } from "node:path";
-import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, resolve, sep } from "node:path";
+import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 
 interface DepOptions {
   format?: string;
@@ -38,6 +38,27 @@ interface DependencyGraph {
   }>;
 }
 
+function resolveSafeOutputPath(outputPath: string): string {
+  if (!outputPath || outputPath.includes("\0")) {
+    throw new Error("Invalid output file path");
+  }
+  const resolved = resolve(outputPath);
+  const parentDir = dirname(resolved);
+  const realParent = existsSync(parentDir) ? realpathSync(parentDir) : parentDir;
+  const realTarget = existsSync(resolved) ? realpathSync(resolved) : join(realParent, resolved.slice(parentDir.length + (parentDir.endsWith(sep) ? 0 : 1)));
+  if (existsSync(resolved) && lstatSync(resolved).isSymbolicLink()) {
+    throw new Error(`Security: Refusing to write through symbolic link '${outputPath}'`);
+  }
+  const allowedRoots = [resolve(process.cwd()), resolve(homedir()), resolve(tmpdir())].map((r) =>
+    existsSync(r) ? realpathSync(r) : r
+  );
+  const isContained = allowedRoots.some((root) => realTarget === root || realTarget.startsWith(root + sep));
+  if (!isContained) {
+    throw new Error(`Security: Output path '${outputPath}' is outside allowed directories`);
+  }
+  return resolved;
+}
+
 export async function depsCommand(options: DepOptions): Promise<void> {
   console.log('🔗 BS9 Service Dependency Visualization');
   console.log('='.repeat(80));
@@ -48,16 +69,18 @@ export async function depsCommand(options: DepOptions): Promise<void> {
     if (options.format === 'dot') {
       const dotOutput = generateDotGraph(graph);
       if (options.output) {
-        await Bun.write(options.output, dotOutput);
-        console.log(`✅ Dependency graph saved to: ${options.output}`);
+        const safeOut = resolveSafeOutputPath(options.output);
+        await Bun.write(safeOut, dotOutput);
+        console.log(`✅ Dependency graph saved to: ${safeOut}`);
       } else {
         console.log(dotOutput);
       }
     } else if (options.format === 'json') {
       const jsonOutput = JSON.stringify(graph, null, 2);
       if (options.output) {
-        await Bun.write(options.output, jsonOutput);
-        console.log(`✅ Dependency graph saved to: ${options.output}`);
+        const safeOut = resolveSafeOutputPath(options.output);
+        await Bun.write(safeOut, jsonOutput);
+        console.log(`✅ Dependency graph saved to: ${safeOut}`);
       } else {
         console.log(jsonOutput);
       }
@@ -92,23 +115,21 @@ async function buildDependencyGraph(): Promise<DependencyGraph> {
           endpoints: [],
         };
 
-        // Windows services don't have descriptions in listServices output currently, 
-        // but we can try to find config
         const deps = await analyzeServiceDependencies(svc.name, platformInfo);
-        service.dependsOn = deps.dependsOn;
+        service.dependsOn = deps.dependencies.map(d => d.target);
         service.endpoints = deps.endpoints;
 
         services.push(service);
 
-        for (const dep of deps.dependsOn) {
-          edges.push({ from: svc.name, to: dep, type: deps.type });
+        for (const dep of deps.dependencies) {
+          edges.push({ from: svc.name, to: dep.target, type: dep.type });
         }
       }
     } else {
       // Linux/macOS path
       const listCmd = platformInfo.isLinux
         ? "systemctl --user list-units --type=service --no-pager --no-legend"
-        : "launchctl list | grep bs9"; // Simplified for demonstration
+        : "launchctl list";
 
       try {
         const listOutput = execSync(listCmd, { encoding: "utf-8", windowsHide: true });
@@ -116,6 +137,7 @@ async function buildDependencyGraph(): Promise<DependencyGraph> {
 
         for (const line of lines) {
           if (!line.trim()) continue;
+          if (!platformInfo.isLinux && !line.includes("bs9")) continue;
 
           let name = "";
           let active = "";
@@ -128,10 +150,10 @@ async function buildDependencyGraph(): Promise<DependencyGraph> {
             [, , name, , active, sub, description] = match;
             if (!description.includes("Bun Service:") && !description.includes("BS9 Service:")) continue;
           } else {
-            // MacOS placeholder logic
+            // MacOS launchctl list parsing
             const parts = line.split(/\s+/);
             name = parts[parts.length - 1];
-            active = "active"; // Simplified
+            active = "active";
             sub = "running";
           }
 
@@ -144,13 +166,13 @@ async function buildDependencyGraph(): Promise<DependencyGraph> {
           };
 
           const deps = await analyzeServiceDependencies(name, platformInfo);
-          service.dependsOn = deps.dependsOn;
+          service.dependsOn = deps.dependencies.map(d => d.target);
           service.endpoints = deps.endpoints;
 
           services.push(service);
 
-          for (const dep of deps.dependsOn) {
-            edges.push({ from: name, to: dep, type: deps.type });
+          for (const dep of deps.dependencies) {
+            edges.push({ from: name, to: dep.target, type: dep.type });
           }
         }
       } catch (err) {
@@ -166,13 +188,11 @@ async function buildDependencyGraph(): Promise<DependencyGraph> {
 }
 
 async function analyzeServiceDependencies(serviceName: string, platformInfo: PlatformInfo): Promise<{
-  dependsOn: string[];
+  dependencies: Array<{ target: string; type: 'http' | 'database' | 'message' | 'custom' }>;
   endpoints: string[];
-  type: 'http' | 'database' | 'message' | 'custom';
 }> {
-  const dependsOn: string[] = [];
+  const dependencies: Array<{ target: string; type: 'http' | 'database' | 'message' | 'custom' }> = [];
   const endpoints: string[] = [];
-  let type: 'http' | 'database' | 'message' | 'custom' = 'custom';
 
   try {
     // Try to find environment variables in service config file
@@ -205,18 +225,15 @@ async function analyzeServiceDependencies(serviceName: string, platformInfo: Pla
       const envMatches = serviceContent.match(/Environment=([^\n]+)/g) || [];
       for (const env of envMatches) {
         if (env.includes('DATABASE_URL') || env.includes('DB_HOST')) {
-          dependsOn.push('database');
-          type = 'database';
+          dependencies.push({ target: 'database', type: 'database' });
         }
         if (env.includes('REDIS_URL') || env.includes('REDIS_HOST')) {
-          dependsOn.push('redis');
-          type = 'message';
+          dependencies.push({ target: 'redis', type: 'message' });
         }
         if (env.includes('API_URL') || env.includes('SERVICE_URL')) {
-          const urlMatch = env.match(/https?:\/\/([^:\/]+)/);
+          const urlMatch = env.match(/https?:\/\/([^:\/"'\s]+)/);
           if (urlMatch) {
-            dependsOn.push(urlMatch[1]);
-            type = 'http';
+            dependencies.push({ target: urlMatch[1], type: 'http' });
           }
         }
       }
@@ -225,7 +242,7 @@ async function analyzeServiceDependencies(serviceName: string, platformInfo: Pla
     // Silent fail for dependency analysis
   }
 
-  return { dependsOn, endpoints, type };
+  return { dependencies, endpoints };
 }
 
 function getServiceStatus(active: string, sub: string): 'running' | 'stopped' | 'failed' | 'unknown' {
@@ -280,6 +297,10 @@ function displayDependencyGraph(graph: DependencyGraph): void {
   console.log(`   Failed: ${graph.services.filter(s => s.status === 'failed').length}`);
 }
 
+function escapeDot(val: string): string {
+  return String(val ?? "").replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/[\r\n]/g, " ");
+}
+
 function generateDotGraph(graph: DependencyGraph): string {
   let dot = 'digraph BS9_Dependencies {\n';
   dot += '  rankdir=LR;\n';
@@ -288,8 +309,9 @@ function generateDotGraph(graph: DependencyGraph): string {
   // Add nodes
   for (const service of graph.services) {
     const color = getNodeColor(service.status);
-    const label = `${service.name}\\n${service.status}`;
-    dot += `  "${service.name}" [label="${label}", fillcolor="${color}"];\n`;
+    const safeName = escapeDot(service.name);
+    const label = `${safeName}\\n${escapeDot(service.status)}`;
+    dot += `  "${safeName}" [label="${label}", fillcolor="${color}"];\n`;
   }
 
   dot += '\n';
@@ -297,7 +319,7 @@ function generateDotGraph(graph: DependencyGraph): string {
   // Add edges
   for (const edge of graph.edges) {
     const color = getEdgeColor(edge.type);
-    dot += `  "${edge.from}" -> "${edge.to}" [color="${color}", label="${edge.type}"];\n`;
+    dot += `  "${escapeDot(edge.from)}" -> "${escapeDot(edge.to)}" [color="${color}", label="${escapeDot(edge.type)}"];\n`;
   }
 
   dot += '}\n';

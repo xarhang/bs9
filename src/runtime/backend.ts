@@ -115,6 +115,7 @@ export class RuntimeBackend {
   private inMemoryLeases: LeaseManager | null = null;
   private inMemoryQueues: QueueManager | null = null;
   private initPromise: Promise<StateAdapter> | null = null;
+  private generation = 0;
 
   constructor(initialConfig: RuntimeConfig = {}) {
     this.config = { ...initialConfig };
@@ -155,6 +156,7 @@ export class RuntimeBackend {
   }
 
   private resetSync(): void {
+    this.generation++;
     this.initPromise = null;
     this.activeAdapter = null;
     if (this.hubClient) {
@@ -184,6 +186,7 @@ export class RuntimeBackend {
   }
 
   public async reset(): Promise<void> {
+    this.generation++;
     this.initPromise = null;
     this.activeAdapter = null;
     if (this.hubClient) {
@@ -221,12 +224,19 @@ export class RuntimeBackend {
       return this.initPromise;
     }
 
-    this.initPromise = this.initialize();
+    const gen = this.generation;
+    const promise = this.initialize(gen);
+    this.initPromise = promise;
     try {
-      this.activeAdapter = await this.initPromise;
-      return this.activeAdapter;
+      const adapter = await promise;
+      if (this.generation === gen) {
+        this.activeAdapter = adapter;
+      }
+      return adapter;
     } finally {
-      this.initPromise = null;
+      if (this.initPromise === promise) {
+        this.initPromise = null;
+      }
     }
   }
 
@@ -234,7 +244,7 @@ export class RuntimeBackend {
     await this.getAdapter();
   }
 
-  private async initialize(): Promise<StateAdapter> {
+  private async initialize(gen: number): Promise<StateAdapter> {
     const isBs9 = isBs9Environment(this.config);
 
     if (!isBs9) {
@@ -282,6 +292,11 @@ export class RuntimeBackend {
       connected = await client.connect();
     } catch {
       connected = false;
+    }
+
+    if (gen !== this.generation) {
+      await client.disconnect().catch(() => {});
+      throw new Error("RuntimeBackend reset during initialization");
     }
 
     if (connected) {
