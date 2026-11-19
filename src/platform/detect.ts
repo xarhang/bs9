@@ -194,13 +194,19 @@ export function initializePlatformDirectories(): void {
 
     if (platformInfo.isLinux) {
       // These BS9-owned paths may contain WAL data, cluster environment values,
-      // or systemd Environment= directives. Repair permissions on upgrades too.
+      // tokens, sockets, or systemd Environment= directives. Repair permissions on upgrades too.
+      ensurePrivateDirectory(platformInfo.configDir);
+      ensurePrivateDirectory(platformInfo.runtimeDir);
       ensurePrivateDirectory(platformInfo.stateDir);
       ensurePrivateDirectory(platformInfo.clusterDir);
       ensurePrivateDirectory(platformInfo.serviceDir);
       ensurePrivateDirectory(platformInfo.backupDir);
     } else if (platformInfo.isMacOS) {
-      // Cluster manifests can contain application environment secrets.
+      // Cluster manifests, runtime sockets, state, and config can contain application environment secrets.
+      ensurePrivateDirectory(platformInfo.configDir);
+      ensurePrivateDirectory(platformInfo.runtimeDir);
+      ensurePrivateDirectory(platformInfo.stateDir);
+      ensurePrivateDirectory(platformInfo.backupDir);
       ensurePrivateDirectory(platformInfo.clusterDir);
     }
   } catch (error) {

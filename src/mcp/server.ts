@@ -16,6 +16,19 @@ import { createInterface } from "node:readline";
 import { closeSync, constants, existsSync, fstatSync, lstatSync, openSync, readdirSync, readFileSync, readSync, realpathSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 import { constants as osConstants, homedir } from "node:os";
+import { listServices } from "../utils/service-discovery.js";
+import { getPlatformInfo } from "../platform/detect.js";
+import { getCrashState, forceResetCircuit, formatCrashState } from "../utils/crash-tracker.js";
+import { stopCommand } from "../commands/stop.js";
+import { restartCommand } from "../commands/restart.js";
+import { reloadCommand } from "../commands/reload.js";
+import { scaleCommand } from "../commands/scale.js";
+import { deleteCommand } from "../commands/delete.js";
+import { flushCommand } from "../commands/flush.js";
+import { sendSignalCommand } from "../commands/send-signal.js";
+import { readAuditEvents, recordAuditEvent } from "../utils/audit-log.js";
+import { generateCaddyConfig, generateNginxConfig } from "../utils/proxy-config.js";
+import { generateGrafanaDashboard } from "../utils/grafana-export.js";
 
 const O_NOFOLLOW = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0;
 
@@ -90,20 +103,6 @@ function readTailBounded(filePath: string, maxLines: number, maxBytes = 256 * 10
     }
   }
 }
-
-import { listServices } from "../utils/service-discovery.js";
-import { getPlatformInfo } from "../platform/detect.js";
-import { getCrashState, forceResetCircuit, formatCrashState } from "../utils/crash-tracker.js";
-import { stopCommand } from "../commands/stop.js";
-import { restartCommand } from "../commands/restart.js";
-import { reloadCommand } from "../commands/reload.js";
-import { scaleCommand } from "../commands/scale.js";
-import { deleteCommand } from "../commands/delete.js";
-import { flushCommand } from "../commands/flush.js";
-import { sendSignalCommand } from "../commands/send-signal.js";
-import { readAuditEvents, recordAuditEvent } from "../utils/audit-log.js";
-import { generateCaddyConfig, generateNginxConfig } from "../utils/proxy-config.js";
-import { generateGrafanaDashboard } from "../utils/grafana-export.js";
 
 export const MUTATING_MCP_TOOLS = new Set([
   "bs9_restart_process",
@@ -381,6 +380,9 @@ export async function handleToolCall(
       case "bs9_export_config": {
         const format = String(args.format || "").toLowerCase();
         const serviceName = String(args.serviceName || "app");
+        if (!isValidServiceName(serviceName)) {
+          throw new Error(`Invalid service name: '${serviceName}'`);
+        }
         if (format === "grafana") {
           resultText = generateGrafanaDashboard({ serviceName });
           break;
@@ -388,6 +390,9 @@ export async function handleToolCall(
         const rawPort = Number(args.port);
         const port = Number.isFinite(rawPort) && rawPort >= 1 && rawPort <= 65535 ? Math.floor(rawPort) : 3000;
         const domain = String(args.domain || "localhost");
+        if (!/^[a-zA-Z0-9.*_:-]{1,253}$/.test(domain) || domain.includes("..")) {
+          throw new Error(`Invalid domain: '${domain}'`);
+        }
         if (format === "nginx") {
           resultText = generateNginxConfig({
             serviceName,
@@ -521,8 +526,12 @@ export async function handleToolCall(
         }
         const clean = args.name.replace(/^(BS9_|bs9\.)/, "");
         if (!isValidServiceName(clean)) throw new Error(`Invalid service name: '${args.name}'`);
-        await scaleCommand(args.name, String(args.instances));
-        resultText = `Scaled '${args.name}' to ${args.instances} worker(s).`;
+        const rawInstances = String(args.instances).trim();
+        if (rawInstances !== "max" && (!/^\d+$/.test(rawInstances) || Number(rawInstances) < 1 || Number(rawInstances) > 128)) {
+          throw new Error(`Invalid instances value: '${rawInstances}'`);
+        }
+        await scaleCommand(args.name, rawInstances);
+        resultText = `Scaled '${args.name}' to ${rawInstances} worker(s).`;
         break;
       }
 
@@ -812,6 +821,16 @@ export async function runMcpServer(options: McpServerOptions = {}): Promise<void
         }
       } else if (method === "tools/call") {
         const toolName = params?.name;
+        if (typeof toolName !== "string" || toolName.length === 0) {
+          if (!isNotification) {
+            send({
+              jsonrpc: "2.0",
+              id,
+              error: { code: -32602, message: "Invalid params: name must be a non-empty string" }
+            });
+          }
+          return;
+        }
         const rawArgs = params?.arguments;
         if (rawArgs !== undefined && (typeof rawArgs !== "object" || rawArgs === null || Array.isArray(rawArgs))) {
           if (!isNotification) {

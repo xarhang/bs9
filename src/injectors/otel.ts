@@ -13,6 +13,10 @@ import { writeFileSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 
 export function injectOpenTelemetry(entryFile: string, serviceName: string): void {
+  const { lstatSync } = require("node:fs") as typeof import("node:fs");
+  if (lstatSync(entryFile).isSymbolicLink()) {
+    throw new Error(`Security: Refusing to modify symbolic link '${entryFile}'`);
+  }
   const originalContent = readFileSync(entryFile, "utf-8");
   if (originalContent.includes("// BSN OpenTelemetry Auto-injection")) {
     return;
@@ -82,6 +86,14 @@ globalThis.prometheus = { register, httpRequestDuration, httpRequestTotal };
   // This would need to be injected at the right place in the user's code
   // For now, we'll write it to a temporary file that the user can import
   const metricsFile = join(dirname(entryFile), "bsn-metrics.js");
+  const { lstatSync } = require("node:fs") as typeof import("node:fs");
+  try {
+    if (lstatSync(metricsFile).isSymbolicLink()) {
+      throw new Error(`Security: Refusing to write through symbolic link '${metricsFile}'`);
+    }
+  } catch (err: any) {
+    if (err?.code !== "ENOENT") throw err;
+  }
   writeFileSync(metricsFile, prometheusInject, { encoding: "utf-8" });
   
   console.log(`📊 Prometheus metrics written to: ${metricsFile}`);

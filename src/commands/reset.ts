@@ -23,6 +23,9 @@ export async function resetCommand(names: string[] = []): Promise<void> {
     targetServices = allServices.map(s => s.name);
   } else {
     const cleanTarget = target.replace(/^(BS9_|bs9\.)/, "");
+    if (!cleanTarget || cleanTarget === "." || cleanTarget === ".." || cleanTarget.startsWith("-") || !/^[a-zA-Z0-9._-]+$/.test(cleanTarget)) {
+      throw new Error(`Invalid service name: '${target}'`);
+    }
     // Find matching services or cluster workers
     targetServices = allServices
       .map(s => s.name)

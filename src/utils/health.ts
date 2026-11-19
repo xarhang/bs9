@@ -3,8 +3,8 @@
  * Unified Health Check Utility
  */
 
-import { execSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
+import { execFileSync, execSync } from "node:child_process";
+import { closeSync, constants, existsSync, openSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { getPlatformInfo, PlatformInfo } from "../platform/detect.js";
 
@@ -26,7 +26,7 @@ export function checkBunInstallation(): HealthCheckResult {
             version = process.versions.bun;
         } else {
             const bunBin = process.execPath || "bun";
-            version = execSync(`"${bunBin}" --version`, { encoding: "utf-8", windowsHide: true }).trim();
+            version = execFileSync(bunBin, ["--version"], { encoding: "utf-8", windowsHide: true }).trim();
         }
         return {
             name: "Bun Installation",
@@ -121,9 +121,14 @@ export function checkDirectoryStructure(platformInfo: PlatformInfo): HealthCheck
 
 export function checkPermissions(platformInfo: PlatformInfo): HealthCheckResult {
     try {
-        const testFile = join(platformInfo.configDir, ".bs9-test");
-        writeFileSync(testFile, "test");
-        unlinkSync(testFile);
+        const testFile = join(platformInfo.configDir, `.bs9-test-${process.pid}`);
+        const fd = openSync(testFile, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o600);
+        try {
+            // Write permission verified by exclusive file creation
+        } finally {
+            closeSync(fd);
+            unlinkSync(testFile);
+        }
 
         return {
             name: "File Permissions",
@@ -146,12 +151,13 @@ export function checkPermissions(platformInfo: PlatformInfo): HealthCheckResult 
 export function checkNetworkConnectivity(): HealthCheckResult {
     try {
         // Basic connectivity check: try to reach a reliable endpoint
-        // Using a simple check that doesn't depend on curl if possible, but execSync is standard here
-        const cmd = process.platform === "win32"
-            ? "powershell -Command \"Invoke-WebRequest -Uri http://httpbin.org/ip -TimeoutSec 3 -UseBasicParsing\""
-            : "curl -s --connect-timeout 3 http://httpbin.org/ip";
-
-        execSync(cmd, { stdio: "ignore", windowsHide: true });
+        if (process.platform === "win32") {
+            const systemRoot = process.env.SystemRoot || process.env.WINDIR || "C:\\Windows";
+            const psExe = join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+            execFileSync(psExe, ["-NoProfile", "-Command", "Invoke-WebRequest -Uri https://httpbin.org/ip -TimeoutSec 3 -UseBasicParsing"], { stdio: "ignore", windowsHide: true });
+        } else {
+            execFileSync("curl", ["-s", "--connect-timeout", "3", "--max-time", "5", "https://httpbin.org/ip"], { stdio: "ignore", windowsHide: true });
+        }
         return {
             name: "Network Connectivity",
             status: "✅ PASS",
@@ -279,8 +285,12 @@ export function checkSystemResources(): HealthCheckResult {
             };
         }
 
-        const memory = execSync("free -h", { encoding: "utf-8" });
-        const disk = execSync("df -h .", { encoding: "utf-8" });
+        if (process.platform === "darwin") {
+            execFileSync("vm_stat", [], { encoding: "utf-8", windowsHide: true });
+        } else {
+            execFileSync("free", ["-h"], { encoding: "utf-8", windowsHide: true });
+        }
+        execFileSync("df", ["-h", "."], { encoding: "utf-8", windowsHide: true });
 
         return {
             name: "System Resources",

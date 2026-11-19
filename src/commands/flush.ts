@@ -39,16 +39,13 @@ export async function flushCommand(name?: string): Promise<void> {
 
     if (name) {
       const cleanName = name.replace(/^(BS9_|bs9\.)/, "");
-      const isOutOrErr = file.endsWith(".out.log") || file.endsWith(".err.log");
+      const escaped = cleanName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const workerLogPattern = new RegExp(`^(?:BS9_|bs9\\.)?${escaped}-\\d+(?:-g\\d+)?\\.(?:out|err)\\.log$`);
       const isTarget =
         file === `${cleanName}.out.log` || file === `${cleanName}.err.log` ||
         file === `BS9_${cleanName}.out.log` || file === `BS9_${cleanName}.err.log` ||
         file === `bs9.${cleanName}.out.log` || file === `bs9.${cleanName}.err.log` ||
-        (isOutOrErr && (
-          file.startsWith(`${cleanName}-`) ||
-          file.startsWith(`BS9_${cleanName}-`) ||
-          file.startsWith(`bs9.${cleanName}-`)
-        ));
+        workerLogPattern.test(file);
       if (!isTarget) continue;
     }
 

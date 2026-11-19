@@ -105,7 +105,21 @@ export async function alertCommand(options: AlertOptions): Promise<void> {
   
   if (options.service) {
     const serviceName = options.service;
-    const enabled = options.disable ? false : options.enable !== false;
+    if (
+      !serviceName ||
+      serviceName === "__proto__" ||
+      serviceName === "constructor" ||
+      serviceName === "prototype" ||
+      !/^[a-zA-Z0-9._-]+$/.test(serviceName) ||
+      serviceName.startsWith("-") ||
+      serviceName === "." ||
+      serviceName === ".."
+    ) {
+      throw new Error(`Invalid service name: '${serviceName}'`);
+    }
+    const existingCfg = alertManager.getConfig().services;
+    const existingEnabled = Object.hasOwn(existingCfg, serviceName) ? existingCfg[serviceName].enabled : true;
+    const enabled = options.disable ? false : (options.enable === true ? true : existingEnabled);
     alertManager.setServiceAlert(serviceName, enabled, Object.keys(thresholdUpdates).length > 0 ? thresholdUpdates : undefined);
     console.log(`✅ Updated alert config for service: ${serviceName}`);
   } else if (Object.keys(updates).length > 0) {

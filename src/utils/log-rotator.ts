@@ -79,8 +79,12 @@ function writeFileNoFollow(filePath: string, data: Buffer): void {
  * Refuses to operate on symbolic links to prevent symlink-following attacks.
  */
 export function rotateLogIfNeeded(logPath: string, options: LogRotationOptions = {}): boolean {
-  const maxBytes = options.maxBytes && options.maxBytes > 0 ? options.maxBytes : DEFAULT_MAX_LOG_BYTES;
-  const maxFiles = options.maxFiles !== undefined && options.maxFiles >= 1 ? Math.floor(options.maxFiles) : DEFAULT_MAX_LOG_FILES;
+  const maxBytes = typeof options.maxBytes === "number" && Number.isFinite(options.maxBytes) && options.maxBytes > 0
+    ? options.maxBytes
+    : DEFAULT_MAX_LOG_BYTES;
+  const maxFiles = typeof options.maxFiles === "number" && Number.isFinite(options.maxFiles) && options.maxFiles >= 1
+    ? Math.min(Math.floor(options.maxFiles), 1000)
+    : DEFAULT_MAX_LOG_FILES;
   const compress = options.compress !== false;
 
   if (!existsSync(logPath)) return false;

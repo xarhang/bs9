@@ -372,12 +372,28 @@ export class BS9Updater {
       }
       const sourcePath = resolve(backupPath, file);
       const targetPath = resolve(packageRoot, file);
-      if (!sourcePath.startsWith(backupPath) || !targetPath.startsWith(packageRoot)) {
+      const sep = process.platform === "win32" ? "\\" : "/";
+      const sourcePrefix = backupPath.endsWith(sep) ? backupPath : `${backupPath}${sep}`;
+      const targetPrefix = packageRoot.endsWith(sep) ? packageRoot : `${packageRoot}${sep}`;
+      if (!sourcePath.startsWith(sourcePrefix) || !targetPath.startsWith(targetPrefix)) {
         console.warn(`⚠️  Skipping out-of-bounds backup path: ${file}`);
         continue;
       }
 
       try {
+        const { lstatSync } = await import("node:fs");
+        if (lstatSync(sourcePath).isSymbolicLink()) {
+          console.warn(`⚠️  Skipping symlink in backup: ${file}`);
+          continue;
+        }
+        try {
+          if (lstatSync(targetPath).isSymbolicLink()) {
+            console.warn(`⚠️  Skipping symlink target: ${file}`);
+            continue;
+          }
+        } catch (e: any) {
+          if (e?.code !== "ENOENT") throw e;
+        }
         cpSync(sourcePath, targetPath, { recursive: true, force: true });
         console.log(`✅ Restored ${file}`);
       } catch (error) {

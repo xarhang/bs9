@@ -33,10 +33,14 @@ export class HealthAnomalyDetector {
   private readonly maxTrackedServices: number;
 
   constructor(options: HealthAnomalyOptions = {}) {
-    this.minConsecutiveIncreases = Math.max(3, options.minConsecutiveIncreases ?? 5);
-    this.minGrowthRatio = Math.max(0.05, options.minGrowthRatio ?? 0.25);
-    this.maxSamplesPerService = Math.max(this.minConsecutiveIncreases + 1, options.maxSamplesPerService ?? 20);
-    this.maxTrackedServices = Math.max(10, options.maxTrackedServices ?? 1000);
+    const minInc = Number.isFinite(options.minConsecutiveIncreases) ? options.minConsecutiveIncreases! : 5;
+    const minGrowth = Number.isFinite(options.minGrowthRatio) ? options.minGrowthRatio! : 0.25;
+    const maxSamples = Number.isFinite(options.maxSamplesPerService) ? options.maxSamplesPerService! : 20;
+    const maxTracked = Number.isFinite(options.maxTrackedServices) ? options.maxTrackedServices! : 1000;
+    this.minConsecutiveIncreases = Math.max(3, minInc);
+    this.minGrowthRatio = Math.max(0.05, minGrowth);
+    this.maxSamplesPerService = Math.max(this.minConsecutiveIncreases + 1, maxSamples);
+    this.maxTrackedServices = Math.max(10, maxTracked);
   }
 
   recordMemorySample(service: string, rssBytes: number): MemoryLeakResult {

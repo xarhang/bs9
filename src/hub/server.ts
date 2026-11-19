@@ -16,7 +16,7 @@ import { createServer, type Server, type Socket } from "node:net";
 import { existsSync, lstatSync, unlinkSync, chmodSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { ensurePrivateDirectory, securePrivateFile, writePrivateFile } from "../utils/private-files.js";
 import {
   encodeFrame,
@@ -768,6 +768,10 @@ export class HubServer extends EventEmitter {
    * Handles incoming client connection over stream socket.
    */
   private handleClientConnection(socket: Socket): void {
+    if (this.activeSockets.size >= 1024) {
+      socket.destroy();
+      return;
+    }
     this.activeSockets.add(socket);
     const decoder = new StreamingFrameDecoder();
     const nonce = generateNonce();
@@ -818,12 +822,9 @@ export class HubServer extends EventEmitter {
                 if (payload.hmac && verifyHmac(nonce, expectedToken, payload.hmac)) {
                   authSuccess = true;
                 } else if ((payload as any).token) {
-                  const clientTokenBuf = Buffer.from(String((payload as any).token));
-                  const expectedTokenBuf = Buffer.from(expectedToken);
-                  if (
-                    clientTokenBuf.length === expectedTokenBuf.length &&
-                    timingSafeEqual(clientTokenBuf, expectedTokenBuf)
-                  ) {
+                  const clientDigest = createHash("sha256").update(String((payload as any).token)).digest();
+                  const expectedDigest = createHash("sha256").update(expectedToken).digest();
+                  if (timingSafeEqual(clientDigest, expectedDigest)) {
                     authSuccess = true;
                   }
                 }

@@ -42,15 +42,76 @@ export class Queue {
     }
 
     const memQueue = this.backend.getInMemoryQueues();
-    const ns = this.backend.getConfig().namespace || "default";
+    const ns =
+      this.backend.getConfig().namespace ||
+      process.env.BS9_CLUSTER_NAME ||
+      process.env.SERVICE_NAME ||
+      "default";
     const res = memQueue.publish(ns, queueName, item, options);
     return res.messageId;
+  }
+
+  public async reserve(
+    queueName: string,
+    options?: { visibilityTimeoutMs?: number; count?: number }
+  ): Promise<Array<{ id: string; payload: any; deliveryCount: number }>> {
+    await this.backend.ensureConnected();
+    const client = this.backend.getHubClient();
+    const visibilityTimeoutMs = options?.visibilityTimeoutMs ?? 30000;
+    const count = options?.count ?? 1;
+    if (client) {
+      const res = await client.queueReserve(queueName, visibilityTimeoutMs, count);
+      return res.messages;
+    }
+    const memQueue = this.backend.getInMemoryQueues();
+    const ns =
+      this.backend.getConfig().namespace ||
+      process.env.BS9_CLUSTER_NAME ||
+      process.env.SERVICE_NAME ||
+      "default";
+    return memQueue.reserve(ns, queueName, visibilityTimeoutMs, count);
+  }
+
+  public async ack(queueName: string, messageId: string): Promise<boolean> {
+    await this.backend.ensureConnected();
+    const client = this.backend.getHubClient();
+    if (client) {
+      const res = await client.queueAck(queueName, messageId);
+      return res.acked;
+    }
+    const memQueue = this.backend.getInMemoryQueues();
+    const ns =
+      this.backend.getConfig().namespace ||
+      process.env.BS9_CLUSTER_NAME ||
+      process.env.SERVICE_NAME ||
+      "default";
+    return memQueue.ack(ns, queueName, messageId);
+  }
+
+  public async nack(queueName: string, messageId: string): Promise<boolean> {
+    await this.backend.ensureConnected();
+    const client = this.backend.getHubClient();
+    if (client) {
+      const res = await client.queueNack(queueName, messageId);
+      return res.nacked;
+    }
+    const memQueue = this.backend.getInMemoryQueues();
+    const ns =
+      this.backend.getConfig().namespace ||
+      process.env.BS9_CLUSTER_NAME ||
+      process.env.SERVICE_NAME ||
+      "default";
+    return memQueue.nack(ns, queueName, messageId);
   }
 
   public async pop(queueName: string, options?: { timeoutMs?: number }): Promise<any> {
     await this.backend.ensureConnected();
     const client = this.backend.getHubClient();
-    const ns = this.backend.getConfig().namespace || "default";
+    const ns =
+      this.backend.getConfig().namespace ||
+      process.env.BS9_CLUSTER_NAME ||
+      process.env.SERVICE_NAME ||
+      "default";
     const timeoutMs = options?.timeoutMs ?? 0;
     const startTime = Date.now();
 

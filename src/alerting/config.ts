@@ -25,41 +25,107 @@ function isPrivateIpv4Octets(a: number, b: number, c: number, d: number): boolea
     (a === 169 && b === 254) ||                 // 169.254.0.0/16 (link-local / cloud metadata)
     (a === 172 && b >= 16 && b <= 31) ||        // 172.16.0.0/12
     (a === 192 && b === 168) ||                 // 192.168.0.0/16
-    (a === 100 && b >= 64 && b <= 127)          // 100.64.0.0/10 (CGNAT)
+    (a === 100 && b >= 64 && b <= 127) ||       // 100.64.0.0/10 (CGNAT)
+    (a === 192 && b === 0 && c === 2) ||        // 192.0.2.0/24 (TEST-NET-1)
+    (a === 198 && (b === 18 || b === 19)) ||    // 198.18.0.0/15 (benchmarking)
+    (a === 198 && b === 51 && c === 100) ||     // 198.51.100.0/24 (TEST-NET-2)
+    (a === 203 && b === 0 && c === 113) ||      // 203.0.113.0/24 (TEST-NET-3)
+    a >= 224                                    // 224.0.0.0/4 (multicast) & 240.0.0.0/4 (reserved/broadcast)
   );
+}
+
+function parseIpv6Hextets(ip: string): number[] | null {
+  // Handle embedded IPv4 suffix (e.g. ::ffff:127.0.0.1 or ::127.0.0.1)
+  let work = ip;
+  const lastColon = work.lastIndexOf(':');
+  if (lastColon !== -1 && work.slice(lastColon + 1).includes('.')) {
+    const ipv4Part = work.slice(lastColon + 1);
+    const m = ipv4Part.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (!m) return null;
+    const [, a, b, c, d] = m.map(Number);
+    if (a > 255 || b > 255 || c > 255 || d > 255) return null;
+    const hi = ((a << 8) | b).toString(16);
+    const lo = ((c << 8) | d).toString(16);
+    work = `${work.slice(0, lastColon)}:${hi}:${lo}`;
+  }
+
+  const parts = work.split('::');
+  if (parts.length > 2) return null;
+  const left = parts[0] ? parts[0].split(':') : [];
+  const right = parts.length === 2 && parts[1] ? parts[1].split(':') : [];
+  const missing = 8 - (left.length + right.length);
+  if (parts.length === 1 && left.length !== 8) return null;
+  if (parts.length === 2 && missing < 0) return null;
+
+  const full = parts.length === 2
+    ? [...left, ...Array(missing).fill('0'), ...right]
+    : left;
+  if (full.length !== 8) return null;
+
+  const hextets: number[] = [];
+  for (const h of full) {
+    if (!/^[0-9a-f]{1,4}$/i.test(h)) return null;
+    hextets.push(parseInt(h, 16));
+  }
+  return hextets;
 }
 
 export function isBlockedIpAddress(rawIp: string): boolean {
   const ip = rawIp.toLowerCase().replace(/^\[|\]$/g, '').split('%')[0];
   if (!ip) return true;
 
-  if (ip === '::' || ip === '::1') {
-    return true;
-  }
-
-  // Block private, loopback, and link-local IPv4 ranges (including dotted IPv4-mapped IPv6)
-  const ipv4Match = ip.match(/^(?:::ffff:)?(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/i);
+  // Plain IPv4
+  const ipv4Match = ip.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
   if (ipv4Match) {
     const [, a, b, c, d] = ipv4Match.map(Number);
     return isPrivateIpv4Octets(a, b, c, d);
   }
 
-  // Handle hex IPv4-mapped IPv6 (e.g. ::ffff:7f00:1 or 0:0:0:0:0:ffff:7f00:0001)
-  const hexMappedMatch = ip.match(/^(?:::ffff:|(?:0{1,4}:){5}ffff:)([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
-  if (hexMappedMatch) {
-    const hi = parseInt(hexMappedMatch[1], 16);
-    const lo = parseInt(hexMappedMatch[2], 16);
-    return isPrivateIpv4Octets((hi >> 8) & 0xff, hi & 0xff, (lo >> 8) & 0xff, lo & 0xff);
-  }
-
-  // Block IPv6 unspecified/loopback in expanded form, unique local (fc00::/7), link-local (fe80::/10), multicast (ff00::/8)
   if (ip.includes(':')) {
-    if (/^(?:0{1,4}:){7}0{0,3}[01]$/.test(ip)) {
+    const h = parseIpv6Hextets(ip);
+    if (!h) return true; // Reject malformed IPv6
+
+    // Unspecified (::) and Loopback (::1) in any compressed/expanded form
+    const allZeroPrefix = h[0] === 0 && h[1] === 0 && h[2] === 0 && h[3] === 0 && h[4] === 0 && h[5] === 0;
+    if (allZeroPrefix && h[6] === 0 && (h[7] === 0 || h[7] === 1)) {
       return true;
     }
-    if (/^(fc|fd|fe[89ab]|ff)[0-9a-f]{0,2}:/i.test(ip)) {
-      return true;
+
+    // IPv4-compatible IPv6 (::a.b.c.d) or IPv4-mapped IPv6 (::ffff:a.b.c.d)
+    if (allZeroPrefix || (h[0] === 0 && h[1] === 0 && h[2] === 0 && h[3] === 0 && h[4] === 0 && h[5] === 0xffff)) {
+      const a = (h[6] >> 8) & 0xff;
+      const b = h[6] & 0xff;
+      const c = (h[7] >> 8) & 0xff;
+      const d = h[7] & 0xff;
+      return isPrivateIpv4Octets(a, b, c, d);
     }
+
+    // NAT64 (64:ff9b::/96)
+    if (h[0] === 0x0064 && h[1] === 0xff9b && h[2] === 0 && h[3] === 0 && h[4] === 0 && h[5] === 0) {
+      const a = (h[6] >> 8) & 0xff;
+      const b = h[6] & 0xff;
+      const c = (h[7] >> 8) & 0xff;
+      const d = h[7] & 0xff;
+      return isPrivateIpv4Octets(a, b, c, d);
+    }
+
+    // 6to4 (2002::/16) embedding an IPv4 address in h[1], h[2]
+    if (h[0] === 0x2002) {
+      const a = (h[1] >> 8) & 0xff;
+      const b = h[1] & 0xff;
+      const c = (h[2] >> 8) & 0xff;
+      const d = h[2] & 0xff;
+      if (isPrivateIpv4Octets(a, b, c, d)) return true;
+    }
+
+    // Unique local (fc00::/7), Link-local unicast (fe80::/10), Multicast (ff00::/8)
+    if ((h[0] & 0xfe00) === 0xfc00) return true;
+    if ((h[0] & 0xffc0) === 0xfe80) return true;
+    if ((h[0] & 0xff00) === 0xff00) return true;
+    // Documentation (2001:db8::/32) & Teredo (2001::/32)
+    if (h[0] === 0x2001 && (h[1] === 0x0db8 || h[1] === 0x0000)) return true;
+
+    return false;
   }
 
   return false;
@@ -229,6 +295,9 @@ class AlertManager {
   }
   
   setServiceAlert(serviceName: string, enabled: boolean, customThresholds?: Partial<AlertConfig['thresholds']>): void {
+    if (!serviceName || serviceName === "__proto__" || serviceName === "constructor" || serviceName === "prototype") {
+      throw new Error(`Invalid service name: '${serviceName}'`);
+    }
     this.config.services[serviceName] = {
       enabled,
       customThresholds,
@@ -284,7 +353,7 @@ class AlertManager {
     
     if (alerts.length === 0) return;
     
-    // Check cooldown
+    // Check cooldown (update timestamp before awaiting sendAlert to prevent concurrent duplicate alerts)
     const now = Date.now();
     const lastAlert = this.lastAlerts.get(serviceName) || 0;
     
@@ -292,9 +361,8 @@ class AlertManager {
       return; // Still in cooldown period
     }
     
-    // Send alert
-    await this.sendAlert(serviceName, alerts);
     this.lastAlerts.set(serviceName, now);
+    await this.sendAlert(serviceName, alerts);
   }
   
   private async sendAlert(serviceName: string, alerts: string[]): Promise<void> {

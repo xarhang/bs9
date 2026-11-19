@@ -77,6 +77,18 @@ export async function daemonCommand(
         try {
           const pid = parseInt(readFileSync(pidFile, "utf-8").trim(), 10);
           if (Number.isInteger(pid) && pid > 0) {
+            let isBs9Daemon = true;
+            if (process.platform === "linux" && existsSync(`/proc/${pid}/cmdline`)) {
+              const cmdline = readFileSync(`/proc/${pid}/cmdline`, "utf-8").replace(/\0/g, " ");
+              if (cmdline && !cmdline.includes("bs9") && !cmdline.includes("daemon")) {
+                isBs9Daemon = false;
+              }
+            }
+            if (!isBs9Daemon) {
+              console.warn(`⚠️ Refusing to kill PID ${pid}: process does not appear to be bs9 daemon.`);
+              try { unlinkSync(pidFile); } catch {}
+              return;
+            }
             process.kill(pid, "SIGTERM");
             console.log(`   Sent SIGTERM to daemon PID ${pid}`);
             let running = true;
@@ -90,9 +102,12 @@ export async function daemonCommand(
               }
             }
             if (!running) {
+              try { unlinkSync(pidFile); } catch {}
               console.log("✅ BS9 Persistent Daemon stopped.");
               return;
             }
+            console.warn(`⚠️ Daemon PID ${pid} did not exit within 2s.`);
+            return;
           }
         } catch (e) {
           console.warn(`⚠️ Error reading PID file: ${e}`);

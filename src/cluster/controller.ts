@@ -142,7 +142,7 @@ export class ClusterController extends EventEmitter {
     const tokenFilePath = join(platformInfo.runtimeDir, "tokens", "admin.token");
     if (existsSync(tokenFilePath)) {
       try {
-        if (platformInfo.isLinux) {
+        if (platformInfo.isLinux || platformInfo.isMacOS) {
           ensurePrivateDirectory(platformInfo.runtimeDir);
           ensurePrivateDirectory(join(platformInfo.runtimeDir, "tokens"));
           securePrivateFile(tokenFilePath);
@@ -160,7 +160,7 @@ export class ClusterController extends EventEmitter {
   public getOrCreateAdminToken(explicitToken?: string): { token: string; tokenFilePath: string } {
     const platformInfo = getPlatformInfo();
     const tokensDir = join(platformInfo.runtimeDir, "tokens");
-    if (platformInfo.isLinux) {
+    if (platformInfo.isLinux || platformInfo.isMacOS) {
       ensurePrivateDirectory(platformInfo.runtimeDir);
       ensurePrivateDirectory(tokensDir);
     } else if (!existsSync(tokensDir)) {
@@ -168,10 +168,10 @@ export class ClusterController extends EventEmitter {
     }
 
     const tokenFilePath = join(tokensDir, "admin.token");
-    if (platformInfo.isLinux && existsSync(tokenFilePath)) securePrivateFile(tokenFilePath);
+    if ((platformInfo.isLinux || platformInfo.isMacOS) && existsSync(tokenFilePath)) securePrivateFile(tokenFilePath);
     if (explicitToken) {
       this.adminToken = explicitToken;
-      if (platformInfo.isLinux) writePrivateFile(tokenFilePath, explicitToken);
+      if (platformInfo.isLinux || platformInfo.isMacOS) writePrivateFile(tokenFilePath, explicitToken);
       else {
         writeFileSync(tokenFilePath, explicitToken, { encoding: "utf-8", mode: 0o600 });
         try { chmodSync(tokenFilePath, 0o600); } catch {}
@@ -309,6 +309,12 @@ export class ClusterController extends EventEmitter {
     timeoutMs = 60000,
     ownerId = "admin"
   ): { acquired: boolean; lockToken: string | null; reason?: string; currentOwner?: string } {
+    if (!isValidClusterName(clusterName)) {
+      throw new Error(`Invalid cluster name: '${clusterName}'`);
+    }
+    if (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+      throw new Error(`Invalid lock timeoutMs: ${timeoutMs}`);
+    }
     const now = Date.now();
     const existing = this.lockedClusters.get(clusterName);
 
@@ -649,7 +655,11 @@ export class ClusterController extends EventEmitter {
             if (envelope.type === "HANDSHAKE_RESPONSE") {
               const payload = envelope.payload as HandshakeResponsePayload;
               const token = this.getClusterToken(payload.clusterName);
-              if (!token || !verifyHmac(nonce, token, payload.hmac)) {
+              const validFields =
+                Number.isInteger(payload.slot) && payload.slot >= 0 &&
+                Number.isInteger(payload.generation) && payload.generation >= 0 &&
+                Number.isInteger(payload.pid) && payload.pid > 0;
+              if (!token || !validFields || !verifyHmac(nonce, token, payload.hmac)) {
                 try {
                   const rejectEnv = createEnvelope("HANDSHAKE_REJECT", "system", { reason: "Invalid HMAC or unknown cluster" });
                   socket.write(encodeFrame(rejectEnv));
@@ -666,6 +676,11 @@ export class ClusterController extends EventEmitter {
                 payload.slot,
                 payload.generation
               );
+
+              const previousWorker = this.workers.get(authenticatedWorkerKey);
+              if (previousWorker && previousWorker.socket !== socket) {
+                try { previousWorker.socket.destroy(); } catch {}
+              }
 
               const worker: ConnectedWorker = {
                 id: authenticatedWorkerKey,
@@ -736,13 +751,13 @@ export class ClusterController extends EventEmitter {
     socket.on("close", () => {
       clearTimeout(authTimer);
       if (authenticatedWorkerKey) {
-        const drainResolver = this.drainResolvers.get(authenticatedWorkerKey);
-        if (drainResolver) {
-          this.drainResolvers.delete(authenticatedWorkerKey);
-          drainResolver({ drained: true, inFlightRemaining: 0 });
-        }
         const worker = this.workers.get(authenticatedWorkerKey);
         if (worker && worker.socket === socket) {
+          const drainResolver = this.drainResolvers.get(authenticatedWorkerKey);
+          if (drainResolver) {
+            this.drainResolvers.delete(authenticatedWorkerKey);
+            drainResolver({ drained: true, inFlightRemaining: 0 });
+          }
           worker.status = "stopped";
           this.emit("worker:disconnected", worker);
           this.workers.delete(authenticatedWorkerKey);

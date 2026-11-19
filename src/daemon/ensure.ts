@@ -173,18 +173,20 @@ export function spawnDetachedDaemon(): void {
   }
 }
 
-let inFlightEnsure: Promise<void> | null = null;
+const inFlightEnsure = new Map<string, Promise<void>>();
 
 /**
  * Ensures the BS9 persistent daemon is actively running and responsive.
  */
 export async function ensureDaemonRunning(options: EnsureDaemonOptions = {}): Promise<void> {
-  if (inFlightEnsure) {
-    return inFlightEnsure;
+  const key = options.socketPath || "__default__";
+  const existing = inFlightEnsure.get(key);
+  if (existing) {
+    return existing;
   }
 
-  inFlightEnsure = (async () => {
-    const timeoutMs = options.timeoutMs || 8000;
+  const promise = (async () => {
+    const timeoutMs = options.timeoutMs ?? 8000;
 
     // 1. Check if already alive
     if (await isDaemonResponsive(options)) {
@@ -205,8 +207,9 @@ export async function ensureDaemonRunning(options: EnsureDaemonOptions = {}): Pr
 
     throw new Error(`BS9 Daemon failed to start and respond to ping within ${timeoutMs}ms`);
   })().finally(() => {
-    inFlightEnsure = null;
+    inFlightEnsure.delete(key);
   });
 
-  return inFlightEnsure;
+  inFlightEnsure.set(key, promise);
+  return promise;
 }

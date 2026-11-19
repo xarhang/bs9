@@ -218,6 +218,9 @@ export class LifecycleClient extends EventEmitter {
             settled = true;
             cleanupListeners();
             this.cleanup();
+            if (!this.isExplicitlyStopped) {
+              this.scheduleReconnect();
+            }
             resolve(false);
           }
         }, 5000);
@@ -320,7 +323,9 @@ export class LifecycleClient extends EventEmitter {
 
       case "DRAIN_REQUEST": {
         const payload = envelope.payload as DrainRequestPayload;
-        this.handleDrainRequest(payload);
+        this.handleDrainRequest(payload).catch((err) => {
+          if (this.listenerCount("error") > 0) this.emit("error", err);
+        });
         break;
       }
     }
@@ -394,8 +399,9 @@ export class LifecycleClient extends EventEmitter {
    * Starts periodic heartbeat transmission.
    */
   public startHeartbeat(intervalMs = 5000): void {
+    const safeInterval = Number.isFinite(intervalMs) ? Math.max(100, Math.floor(intervalMs)) : 5000;
     this.wasHeartbeatActive = true;
-    this.heartbeatIntervalMs = intervalMs;
+    this.heartbeatIntervalMs = safeInterval;
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
 
     const startTime = Date.now();
@@ -415,7 +421,7 @@ export class LifecycleClient extends EventEmitter {
         }
       );
       this.send(envelope);
-    }, intervalMs);
+    }, safeInterval);
 
     if (typeof this.heartbeatTimer.unref === "function") {
       this.heartbeatTimer.unref();

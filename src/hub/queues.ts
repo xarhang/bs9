@@ -616,6 +616,14 @@ export class QueueManager {
       }
     }
 
+    const prefix = `[${JSON.stringify(namespace)},`;
+    for (const existingKey of Array.from(this.queues.keys())) {
+      if (existingKey.startsWith(prefix) && !replacedKeys.has(existingKey)) {
+        this.queues.delete(existingKey);
+        this.messageIds.delete(existingKey);
+      }
+    }
+
     for (const [key, list] of staged) {
       if (list.length === 0) {
         this.queues.delete(key);
@@ -629,10 +637,8 @@ export class QueueManager {
       }
     }
 
-    const nextMessages = current.messages - replacedMessages + importedMessages;
-    const nextBytes = current.bytes - replacedBytes + importedBytes;
-    if (nextMessages <= 0 && nextBytes <= 0) this.queueUsage.delete(namespace);
-    else this.queueUsage.set(namespace, { messages: nextMessages, bytes: nextBytes });
+    if (importedMessages <= 0 && importedBytes <= 0) this.queueUsage.delete(namespace);
+    else this.queueUsage.set(namespace, { messages: importedMessages, bytes: importedBytes });
   }
 
   public close(): void {

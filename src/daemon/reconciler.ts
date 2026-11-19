@@ -124,7 +124,10 @@ export class ClusterReconciler extends EventEmitter {
       const manifests = this.controller.getAllManifests();
       const activeSlots = new Set<string>();
       for (const manifest of manifests) {
-        const desiredInstances = manifest.instances ?? 1;
+        const rawInstances = manifest.instances ?? 1;
+        const desiredInstances = Number.isFinite(rawInstances) && rawInstances > 0
+          ? Math.min(Math.floor(rawInstances), 1024)
+          : 0;
         for (let slot = 0; slot < desiredInstances; slot++) {
           activeSlots.add(`${manifest.clusterName}:${slot}`);
         }
@@ -148,7 +151,10 @@ export class ClusterReconciler extends EventEmitter {
         }
 
         const workers = this.controller.getClusterWorkers(clusterName);
-        const desiredInstances = manifest.instances ?? 1;
+        const rawInstances = manifest.instances ?? 1;
+        const desiredInstances = Number.isFinite(rawInstances) && rawInstances > 0
+          ? Math.min(Math.floor(rawInstances), 1024)
+          : 0;
 
         // Group existing connected workers by slot
         const slotMap = new Map<number, typeof workers>();
@@ -221,6 +227,9 @@ export class ClusterReconciler extends EventEmitter {
                 lockLost = true;
               }
             }, 30_000);
+            if (typeof renewalTimer.unref === "function") {
+              renewalTimer.unref();
+            }
             try {
               // Re-read under the cluster lock. The outer manifest snapshot may
               // predate a concurrent account migration or lifecycle mutation.
@@ -265,22 +274,34 @@ export class ClusterReconciler extends EventEmitter {
               this.emit("slot:missing", { clusterName, slot, nextGen });
               if (this.onResurrectSlot) {
                 this.inFlightResurrections.set(slotKey, { nextGen, timestamp: Date.now() });
+                let resurrected = false;
                 try {
                   await this.onResurrectSlot(updatedManifest, slot, nextGen);
-                  if (!lockLost && this.controller.renewClusterLock(clusterName, lockToken, 120_000).renewed) {
-                    this.controller.setManifest(updatedManifest);
-                    manifest.currentGeneration = nextGen;
-                    manifest.updatedAt = updatedManifest.updatedAt;
-                  }
-                  this.emit("slot:resurrected", { clusterName, slot, nextGen });
+                  resurrected = true;
                 } catch (err) {
                   this.inFlightResurrections.delete(slotKey);
                   this.emit("slot:resurrect-failed", { clusterName, slot, nextGen, error: err });
                 }
+                if (resurrected) {
+                  if (!lockLost && this.controller.renewClusterLock(clusterName, lockToken, 120_000).renewed) {
+                    try {
+                      this.controller.setManifest(updatedManifest);
+                      manifest.currentGeneration = nextGen;
+                      manifest.updatedAt = updatedManifest.updatedAt;
+                    } catch {
+                      // Worker is already spawned; do not emit resurrect-failed
+                    }
+                  }
+                  this.emit("slot:resurrected", { clusterName, slot, nextGen });
+                }
               } else {
-                this.controller.setManifest(updatedManifest);
-                manifest.currentGeneration = nextGen;
-                manifest.updatedAt = updatedManifest.updatedAt;
+                try {
+                  this.controller.setManifest(updatedManifest);
+                  manifest.currentGeneration = nextGen;
+                  manifest.updatedAt = updatedManifest.updatedAt;
+                } catch (err) {
+                  this.emit("slot:resurrect-failed", { clusterName, slot, nextGen, error: err });
+                }
               }
             } finally {
               clearInterval(renewalTimer);

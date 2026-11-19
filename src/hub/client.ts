@@ -93,25 +93,35 @@ export class HubClient extends EventEmitter {
     return this.isConnected && this.isAuthenticated;
   }
 
+  private connectPromise: Promise<boolean> | null = null;
+
   /**
    * Connects to the State Hub and performs HMAC authentication.
    */
   public async connect(): Promise<boolean> {
-    if (this.socket) {
-      return this.isConnected && this.isAuthenticated;
+    if (this.connectPromise) {
+      return this.connectPromise;
+    }
+    if (this.socket && this.isConnected && this.isAuthenticated) {
+      return true;
     }
 
     this.decoder = new StreamingFrameDecoder();
 
-    return new Promise((resolve) => {
+    this.connectPromise = new Promise<boolean>((resolve) => {
       let settled = false;
-
-      const timeoutTimer = setTimeout(() => {
+      const finish = (result: boolean) => {
         if (!settled) {
           settled = true;
-          this.disconnect();
-          resolve(false);
+          this.connectPromise = null;
+          clearTimeout(timeoutTimer);
+          resolve(result);
         }
+      };
+
+      const timeoutTimer = setTimeout(() => {
+        finish(false);
+        this.disconnect();
       }, this.connectTimeoutMs);
 
       try {
@@ -119,6 +129,7 @@ export class HubClient extends EventEmitter {
       } catch {
         clearTimeout(timeoutTimer);
         this.socket = null;
+        this.connectPromise = null;
         return resolve(false);
       }
 
@@ -131,19 +142,11 @@ export class HubClient extends EventEmitter {
           const envelopes = this.decoder.push(chunk);
           for (const envelope of envelopes) {
             this.handleEnvelope(envelope, (authSuccess) => {
-              if (!settled) {
-                settled = true;
-                clearTimeout(timeoutTimer);
-                resolve(authSuccess);
-              }
+              finish(authSuccess);
             });
           }
         } catch (err) {
-          if (!settled) {
-            settled = true;
-            clearTimeout(timeoutTimer);
-            resolve(false);
-          }
+          finish(false);
           if (this.listenerCount("error") > 0) {
             this.emit("error", err);
           }
@@ -152,11 +155,7 @@ export class HubClient extends EventEmitter {
       });
 
       this.socket.on("error", (err: Error) => {
-        if (!settled) {
-          settled = true;
-          clearTimeout(timeoutTimer);
-          resolve(false);
-        }
+        finish(false);
         if (this.listenerCount("error") > 0) {
           this.emit("error", err);
         }
@@ -166,10 +165,13 @@ export class HubClient extends EventEmitter {
         this.socket = null;
         this.isConnected = false;
         this.isAuthenticated = false;
+        finish(false);
         this.rejectAllPending(new Error("Connection closed"));
         this.emit("close");
       });
     });
+
+    return this.connectPromise;
   }
 
   private handleEnvelope(

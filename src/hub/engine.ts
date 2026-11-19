@@ -196,6 +196,9 @@ export class KvEngine {
       );
     }
 
+    if (ttlMs !== undefined && (typeof ttlMs !== "number" || !Number.isFinite(ttlMs) || ttlMs < 0)) {
+      throw new Error("TTL must be a finite non-negative number");
+    }
     const now = Date.now();
     const expiresAt = typeof ttlMs === "number" && ttlMs > 0 ? now + ttlMs : undefined;
 

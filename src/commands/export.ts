@@ -35,8 +35,14 @@ function isContainedExportPath(filePath: string): boolean {
     const allowedRoots = [process.cwd(), homedir(), tmpdir()].map((r) =>
       existsSync(r) ? realpathSync(r) : resolve(r)
     );
-    if (existsSync(resolved)) {
-      if (lstatSync(resolved).isSymbolicLink()) return false;
+    let stat: ReturnType<typeof lstatSync> | null = null;
+    try {
+      stat = lstatSync(resolved);
+    } catch (err: any) {
+      if (err?.code !== "ENOENT") return false;
+    }
+    if (stat) {
+      if (stat.isSymbolicLink()) return false;
       const real = realpathSync(resolved);
       return allowedRoots.some((root) => real === root || real.startsWith(root + sep));
     }

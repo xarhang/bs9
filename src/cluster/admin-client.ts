@@ -91,6 +91,7 @@ export class ControllerAdminClient extends EventEmitter {
 
   public async connect(timeoutMs = 5000): Promise<boolean> {
     if (this.isConnected && this.isAuthenticated) return true;
+    this.cleanup();
     this.lastConnectFailure = null;
     this.decoder = new StreamingFrameDecoder();
 
@@ -106,8 +107,6 @@ export class ControllerAdminClient extends EventEmitter {
       try {
         const sock = createConnection(this.socketPath);
         this.socket = sock;
-
-        let authTimeout: any = null;
 
         const onConnectTimeout = setTimeout(() => {
           this.lastConnectFailure = "ambiguous";
@@ -125,17 +124,14 @@ export class ControllerAdminClient extends EventEmitter {
             for (const env of envelopes) {
               this.handleMessage(env, () => {
                 clearTimeout(onConnectTimeout);
-                if (authTimeout) clearTimeout(authTimeout);
                 settle(true);
               }, (_err) => {
                 clearTimeout(onConnectTimeout);
-                if (authTimeout) clearTimeout(authTimeout);
                 settle(false);
               });
             }
           } catch {
             clearTimeout(onConnectTimeout);
-            if (authTimeout) clearTimeout(authTimeout);
             this.cleanup();
             settle(false);
           }
@@ -143,7 +139,6 @@ export class ControllerAdminClient extends EventEmitter {
 
         sock.on("close", () => {
           clearTimeout(onConnectTimeout);
-          if (authTimeout) clearTimeout(authTimeout);
           this.cleanup();
           this.emit("close");
           settle(false);
@@ -151,7 +146,6 @@ export class ControllerAdminClient extends EventEmitter {
 
         sock.on("error", (err: NodeJS.ErrnoException) => {
           clearTimeout(onConnectTimeout);
-          if (authTimeout) clearTimeout(authTimeout);
           this.lastConnectFailure = err.code === "ENOENT" || err.code === "ECONNREFUSED" ? "stopped" : "ambiguous";
           this.cleanup();
           settle(false);
@@ -423,15 +417,19 @@ export class ClusterLockSession {
     public readonly lockToken: string,
     options: LockSessionOptions = {}
   ) {
-    this.renewIntervalMs = options.renewIntervalMs || 15000;
-    this.extendMs = options.extendMs || 60000;
+    const rawRenew = options.renewIntervalMs ?? 15000;
+    this.renewIntervalMs = Number.isFinite(rawRenew) ? Math.max(1, Math.floor(rawRenew)) : 15000;
+    const rawExtend = options.extendMs ?? 60000;
+    this.extendMs = Number.isFinite(rawExtend) ? Math.max(1, Math.floor(rawExtend)) : 60000;
     this.onLostCallback = options.onLost;
   }
 
   public start(): void {
     if (this.timer) return;
+    let isRenewing = false;
     this.timer = setInterval(async () => {
-      if (this.aborted) return;
+      if (this.aborted || isRenewing) return;
+      isRenewing = true;
       try {
         const renewed = await this.adminClient.renewClusterLock(
           this.clusterName,
@@ -443,6 +441,8 @@ export class ClusterLockSession {
         }
       } catch (err: any) {
         this.handleLost(new Error(`Failed to renew cluster lock for '${this.clusterName}': ${err.message}`));
+      } finally {
+        isRenewing = false;
       }
     }, this.renewIntervalMs);
 

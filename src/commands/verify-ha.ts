@@ -153,7 +153,8 @@ function violentlyKillProcess(pid: number): void {
 
   if (process.platform === "win32") {
     try {
-      execSync(`taskkill /F /PID ${pid}`, { stdio: "ignore", windowsHide: true });
+      const { spawnSync } = require("node:child_process") as typeof import("node:child_process");
+      spawnSync("taskkill", ["/F", "/PID", String(pid)], { stdio: "ignore", windowsHide: true });
     } catch {}
   }
 }

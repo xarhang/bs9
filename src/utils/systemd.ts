@@ -50,6 +50,9 @@ export function escapeSystemdArg(arg: string): string {
   if (typeof arg !== "string") {
     arg = String(arg ?? "");
   }
+  if (arg === "") {
+    return '""';
+  }
   const noNewlines = arg.replace(/[\r\n]+/g, " ");
   const escaped = escapeSystemdValue(noNewlines);
   if (!/[\s"'\\]/.test(noNewlines)) {
@@ -121,7 +124,7 @@ export function generateSystemdUnit(options: {
   env?: Record<string, string>;
   restartSec?: number;
 }): string {
-  const description = options.description.replace(/[\r\n]+/g, " ");
+  const description = escapeSystemdValue(options.description.replace(/[\r\n]+/g, " "));
   const workingDir = escapeSystemdArg(options.workingDir);
   const execStart = formatSystemdExecStart(options.executable, options.args || []);
   const restartSec = Number.isFinite(options.restartSec) && (options.restartSec as number) >= 0 ? options.restartSec : 2;

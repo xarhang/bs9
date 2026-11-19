@@ -154,28 +154,36 @@ export class AdvancedMonitoring {
         const key = `${serviceName}-${metricName}`;
         const baseline = this.baselines.get(key);
 
-        // Establish initial baseline when none exists or baseline is 0 to avoid division by zero
-        if (baseline === undefined || baseline === 0) {
+        // Establish initial baseline when none exists
+        if (baseline === undefined) {
           this.baselines.set(key, value);
           continue;
         }
 
-        // Simple anomaly detection using statistical deviation
-        const deviation = Math.abs(value - baseline) / Math.abs(baseline);
+        // Detect anomaly (handle baseline === 0 without skipping non-zero spikes)
         const threshold = 0.3; // 30% deviation threshold
+        const isAnomalous = baseline === 0
+          ? value !== 0
+          : Math.abs(value - baseline) / Math.abs(baseline) > threshold;
 
-        if (deviation > threshold) {
+        if (isAnomalous) {
           const anomaly: AnomalyDetection = {
             service: serviceName,
             metric: metricName,
             baseline,
-            threshold: baseline * (1 + threshold),
+            threshold: baseline === 0 ? 0 : baseline * (1 + threshold),
             detected: true,
             timestamp: Date.now()
           };
 
           anomalies.push(anomaly);
           this.anomalies.set(key, anomaly);
+          if (this.anomalies.size > 1000) {
+            const firstKey = this.anomalies.keys().next().value;
+            if (firstKey !== undefined) this.anomalies.delete(firstKey);
+          }
+        } else {
+          this.anomalies.delete(key);
         }
       }
     }

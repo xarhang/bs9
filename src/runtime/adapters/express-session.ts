@@ -142,14 +142,14 @@ export class Bs9SessionStore extends ExpressSessionStoreBase {
   private async removeFromIndex(sid: string): Promise<void> {
     for (let attempt = 0; attempt < 5; attempt++) {
       const curIndex = await this.kv.get<Record<string, number>>(this.indexKey);
-      if (!curIndex || !(sid in curIndex)) return;
+      if (!curIndex || !Object.hasOwn(curIndex, sid)) return;
       const nextIndex = { ...curIndex };
       delete nextIndex[sid];
       const res = await this.kv.cas(this.indexKey, curIndex, nextIndex);
       if (res.success) return;
     }
     const cur = await this.kv.get<Record<string, number>>(this.indexKey);
-    if (cur && sid in cur) {
+    if (cur && Object.hasOwn(cur, sid)) {
       delete cur[sid];
       await this.kv.set(this.indexKey, cur);
     }

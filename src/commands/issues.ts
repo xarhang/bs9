@@ -251,9 +251,9 @@ export async function issuesCommand(name?: string, options: IssuesOptions = {}):
             const maxBytes = 512 * 1024;
             const toRead = Math.min(st.size, maxBytes);
             if (toRead > 0) {
-              const buf = Buffer.allocUnsafe(toRead);
-              readSync(fd, buf, 0, toRead, st.size - toRead);
-              recentLines = buf.toString("utf-8").split("\n").slice(-maxLines).join("\n");
+              const buf = Buffer.alloc(toRead);
+              const bytesRead = readSync(fd, buf, 0, toRead, st.size - toRead);
+              recentLines = buf.subarray(0, bytesRead).toString("utf-8").split("\n").slice(-maxLines).join("\n");
             }
           } finally {
             closeSync(fd);

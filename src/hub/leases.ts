@@ -66,6 +66,9 @@ export class LeaseManager {
     ttlMs: number,
     ownerId: string
   ): LeaseAcquireResult {
+    if (typeof ttlMs !== "number" || !Number.isFinite(ttlMs) || ttlMs <= 0) {
+      throw new Error("Lease TTL must be a positive finite number");
+    }
     const key = this.getKey(namespace, leaseName);
     const existing = this.leases.get(key);
     const now = Date.now();
@@ -117,6 +120,9 @@ export class LeaseManager {
     fencingToken: number,
     ttlMs: number
   ): LeaseRenewResult {
+    if (typeof ttlMs !== "number" || !Number.isFinite(ttlMs) || ttlMs <= 0) {
+      throw new Error("Lease TTL must be a positive finite number");
+    }
     const key = this.getKey(namespace, leaseName);
     const existing = this.leases.get(key);
     const now = Date.now();

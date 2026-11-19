@@ -24,11 +24,14 @@ export async function waitForServiceReady(options: ReadinessOptions): Promise<{ 
   }
 
   const rawHost = options.host || "127.0.0.1";
-  const probeHost = rawHost === "0.0.0.0" || rawHost === "::" ? "127.0.0.1" : rawHost;
+  const unbracketed = rawHost === "0.0.0.0" || rawHost === "::" ? "127.0.0.1" : rawHost;
+  const probeHost = unbracketed.includes(":") && !unbracketed.startsWith("[") ? `[${unbracketed}]` : unbracketed;
   const path = options.path?.startsWith("/") ? options.path : `/${options.path || "healthz"}`;
   const protocol = options.protocol === "https" ? "https" : "http";
-  const timeoutMs = Math.max(200, options.timeoutMs ?? 15000);
-  const intervalMs = Math.max(50, options.intervalMs ?? 150);
+  const rawTimeout = options.timeoutMs ?? 15000;
+  const rawInterval = options.intervalMs ?? 150;
+  const timeoutMs = Math.max(200, Number.isFinite(rawTimeout) ? rawTimeout : 15000);
+  const intervalMs = Math.max(50, Number.isFinite(rawInterval) ? rawInterval : 150);
 
   const startedAt = Date.now();
   const deadline = startedAt + timeoutMs;

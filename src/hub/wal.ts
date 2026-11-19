@@ -920,24 +920,42 @@ export class WalManager {
     record: WalRecord
   ): void {
     switch (record.op) {
-      case "set":
-        engine.set(namespace, record.key!, record.value, record.ttlMs);
+      case "set": {
+        let remainingTtl = record.ttlMs;
+        if (typeof record.ttlMs === "number" && record.ttlMs > 0) {
+          remainingTtl = record.timestamp + record.ttlMs - Date.now();
+          if (remainingTtl <= 0) {
+            engine.delete(namespace, record.key!);
+            break;
+          }
+        }
+        engine.set(namespace, record.key!, record.value, remainingTtl);
         break;
+      }
       case "del":
         engine.delete(namespace, record.key!);
         break;
       case "incr":
         engine.incr(namespace, record.key!, record.delta ?? 1);
         break;
-      case "cas":
+      case "cas": {
+        let remainingTtl = record.ttlMs;
+        if (typeof record.ttlMs === "number" && record.ttlMs > 0) {
+          remainingTtl = record.timestamp + record.ttlMs - Date.now();
+          if (remainingTtl <= 0) {
+            engine.delete(namespace, record.key!);
+            break;
+          }
+        }
         engine.cas(
           namespace,
           record.key!,
           record.expectedValue,
           record.newValue,
-          record.ttlMs
+          remainingTtl
         );
         break;
+      }
       case "lease_acquire":
         if (
           leases &&

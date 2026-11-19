@@ -534,6 +534,15 @@ export class LoadBalancer {
     if (newConfig.healthCheck?.path !== undefined && !isValidPath(newConfig.healthCheck.path)) {
       throw new Error(`❌ Security: Invalid health check path: ${newConfig.healthCheck.path}`);
     }
+    if (newConfig.healthCheck?.interval !== undefined && (!Number.isFinite(newConfig.healthCheck.interval) || newConfig.healthCheck.interval <= 0)) {
+      throw new Error(`❌ Security: Invalid health check interval: ${newConfig.healthCheck.interval}`);
+    }
+    if (newConfig.healthCheck?.timeout !== undefined && (!Number.isFinite(newConfig.healthCheck.timeout) || newConfig.healthCheck.timeout <= 0)) {
+      throw new Error(`❌ Security: Invalid health check timeout: ${newConfig.healthCheck.timeout}`);
+    }
+    if (newConfig.healthCheck?.retries !== undefined && (!Number.isFinite(newConfig.healthCheck.retries) || newConfig.healthCheck.retries < 0)) {
+      throw new Error(`❌ Security: Invalid health check retries: ${newConfig.healthCheck.retries}`);
+    }
 
     if (newConfig.backends !== undefined) {
       if (!Array.isArray(newConfig.backends) || newConfig.backends.length === 0) {
@@ -550,6 +559,10 @@ export class LoadBalancer {
 
         if (!/^[a-zA-Z0-9._:-]+$/.test(backend.id) || backend.id.length > 64) {
           throw new Error(`❌ Security: Invalid backend ID: ${backend.id}`);
+        }
+
+        if (backend.weight !== undefined && (!Number.isFinite(backend.weight) || backend.weight <= 0)) {
+          throw new Error(`❌ Security: Invalid backend weight: ${backend.weight}`);
         }
       }
     }
@@ -692,9 +705,31 @@ async function startLoadBalancer(options?: any): Promise<void> {
         }
         if (request.method === 'POST') {
           try {
-            const rawText = await request.text();
-            if (rawText.length > 65536) {
+            const contentLength = Number(request.headers.get('content-length') || '0');
+            if (Number.isFinite(contentLength) && contentLength > 65536) {
               return new Response(JSON.stringify({ error: 'Payload Too Large' }), { status: 413, headers: { 'Content-Type': 'application/json' } });
+            }
+            let rawText = '';
+            if (request.body) {
+              const reader = request.body.getReader();
+              const decoder = new TextDecoder();
+              let totalBytes = 0;
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                totalBytes += value.byteLength;
+                if (totalBytes > 65536) {
+                  await reader.cancel().catch(() => {});
+                  return new Response(JSON.stringify({ error: 'Payload Too Large' }), { status: 413, headers: { 'Content-Type': 'application/json' } });
+                }
+                rawText += decoder.decode(value, { stream: true });
+              }
+              rawText += decoder.decode();
+            } else {
+              rawText = await request.text();
+              if (rawText.length > 65536) {
+                return new Response(JSON.stringify({ error: 'Payload Too Large' }), { status: 413, headers: { 'Content-Type': 'application/json' } });
+              }
             }
             const body = JSON.parse(rawText) as Partial<LoadBalancerConfig>;
             loadBalancer.updateConfig(body);

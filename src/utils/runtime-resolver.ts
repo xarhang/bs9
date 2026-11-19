@@ -15,7 +15,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { basename, extname } from "node:path";
+import { extname } from "node:path";
 
 export interface ResolvedRuntime {
   executable: string;

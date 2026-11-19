@@ -132,7 +132,7 @@ class ConsulServiceDiscovery {
       
       const services: Record<string, ConsulService> = await response.json();
       return Object.values(services).filter(service => 
-        service.Tags.includes('bs9')
+        Array.isArray(service.Tags) && service.Tags.includes('bs9')
       );
     } catch (error) {
       console.error(`❌ Service discovery failed: ${error}`);
@@ -156,10 +156,13 @@ class ConsulServiceDiscovery {
     }
   }
   
-  async watchService(serviceName: string, callback: (services: ConsulService[]) => void): Promise<() => void> {
+  async watchService(serviceName: string, callback: (services: ConsulService[]) => void | Promise<void>): Promise<() => void> {
     let lastServices: ConsulService[] = [];
+    let checking = false;
     
     const checkServices = async () => {
+      if (checking) return;
+      checking = true;
       try {
         const services = await this.discoverServices(serviceName);
         
@@ -167,11 +170,13 @@ class ConsulServiceDiscovery {
         const servicesChanged = JSON.stringify(services) !== JSON.stringify(lastServices);
         
         if (servicesChanged) {
-          callback(services);
+          await callback(services);
           lastServices = services;
         }
       } catch (error) {
         console.error(`❌ Service watch error: ${error}`);
+      } finally {
+        checking = false;
       }
     };
     
@@ -212,12 +217,16 @@ export async function consulCommand(action: string, options: any): Promise<void>
           console.error('❌ --name, --id, --address, and --port are required for register');
           process.exit(1);
         }
-        
+        const port = parseInt(options.port, 10);
+        if (!Number.isInteger(port) || port < 1 || port > 65535) {
+          console.error('❌ Invalid --port (must be 1..65535)');
+          process.exit(1);
+        }
         await consul.registerService({
           name: options.name,
           id: options.id,
           address: options.address,
-          port: parseInt(options.port),
+          port,
           tags: options.tags ? options.tags.split(',') : undefined,
           healthCheck: options.healthCheck,
           meta: options.meta ? JSON.parse(options.meta) : undefined
@@ -243,7 +252,7 @@ export async function consulCommand(action: string, options: any): Promise<void>
           services.forEach(service => {
             console.log(`📦 ${service.Name} (${service.ID})`);
             console.log(`   Address: ${service.Address}:${service.Port}`);
-            console.log(`   Tags: ${service.Tags.join(', ')}`);
+            console.log(`   Tags: ${(Array.isArray(service.Tags) ? service.Tags : []).join(', ')}`);
             console.log(`   Health: ${service.Meta?.health || 'unknown'}`);
             console.log('');
           });
@@ -267,10 +276,10 @@ export async function consulCommand(action: string, options: any): Promise<void>
             const status = check.Checks?.[0]?.Status || 'unknown';
             const output = check.Checks?.[0]?.Output || 'No output';
             
-            console.log(`📦 ${check.Service.ID}`);
+            console.log(`📦 ${check.Service?.ID || 'unknown'}`);
             console.log(`   Status: ${status}`);
-            console.log(`   Node: ${check.Node.Node}`);
-            console.log(`   Address: ${check.Service.Address}:${check.Service.Port}`);
+            console.log(`   Node: ${check.Node?.Node || 'unknown'}`);
+            console.log(`   Address: ${check.Service?.Address || 'unknown'}:${check.Service?.Port ?? 'unknown'}`);
             console.log(`   Output: ${output}`);
             console.log('');
           });

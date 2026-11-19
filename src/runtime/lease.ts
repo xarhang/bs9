@@ -49,7 +49,11 @@ export class Lease {
 
     await this.backend.ensureConnected();
     const client = this.backend.getHubClient();
-    const namespace = this.backend.getConfig().namespace || "default";
+    const namespace =
+      this.backend.getConfig().namespace ||
+      process.env.BS9_CLUSTER_NAME ||
+      process.env.SERVICE_NAME ||
+      "default";
 
     if (client) {
       const res = await client.leaseAcquire(name, ttlMs, ownerId);

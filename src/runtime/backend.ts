@@ -218,7 +218,12 @@ export class RuntimeBackend {
 
   public async getAdapter(): Promise<StateAdapter> {
     if (this.activeAdapter) {
-      return this.activeAdapter;
+      if (this.hubClient && !this.hubClient.connected) {
+        this.activeAdapter = null;
+        this.hubClient = null;
+      } else {
+        return this.activeAdapter;
+      }
     }
     if (this.initPromise) {
       return this.initPromise;

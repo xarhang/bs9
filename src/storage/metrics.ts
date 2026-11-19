@@ -46,7 +46,7 @@ class MetricsStorage {
   constructor() {
     this.storageDir = join(homedir(), ".config", "bs9", "metrics");
     if (!existsSync(this.storageDir)) {
-      mkdirSync(this.storageDir, { recursive: true });
+      mkdirSync(this.storageDir, { recursive: true, mode: 0o700 });
     }
   }
   
@@ -56,11 +56,16 @@ class MetricsStorage {
       services,
     };
     
-    const filename = `metrics-${snapshot.timestamp}.json`;
-    const filepath = join(this.storageDir, filename);
+    let filename = `metrics-${snapshot.timestamp}.json`;
+    let filepath = join(this.storageDir, filename);
+    let suffix = 1;
+    while (existsSync(filepath)) {
+      filename = `metrics-${snapshot.timestamp}-${suffix++}.json`;
+      filepath = join(this.storageDir, filename);
+    }
     
     try {
-      writeFileSync(filepath, JSON.stringify(snapshot, null, 2));
+      writeFileSync(filepath, JSON.stringify(snapshot, null, 2), { mode: 0o600 });
       
       // Cleanup old snapshots
       this.cleanupOldSnapshots();
@@ -70,6 +75,9 @@ class MetricsStorage {
   }
   
   getHistoricalData(hours: number = 24): MetricSnapshot[] {
+    if (typeof hours !== 'number' || !Number.isFinite(hours) || hours <= 0) {
+      return [];
+    }
     const cutoffTime = Date.now() - (hours * 60 * 60 * 1000);
     const snapshots: MetricSnapshot[] = [];
     

@@ -90,6 +90,17 @@ export function stopWebDashboard(): boolean {
     return true;
   }
 
+  if (process.platform === "linux" && existsSync(`/proc/${pid}/cmdline`)) {
+    try {
+      const cmdline = readFileSync(`/proc/${pid}/cmdline`, "utf-8").replace(/\0/g, " ");
+      if (cmdline && !cmdline.includes("dashboard") && !cmdline.includes("bs9") && !cmdline.includes("bun")) {
+        console.warn(`⚠️  PID ${pid} does not appear to be BS9 Web Dashboard. Cleaned up stale PID file.`);
+        try { rmSync(pidFile, { force: true }); } catch {}
+        return true;
+      }
+    } catch {}
+  }
+
   console.log(`🛑 Stopping BS9 Web Dashboard (PID: ${pid})...`);
   try {
     if (process.platform === 'win32') {

@@ -1043,7 +1043,7 @@ export class WindowsServiceManager {
     if (metadata && metadata.pid) {
       try {
         const res = spawnSync(getWindowsSystemExecutable("tasklist.exe"), ["/FI", `PID eq ${metadata.pid}`, "/NH"], { encoding: 'utf-8', windowsHide: true });
-        if (res.status === 0 && (res.stdout || '').includes(String(metadata.pid))) {
+        if (res.status === 0 && new RegExp(`\\s${metadata.pid}\\s`).test(res.stdout || '')) {
           return {
             name: serviceName,
             state: 'running',

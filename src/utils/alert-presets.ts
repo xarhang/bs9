@@ -62,7 +62,7 @@ export function formatDiscordAlert(event: Bs9AlertEvent): Record<string, unknown
           { name: "Severity", value: severity.toUpperCase(), inline: true },
           ...(event.host ? [{ name: "Host", value: clampText(event.host, 128), inline: true }] : []),
         ],
-        timestamp: event.timestamp || new Date().toISOString(),
+        timestamp: clampText(event.timestamp || new Date().toISOString(), 64),
       },
     ],
   };

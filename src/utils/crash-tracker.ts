@@ -12,6 +12,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { getPlatformInfo } from "../platform/detect.js";
 
 const CRASH_WINDOW_MS = 60_000;
 const CRASH_THRESHOLD = 5;
@@ -44,6 +45,9 @@ export interface RestartDecision {
 }
 
 function getCrashHistoryDir(): string {
+  if (process.env.BS9_HOME) {
+    return join(getPlatformInfo().stateDir, "crash-history");
+  }
   return join(homedir(), ".bs9", "crash-history");
 }
 
@@ -62,8 +66,8 @@ function loadCrashRecord(name: string): CrashRecord {
 
 function saveCrashRecord(record: CrashRecord): void {
   const dir = getCrashHistoryDir();
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(getCrashFilePath(record.name), JSON.stringify(record, null, 2));
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
+  writeFileSync(getCrashFilePath(record.name), JSON.stringify(record, null, 2), { mode: 0o600 });
 }
 
 export function recordCrash(name: string, exitCode: number | null = null): RestartDecision {

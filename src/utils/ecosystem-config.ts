@@ -23,6 +23,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve, basename, extname } from "node:path";
 import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
 import os from "node:os";
 
 // -------------------------------------------------------------------
@@ -146,7 +147,8 @@ export async function parseEcosystemConfig(filePath: string): Promise<BS9AppEntr
 async function loadJsConfig(absPath: string): Promise<PM2EcosystemConfig> {
   // Strategy 1: ESM dynamic import()
   try {
-    const mod = await import(`file://${absPath}?t=${Date.now()}`);
+    const fileUrl = `${pathToFileURL(absPath).href}?t=${Date.now()}`;
+    const mod = await import(fileUrl);
     const exported = mod.default ?? mod;
     if (exported?.apps) return exported as PM2EcosystemConfig;
   } catch {

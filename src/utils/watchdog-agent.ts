@@ -223,6 +223,8 @@ async function runSupervisor() {
       // Stream with timestamp prefix using non-blocking buffered WriteStream
       outStream = createSafeLogStream(outPath);
       errStream = createSafeLogStream(errPath);
+      outStream.on("error", () => {});
+      errStream.on("error", () => {});
       let outBytes = 0;
       let errBytes = 0;
 
@@ -235,31 +237,53 @@ async function runSupervisor() {
       });
       child.unref();
 
+      let rotatingOut = false;
       child.stdout.on("data", (chunk: Buffer) => {
         const time = new Date().toISOString();
         const lines = chunk.toString().split("\n");
         const formatted = lines.map((l) => (l.length ? `[${time}] ${l}` : l)).join("\n");
         outStream!.write(formatted);
         outBytes += Buffer.byteLength(formatted);
-        if (outBytes >= logRotationOpts.maxBytes) {
+        if (outBytes >= logRotationOpts.maxBytes && !rotatingOut) {
+          rotatingOut = true;
           outBytes = 0;
-          try { outStream?.end(); } catch {}
-          rotateLogIfNeeded(outPath, logRotationOpts);
-          outStream = createSafeLogStream(outPath);
+          const oldStream = outStream;
+          const rotateAndReopen = () => {
+            rotateLogIfNeeded(outPath, logRotationOpts);
+            outStream = createSafeLogStream(outPath);
+            outStream.on("error", () => {});
+            rotatingOut = false;
+          };
+          if (oldStream) {
+            oldStream.end(rotateAndReopen);
+          } else {
+            rotateAndReopen();
+          }
         }
       });
 
+      let rotatingErr = false;
       child.stderr.on("data", (chunk: Buffer) => {
         const time = new Date().toISOString();
         const lines = chunk.toString().split("\n");
         const formatted = lines.map((l) => (l.length ? `[${time}] ${l}` : l)).join("\n");
         errStream!.write(formatted);
         errBytes += Buffer.byteLength(formatted);
-        if (errBytes >= logRotationOpts.maxBytes) {
+        if (errBytes >= logRotationOpts.maxBytes && !rotatingErr) {
+          rotatingErr = true;
           errBytes = 0;
-          try { errStream?.end(); } catch {}
-          rotateLogIfNeeded(errPath, logRotationOpts);
-          errStream = createSafeLogStream(errPath);
+          const oldStream = errStream;
+          const rotateAndReopen = () => {
+            rotateLogIfNeeded(errPath, logRotationOpts);
+            errStream = createSafeLogStream(errPath);
+            errStream.on("error", () => {});
+            rotatingErr = false;
+          };
+          if (oldStream) {
+            oldStream.end(rotateAndReopen);
+          } else {
+            rotateAndReopen();
+          }
         }
       });
     } else {

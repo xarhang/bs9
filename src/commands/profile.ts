@@ -410,12 +410,16 @@ async function saveProfileData(profile: PerformanceProfile, filename: string): P
     throw new Error("Invalid output file path");
   }
   const resolved = resolve(filename);
+  try {
+    if (lstatSync(resolved).isSymbolicLink()) {
+      throw new Error(`Security: Refusing to write through symbolic link '${filename}'`);
+    }
+  } catch (err: any) {
+    if (err?.code !== "ENOENT") throw err;
+  }
   const parentDir = dirname(resolved);
   const realParent = existsSync(parentDir) ? realpathSync(parentDir) : parentDir;
   const realTarget = existsSync(resolved) ? realpathSync(resolved) : join(realParent, resolved.slice(parentDir.length + (parentDir.endsWith(sep) ? 0 : 1)));
-  if (existsSync(resolved) && lstatSync(resolved).isSymbolicLink()) {
-    throw new Error(`Security: Refusing to write through symbolic link '${filename}'`);
-  }
   const allowedRoots = [resolve(process.cwd()), resolve(homedir()), resolve(tmpdir())].map((r) =>
     existsSync(r) ? realpathSync(r) : r
   );

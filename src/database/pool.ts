@@ -29,12 +29,12 @@ function isValidHost(host: string): boolean {
 
 function isValidDatabaseName(name: string): boolean {
   // Allow alphanumeric, underscores, and hyphens only
-  return /^[a-zA-Z0-9_-]+$/.test(name) && name.length <= 64;
+  return typeof name === "string" && /^[a-zA-Z0-9_-]+$/.test(name) && name.length <= 64;
 }
 
 function isValidUsername(username: string): boolean {
   // Allow alphanumeric, underscores, and hyphens only
-  return /^[a-zA-Z0-9_-]+$/.test(username) && username.length <= 32;
+  return typeof username === "string" && /^[a-zA-Z0-9_-]+$/.test(username) && username.length <= 32;
 }
 
 export function sanitizeSQL(sql: string): string {
@@ -42,9 +42,12 @@ export function sanitizeSQL(sql: string): string {
     throw new Error(`❌ Security: Dangerous SQL pattern detected`);
   }
 
-  // Neutralize quoted string literals first so a literal like '/*' cannot swallow
-  // subsequent SQL into a fake block comment during comment stripping.
-  const withoutLiterals = sql.replace(/'(?:[^']|'')*'/g, "'STR'");
+  // Neutralize quoted string literals (including PostgreSQL backslash-escaped quotes and dollar-quoted strings)
+  // first so a literal cannot swallow subsequent SQL into a fake block comment during comment stripping.
+  const withoutLiterals = sql
+    .replace(/\$([a-zA-Z_][a-zA-Z0-9_]*)?\$[\s\S]*?\$\1\$/g, "'STR'")
+    .replace(/\\'/g, "")
+    .replace(/'(?:[^']|'')*'/g, "'STR'");
 
   // Strip SQL comments before pattern matching to prevent comment-splitting bypasses (e.g. DROP/**/TABLE)
   const stripped = withoutLiterals
@@ -61,11 +64,14 @@ export function sanitizeSQL(sql: string): string {
 
   // Basic SQL injection and destructive command prevention
   const dangerousPatterns = [
-    /drop\s+table/i,
-    /drop\s+database/i,
+    /drop\s+(?:table|database|schema|role|user)/i,
     /delete\s+from/i,
     /truncate\s+table/i,
-    /alter\s+table/i,
+    /alter\s+(?:table|system|user|role)/i,
+    /create\s+(?:table|database|schema|function|role|user)/i,
+    /copy\s+[\s\S]*?\b(?:to|from)\s+program\b/i,
+    /pg_sleep\s*\(/i,
+    /\bdo\s+'STR'/i,
     /exec\s*\(/i,
     /execute\s*\(/i,
     /xp_cmdshell/i,
@@ -165,20 +171,42 @@ export class DatabasePool {
       throw new Error("❌ Security: PostgreSQL TLS options require ssl: true");
     }
     
+    const maxConnections = config.maxConnections ?? 10;
+    const minConnections = config.minConnections ?? 2;
+    const acquireTimeoutMillis = config.acquireTimeoutMillis ?? 30000;
+    const idleTimeoutMillis = config.idleTimeoutMillis ?? 30000;
+    const reapIntervalMillis = config.reapIntervalMillis ?? 1000;
+
+    if (!Number.isFinite(maxConnections) || maxConnections < 1) {
+      throw new Error(`❌ Security: Invalid maxConnections: ${maxConnections}`);
+    }
+    if (!Number.isFinite(minConnections) || minConnections < 0 || minConnections > maxConnections) {
+      throw new Error(`❌ Security: Invalid minConnections: ${minConnections}`);
+    }
+    if (!Number.isFinite(acquireTimeoutMillis) || acquireTimeoutMillis <= 0) {
+      throw new Error(`❌ Security: Invalid acquireTimeoutMillis: ${acquireTimeoutMillis}`);
+    }
+    if (!Number.isFinite(idleTimeoutMillis) || idleTimeoutMillis <= 0) {
+      throw new Error(`❌ Security: Invalid idleTimeoutMillis: ${idleTimeoutMillis}`);
+    }
+    if (!Number.isFinite(reapIntervalMillis) || reapIntervalMillis <= 0) {
+      throw new Error(`❌ Security: Invalid reapIntervalMillis: ${reapIntervalMillis}`);
+    }
+
     this.config = {
-      maxConnections: 10,
-      minConnections: 2,
-      acquireTimeoutMillis: 30000,
-      idleTimeoutMillis: 30000,
-      reapIntervalMillis: 1000,
       ...config,
+      maxConnections,
+      minConnections,
+      acquireTimeoutMillis,
+      idleTimeoutMillis,
+      reapIntervalMillis,
     };
     
     this.startReaper();
   }
   
   private async createConnection(): Promise<DatabaseConnection> {
-    const id = `conn_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const id = `conn_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
     const now = Date.now();
 
     // Connect to real PostgreSQL database if not explicitly set to mock mode
@@ -201,9 +229,8 @@ export class DatabasePool {
           connectionTimeoutMillis: this.config.acquireTimeoutMillis || 5000,
         });
 
-        await client.connect();
-
-        return {
+        let broken = false;
+        const dbConn: DatabaseConnection = {
           id,
           created: now,
           lastUsed: now,
@@ -214,14 +241,31 @@ export class DatabasePool {
           username: this.config.username,
           checkedOut: false,
           query: async (sql: string, params?: any[]) => {
+            if (broken) {
+              throw new Error(`Database connection ${id} is closed or broken`);
+            }
             const cleanSql = sanitizeSQL(sql);
             const res = await client.query(cleanSql, params);
             return res.rows;
           },
           close: async () => {
-            await client.end();
+            broken = true;
+            await client.end().catch(() => {});
           },
         };
+
+        client.on("error", () => {
+          broken = true;
+          const idx = this.connections.indexOf(dbConn);
+          if (idx !== -1) {
+            this.connections.splice(idx, 1);
+          }
+          client.end().catch(() => {});
+        });
+
+        await client.connect();
+
+        return dbConn;
       } catch (err: any) {
         // Fallback gracefully for unit tests or offline environments if DB is not reachable
         if (process.env.NODE_ENV === "test" || process.env.BS9_DB_MOCK === "true") {
@@ -313,10 +357,13 @@ export class DatabasePool {
   }
   
   async release(connection: DatabaseConnection): Promise<void> {
+    const idx = this.connections.indexOf(connection);
     if (this.isClosing) {
-      const idx = this.connections.indexOf(connection);
       if (idx !== -1) this.connections.splice(idx, 1);
       await connection.close().catch(() => {});
+      return;
+    }
+    if (idx === -1 || !connection.inUse) {
       return;
     }
     connection.inUse = false;
@@ -393,13 +440,17 @@ export class DatabasePool {
   }
   
   async testConnection(): Promise<boolean> {
+    let conn: DatabaseConnection | null = null;
     try {
-      const conn = await this.acquire();
+      conn = await this.acquire();
       await conn.query('SELECT 1');
-      await this.release(conn);
       return true;
     } catch {
       return false;
+    } finally {
+      if (conn) {
+        await this.release(conn);
+      }
     }
   }
 }
@@ -444,6 +495,7 @@ export async function dbpoolCommand(action: string, options: any): Promise<void>
           console.log('✅ Pool management commands ready');
         } else {
           console.error('❌ Failed to connect to database');
+          await pool.close();
           process.exit(1);
         }
         break;

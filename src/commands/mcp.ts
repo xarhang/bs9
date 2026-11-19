@@ -10,7 +10,7 @@
  */
 
 import { runMcpServer } from "../mcp/server.js";
-import { join } from "node:path";
+import { resolve } from "node:path";
 
 interface McpOptions {
   install?: boolean;
@@ -20,7 +20,7 @@ interface McpOptions {
 export async function mcpCommand(options: McpOptions = {}): Promise<void> {
   const isReadOnly = Boolean(options.readonly || process.env.BS9_MCP_READONLY === "true");
   if (options.install) {
-    const binPath = join(process.cwd(), "bin", "bs9");
+    const binPath = resolve(import.meta.dir, "../../bin/bs9");
     const args = ["run", binPath, "mcp", ...(isReadOnly ? ["--readonly"] : [])];
     const mcpConfig = {
       mcpServers: {

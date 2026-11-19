@@ -113,7 +113,7 @@ async function getLinuxServices(): Promise<ServiceMetrics[]> {
         for (const line of lines) {
             if (!line.trim()) continue;
 
-            const match = line.match(/^(?:\s*([●\s○]))?\s*([^\s]+)\.service\s+([^\s]+)\s+([^\s]+)\s+([^\s]+)\s+(.+)$/);
+            const match = line.match(/^(?:\s*([●\s○×]))?\s*([^\s]+)\.service\s+([^\s]+)\s+([^\s]+)\s+([^\s]+)\s+(.+)$/);
             if (!match) continue;
 
             const [, , name, loaded, active, sub, description] = match;
@@ -193,12 +193,14 @@ async function getWindowsProcessMetrics(pids: string[]): Promise<Map<string, { c
     if (pids.length === 0) return metricsMap;
 
     try {
-        const validPids = pids.filter(p => p !== '-' && !isNaN(Number(p)));
+        const validPids = pids.filter(p => /^\d+$/.test(String(p).trim()));
         if (validPids.length === 0) return metricsMap;
 
         // Use safer PowerShell filtering that doesn't throw if a PID is missing
         const pidList = validPids.join(',');
-        const command = `powershell -NoProfile -Command "$ids = @(${pidList}); Get-Process | Where-Object { $ids -contains $_.Id } | Select-Object Id, @{Name='Mem';Expression={ [Math]::Round($_.WorkingSet64 / 1024) }}, @{Name='CPU';Expression={ $_.TotalProcessorTime.ToString('hh\\:mm\\:ss') }} | ConvertTo-Csv -NoTypeInformation"`;
+        const systemRoot = process.env.SystemRoot || process.env.WINDIR || 'C:\\Windows';
+        const psExe = join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+        const command = `"${psExe}" -NoProfile -Command "$ids = @(${pidList}); Get-Process | Where-Object { $ids -contains $_.Id } | Select-Object Id, @{Name='Mem';Expression={ [Math]::Round($_.WorkingSet64 / 1024) }}, @{Name='CPU';Expression={ $_.TotalProcessorTime.ToString('hh\\:mm\\:ss') }} | ConvertTo-Csv -NoTypeInformation"`;
 
         const output = execSync(command, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
         const lines = output.split('\n');

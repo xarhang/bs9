@@ -66,8 +66,9 @@ export async function envCommand(name: string): Promise<void> {
       try {
         const configs = JSON.parse(readFileSync(configPath, "utf-8"));
         const cfg = configs[`bs9.${cleanName}`] || configs[cleanName];
-        if (cfg?.env) {
-          envMap = typeof cfg.env === "string" ? JSON.parse(cfg.env) : cfg.env;
+        const rawEnv = cfg?.environmentVariables ?? cfg?.env;
+        if (rawEnv) {
+          envMap = typeof rawEnv === "string" ? JSON.parse(rawEnv) : rawEnv;
         }
       } catch {}
     }

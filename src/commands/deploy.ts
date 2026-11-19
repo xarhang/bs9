@@ -195,8 +195,9 @@ async function performHealthCheck(serviceName: string, port: string, host: strin
   console.log("🏥 Performing health check...");
 
   const protocol = isHttps ? "https" : "http";
-  const healthUrl = `${protocol}://${host}:${port}/healthz`;
-  const metricsUrl = `${protocol}://${host}:${port}/metrics`;
+  const urlHost = host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
+  const healthUrl = `${protocol}://${urlHost}:${port}/healthz`;
+  const metricsUrl = `${protocol}://${urlHost}:${port}/metrics`;
 
   try {
     // Wait a moment for service to start
@@ -227,14 +228,15 @@ async function performHealthCheck(serviceName: string, port: string, host: strin
 function showDeploymentSummary(serviceName: string, options: DeployOptions): void {
   const protocol = options.https ? "https" : "http";
   const host = options.host || "localhost";
+  const urlHost = host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
   const port = options.port || "3000";
   console.log("\n" + "=".repeat(50));
   console.log("🎉 DEPLOYMENT SUMMARY");
   console.log("=".repeat(50));
   console.log(`📦 Service: ${serviceName}`);
-  console.log(`🌐 URL: ${protocol}://${host}:${port}`);
-  console.log(`🏥 Health: ${protocol}://${host}:${port}/healthz`);
-  console.log(`📊 Metrics: ${protocol}://${host}:${port}/metrics`);
+  console.log(`🌐 URL: ${protocol}://${urlHost}:${port}`);
+  console.log(`🏥 Health: ${protocol}://${urlHost}:${port}/healthz`);
+  console.log(`📊 Metrics: ${protocol}://${urlHost}:${port}/metrics`);
   console.log(`📈 OpenTelemetry: ${options.otel !== false ? 'Enabled' : 'Disabled'}`);
   console.log(`📊 Prometheus: ${options.prometheus !== false ? 'Enabled' : 'Disabled'}`);
 

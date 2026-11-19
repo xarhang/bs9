@@ -27,6 +27,9 @@ import { getPlatformInfo } from "../platform/detect.js";
 import { recordAuditEvent } from "../utils/audit-log.js";
 
 const O_NOFOLLOW = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0;
+const MAX_LOGIN_ATTEMPTS = 10;
+const LOGIN_WINDOW_MS = 60_000;
+const loginAttempts = new Map<string, { count: number; resetAt: number }>();
 
 
 // Detach from console on Windows if running in background
@@ -238,7 +241,9 @@ function isDashboardOriginAllowed(originHeader: string | null): boolean {
   // must still pin one exact WEB_DASHBOARD_PUBLIC_ORIGIN above.
   const normalizedHost = (host: string) => host.toLowerCase().replace(/^\[|\]$/g, "");
   const loopbackHosts = new Set(["localhost", "127.0.0.1", "::1"]);
-  if (!loopbackHosts.has(normalizedHost(HOST))) return false;
+  const wildcardHosts = new Set(["0.0.0.0", "::"]);
+  const boundHost = normalizedHost(HOST);
+  if (!loopbackHosts.has(boundHost) && !wildcardHosts.has(boundHost)) return false;
 
   const expectedUrl = new URL(expected);
   const requestUrl = new URL(requestOrigin);
@@ -633,8 +638,9 @@ async function refreshLogs() {
   const el = document.getElementById('logContent');
   if (!el.textContent) el.textContent = 'Loading...';
   const res = await fetch('/api/services/' + encodeURIComponent(activeLogService) + '/logs?lines=100');
-  const data = await res.json();
-  if (!res.ok) { el.textContent = data.error || 'Failed to load logs'; return; }
+  let data = {};
+  try { data = await res.json(); } catch {}
+  if (!res.ok) { el.textContent = data.error || res.statusText || 'Failed to load logs'; return; }
   el.textContent = (data.out || '(no stdout)') + (data.err ? '\\n--- STDERR ---\\n' + data.err : '');
 }
 
@@ -655,7 +661,8 @@ async function action(name, cmd) {
   const res = await fetch('/api/services/' + encodeURIComponent(name) + '/' + cmd, {
     method: 'POST'
   });
-  const j = await res.json();
+  let j = {};
+  try { j = await res.json(); } catch {}
   alert(j.message || j.error || res.statusText);
 }
 
@@ -673,7 +680,8 @@ function connect() {
     }
   };
   ws.onmessage = (e) => {
-    const m = JSON.parse(e.data);
+    let m;
+    try { m = JSON.parse(e.data); } catch { return; }
     if (m.type === 'metrics') render(m.data);
     if (m.type === 'log_delta' && m.service === activeLogService) {
       const el = document.getElementById('logContent');
@@ -706,9 +714,19 @@ export function startDashboardServer() {
           headers: { "Content-Type": "application/json" },
         });
       }
+      const clientKey = server.requestIP(req)?.address || "unknown";
+      const now = Date.now();
+      const attempt = loginAttempts.get(clientKey);
+      if (attempt && attempt.resetAt > now && attempt.count >= MAX_LOGIN_ATTEMPTS) {
+        return new Response(JSON.stringify({ error: "Too many failed login attempts. Try again later." }), {
+          status: 429,
+          headers: { "Content-Type": "application/json", "Retry-After": "60" },
+        });
+      }
       try {
         const body = await req.json() as { token?: string };
         if (body.token && safeCompare(body.token, SESSION_TOKEN)) {
+          loginAttempts.delete(clientKey);
           recordAuditEvent({ action: "web_login", target: "dashboard", status: "success" });
           const isHttps = expectedDashboardOrigin()?.startsWith("https://") || url.protocol === "https:";
           const cookieVal = `bs9_session=${encodeURIComponent(SESSION_TOKEN)}; HttpOnly; SameSite=Strict; Path=/${isHttps ? "; Secure" : ""}; Max-Age=86400`;
@@ -718,6 +736,11 @@ export function startDashboardServer() {
               "Set-Cookie": cookieVal,
             },
           });
+        }
+        if (!attempt || attempt.resetAt <= now) {
+          loginAttempts.set(clientKey, { count: 1, resetAt: now + LOGIN_WINDOW_MS });
+        } else {
+          attempt.count += 1;
         }
         recordAuditEvent({ action: "web_login", target: "dashboard", status: "denied", details: "invalid_token" });
         return new Response(JSON.stringify({ error: "Invalid session token" }), {
@@ -765,7 +788,7 @@ export function startDashboardServer() {
     }
 
     // --- REST: metrics ---
-    if (url.pathname === "/api/metrics") {
+    if (url.pathname === "/api/metrics" && req.method === "GET") {
       if (!isAuthorized(req)) {
         return new Response(JSON.stringify({ error: "Unauthorized" }), {
           status: 401,
@@ -799,13 +822,13 @@ export function startDashboardServer() {
           headers: { "Content-Type": "application/json" }
         });
       }
-      if (!isValidServiceName(name)) {
+      const cleanName = name.replace(/^(BS9_|bs9\.)/, "");
+      if (!isValidServiceName(name) || !isValidServiceName(cleanName)) {
         return new Response(JSON.stringify({ error: "Security: Invalid service name" }), {
           status: 400,
           headers: { "Content-Type": "application/json" }
         });
       }
-      const cleanName = name.replace(/^(BS9_|bs9\.)/, "");
       const prefix = getLogFilePrefix(cleanName);
       const rawLinesParam = url.searchParams.get("lines");
       const rawLines = rawLinesParam !== null && rawLinesParam.trim() !== "" ? Number(rawLinesParam) : NaN;
