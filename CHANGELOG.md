@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.1] - 2026-11-19
+
+### Security
+- **SSRF & Prototype Pollution Defenses**: Hardened `isBlockedIpAddress` in `src/alerting/config.ts` to block hex IPv4-mapped IPv6 (`::ffff:7f00:1`), zone IDs (`fe80::1%eth0`), and multicast addresses (`ff02::1`); guarded `AlertManager` service lookups with `Object.hasOwn`.
+- **CSV & SQL Injection Hardening**: Added CSV formula injection escaping (`escapeCsvCell`) in `MetricsStorage.exportData`, and updated `sanitizeSQL` in `src/database/pool.ts` to preserve quoted string literals while blocking SQL injection.
+- **Command & Filesystem Safety**: Replaced unsafe shell string interpolation with `execFileSync`/`spawnSync` argument arrays across CLI commands, `systemd`, `launchd`, and `watchdog-agent`; enforced symlink/path traversal guards in `log-rotator.ts` and preserved leading shebangs idempotently in `injectOpenTelemetry`.
+
+### Fixed
+- **State Hub & Pool**: Fixed `LeaseManager.exportState` to decode JSON tuple keys (`[namespace, leaseName]`), preserved `"${field} must be a finite number greater than 0"` error contract in `hub/server.ts`, added `QueueManager` empty `queueName` rejection and safe `reserve` parameter clamping, and made `DatabasePool.acquire()` reject after `close()`.
+- **Load Balancer & Monitoring**: Exported `parseBackends` in `src/loadbalancer/manager.ts` to throw `Error` instead of calling `process.exit(1)` on invalid input; fixed bare `Error:`/`Exception:` matching in `src/commands/issues.ts`; restored `uid: "bs9-overview"` in `src/utils/grafana-export.ts`; handled missing `severity` in `alert-presets.ts`.
+- **Stability & Null Safety**: Added defensive null/undefined guards, bounds checking, and error handling across `daemon`, `cluster`, `web`, `monitoring`, `discovery`, `mcp`, `runtime`, and CLI commands.
+
+### Testing
+- Added `tests/security-qa-audit-fixes.test.ts` with 12 regression tests covering SSRF, prototype pollution, SQL/CSV injection, pool lifecycle, queue/lease hardening, log rotation, and OTEL injection.
+- Verified with `bunx tsc --noEmit`, `bun run build`, and `bun test` (2,460 passing, 0 failing).
+
+## [1.7.0] - 2026-11-17
+
+### Added
+- **Built-in Log Rotation**: Non-blocking buffered logging with size-based `.gz` rotation (`--max-log-size`, `--max-log-files`) and symlink protection.
+- **Reverse Proxy & Grafana Exports**: Hardened `bs9 export --format nginx|caddy|grafana` config generation.
+- **Startup Readiness Gate**: `bs9 start --wait-ready --ready-timeout` probing `/healthz` before returning.
+- **Web Dashboard & Audit CLI**: WebSocket live log viewer modal, instant search/filter for 100–1,000 services, tamper-safe `audit.log`, and `bs9 audit` CLI.
+- **AI-Safe MCP Server**: `--readonly` / `BS9_MCP_READONLY=true` guardrails, automatic secret redaction in `bs9_describe_process`, `mcp-agent` audit logging, and `bs9_audit_log` / `bs9_export_config` tools.
+- **Programmatic SDK & Observability**: `HealthAnomalyDetector` and Telegram/Discord/Slack alert formatters.
+
+### Security
+- Hardened CLI, MCP, dashboard, daemon, State Hub, and load balancer entry points.
+
 ## [1.6.18] - 2026-11-17
 
 ### Changes

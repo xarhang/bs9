@@ -1,16 +1,21 @@
 # BS9 (Bun Sentinel 9)
 
 [![License: AGPL v3+](https://img.shields.io/badge/License-AGPL_v3%2B-blue.svg)](https://www.gnu.org/licenses/agpl-3.0.html)
-[![Version](https://img.shields.io/badge/version-1.7.0-blue.svg)](https://github.com/xarhang/bs9)
+[![Version](https://img.shields.io/badge/version-1.7.1-blue.svg)](https://github.com/xarhang/bs9)
 [![Security](https://img.shields.io/badge/security-hardened-green.svg)](SECURITY.md)
-[![Tests](https://img.shields.io/badge/tests-2%2C445%2B%20passing-brightgreen.svg)](https://github.com/xarhang/bs9/actions)
+[![Tests](https://img.shields.io/badge/tests-2%2C460%2B%20passing-brightgreen.svg)](https://github.com/xarhang/bs9/actions)
 [![Cross-Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](https://github.com/xarhang/bs9)
 
 **Self-healing process manager for Bun with zero-downtime clustering, real-time dashboards, TypeScript build support, and durable same-host state.**
 
 Works on Windows, macOS, and Linux.
 
-Every release is gated by 2,445+ automated tests (including Playwright browser E2E, security tests, and 1,000-service scale stress tests) plus GitHub-hosted native and packaged qualification across Linux, Windows, and macOS. The compatibility matrix also exercises major Linux distributions in containers, including Debian, CentOS Stream, Red Hat UBI, Rocky Linux, AlmaLinux, Fedora, openSUSE, Arch Linux, Alpine Linux, and Linux Mint. See [Testing and release qualification](docs/TESTING.md).
+Every release is gated by 2,460+ automated tests (including Playwright browser E2E, security tests, and 1,000-service scale stress tests) plus GitHub-hosted native and packaged qualification across Linux, Windows, and macOS. The compatibility matrix also exercises major Linux distributions in containers, including Debian, CentOS Stream, Red Hat UBI, Rocky Linux, AlmaLinux, Fedora, openSUSE, Arch Linux, Alpine Linux, and Linux Mint. See [Testing and release qualification](docs/TESTING.md).
+
+### What's New in v1.7.1
+- **Comprehensive Security & QA Hardening**: Full-codebase audit fixes across CLI, Daemon, State Hub, Load Balancer, Web Dashboard, and MCP Server.
+- **SSRF, Injection & Traversal Defenses**: Hardened `isBlockedIpAddress` (hex IPv4-mapped IPv6, zone IDs, multicast), `Object.hasOwn` prototype-pollution guards in `AlertManager`, CSV formula injection escaping in `MetricsStorage`, string-literal-aware `sanitizeSQL`, symlink-safe log rotation, and argument-array `execFileSync`/`spawnSync` execution.
+- **Hub, Pool & Diagnostics Reliability**: Fixed `LeaseManager` JSON tuple key decoding in `exportState`, `QueueManager` parameter clamping, `DatabasePool.acquire()` post-close rejection, `parseBackends` validation, and bare `Error:`/`Exception:` matching in `bs9 issues`.
 
 ### What's New in v1.7.0
 - **Built-in Log Rotation**: Non-blocking buffered logging with size-based `.gz` rotation (`--max-log-size 50M --max-log-files 5`) and symlink protection.
