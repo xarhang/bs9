@@ -1,7 +1,7 @@
 # BS9 (Bun Sentinel 9)
 
 [![License: AGPL v3+](https://img.shields.io/badge/License-AGPL_v3%2B-blue.svg)](https://www.gnu.org/licenses/agpl-3.0.html)
-[![Version](https://img.shields.io/badge/version-1.7.1-blue.svg)](https://github.com/xarhang/bs9)
+[![Version](https://img.shields.io/badge/version-1.7.2-blue.svg)](https://github.com/xarhang/bs9)
 [![Security](https://img.shields.io/badge/security-hardened-green.svg)](SECURITY.md)
 [![Tests](https://img.shields.io/badge/tests-2%2C460%2B%20passing-brightgreen.svg)](https://github.com/xarhang/bs9/actions)
 [![Cross-Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](https://github.com/xarhang/bs9)
@@ -10,7 +10,11 @@
 
 Works on Windows, macOS, and Linux.
 
-Every release is gated by 2,460+ automated tests (including Playwright browser E2E, security tests, and 1,000-service scale stress tests) plus GitHub-hosted native and packaged qualification across Linux, Windows, and macOS. The compatibility matrix also exercises major Linux distributions in containers, including Debian, CentOS Stream, Red Hat UBI, Rocky Linux, AlmaLinux, Fedora, openSUSE, Arch Linux, Alpine Linux, and Linux Mint. See [Testing and release qualification](docs/TESTING.md).
+Every release is gated by 2,470+ automated tests (including Playwright browser E2E, security tests, and 1,000-service scale stress tests) plus GitHub-hosted native and packaged qualification across Linux, Windows, and macOS. The compatibility matrix also exercises major Linux distributions in containers, including Debian, CentOS Stream, Red Hat UBI, Rocky Linux, AlmaLinux, Fedora, openSUSE, Arch Linux, Alpine Linux, and Linux Mint. See [Testing and release qualification](docs/TESTING.md).
+
+### What's New in v1.7.2
+- **Second Security & QA Audit Pass**: Dollar-quoted/backslash-escape/`pg_sleep`/`COPY ... PROGRAM` SQL bypasses closed, full IPv6 hextet parsing for SSRF blocking (compressed loopback, NAT64, 6to4, ULA, Teredo, reserved IPv4), dashboard login rate limiting, MCP parameter validation, and PID `cmdline` verification before signaling processes.
+- **Hub & Cluster Reliability**: WAL replay no longer resurrects expired KV keys, finite-TTL validation for KV/leases, correct `QueueManager.importState` cleanup, hardened worker handshake and lock validation, and bounded reconciler/load-balancer inputs.
 
 ### What's New in v1.7.1
 - **Comprehensive Security & QA Hardening**: Full-codebase audit fixes across CLI, Daemon, State Hub, Load Balancer, Web Dashboard, and MCP Server.

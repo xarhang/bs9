@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.2] - 2026-11-19
+
+### Security
+- **SQL**: `sanitizeSQL` now neutralizes dollar-quoted strings and backslash-escaped quotes and blocks `pg_sleep()`, `COPY ... TO/FROM PROGRAM`, `ALTER SYSTEM/USER/ROLE`, and `CREATE/DROP SCHEMA/ROLE/USER`; pool config is validated and idle client errors no longer crash the process.
+- **SSRF**: `isBlockedIpAddress` uses a full IPv6 hextet parser (compressed loopback, IPv4-mapped/compatible, NAT64, 6to4, ULA, link-local, multicast, Teredo, documentation) and blocks reserved IPv4 ranges; `setServiceAlert` rejects `__proto__`/`constructor`/`prototype`; alert cooldown is set before the async send to prevent races.
+- **Filesystem & Process**: Dangling-symlink bypass fixed in `deps`, `export`, `profile`, `otel`; `update rollback` enforces path containment; PID `cmdline` is verified before signaling in `daemon`/`web stop`; shell-string `execSync` replaced by argument arrays.
+- **Network surfaces**: Dashboard login rate limiting and `GET`-only `/api/metrics`; MCP `tools/call` validates name, service, domain and `instances`; Hub connection cap with constant-length token comparison; private permissions for state directories on Linux/macOS.
+
+### Fixed
+- **Hub/Runtime**: WAL replay no longer resurrects expired keys; finite-TTL validation in `KvEngine`/`LeaseManager`; `QueueManager.importState` clears absent queues; `HubClient` shares in-flight connect; `Queue` gains `reserve`/`ack`/`nack`.
+- **Cluster/Daemon**: Worker handshake and `lockCluster` validation, reconnect/timer hardening, bounded `desiredInstances`, per-socket `ensure` single-flight, load balancer body-size limit.
+- **Utils**: `Infinity`/`NaN` guards in log rotator, readiness, anomaly detector; `manifest-lock` no longer masks operation errors; zero-baseline anomaly detection; `flush` no longer truncates prefix-overlapping services; systemd empty args and `Description` escaped.
+
+### Testing
+- Added `tests/security-qa-audit-v3.test.ts` (11 regression tests). `tsc --noEmit`, `bun run build`, and `bun test` pass (2,471 passing, 0 failing).
+
 ## [1.7.1] - 2026-11-19
 
 ### Security
