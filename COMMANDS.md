@@ -836,4 +836,4 @@ bs9 consul register --name api-service --address 127.0.0.1 --port 3000 --health-
 ---
 
 *Last Updated: November 19, 2026*
-*BS9 Version: 1.7.1*
+*BS9 Version: 1.7.2*
