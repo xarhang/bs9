@@ -350,10 +350,17 @@ async function handleMultiServiceStart(file: string | string[], options: StartOp
 async function handleSingleServiceStart(file: string, options: StartOptions): Promise<void> {
   const platformInfo = getPlatformInfo();
 
-  // First, try to start existing service without file
+  // First, try to start existing service without file (only if name is a valid simple service identifier)
   const serviceName = options.name || file;
+  const isSimpleServiceName =
+    /^[a-zA-Z0-9._-]+$/.test(serviceName) &&
+    serviceName.length > 0 &&
+    serviceName.length <= 64 &&
+    !serviceName.startsWith("-") &&
+    serviceName !== "." &&
+    !serviceName.includes("..");
 
-  const serviceExists = await checkServiceExists(serviceName, platformInfo);
+  const serviceExists = isSimpleServiceName ? await checkServiceExists(serviceName, platformInfo) : false;
 
   if (serviceExists) {
     console.log(`📋 Service '${serviceName}' already exists, starting...`);
@@ -373,7 +380,13 @@ async function handleSingleServiceStart(file: string, options: StartOptions): Pr
     process.exit(1);
   }
 
-  // Security: Prevent directory traversal and ensure file is within allowed paths
+  // Security: Prevent directory traversal/symlink escape and ensure file is within allowed paths
+  const { realpathSync } = await import("node:fs");
+  const { sep } = await import("node:path");
+  let realFullPath = fullPath;
+  try {
+    realFullPath = realpathSync(fullPath);
+  } catch {}
   const allowedPaths = [
     process.cwd(),
     homedir(),
@@ -383,7 +396,17 @@ async function handleSingleServiceStart(file: string, options: StartOptions): Pr
     process.platform === "win32" ? "D:\\" : "",
     process.platform === "win32" ? "E:\\" : "",
   ].filter(Boolean);
-  const isAllowedPath = allowedPaths.some(allowed => fullPath.toLowerCase().startsWith(allowed.toLowerCase()));
+  const norm = (p: string) => (process.platform === "win32" ? p.toLowerCase() : p);
+  const realFullNorm = norm(realFullPath);
+  const isAllowedPath = allowedPaths.some((allowed) => {
+    let resolvedAllowed = resolve(allowed);
+    try {
+      if (existsSync(resolvedAllowed)) resolvedAllowed = realpathSync(resolvedAllowed);
+    } catch {}
+    const allowedNorm = norm(resolvedAllowed);
+    const prefix = allowedNorm.endsWith(sep) ? allowedNorm : allowedNorm + sep;
+    return realFullNorm === allowedNorm || realFullNorm.startsWith(prefix);
+  });
   if (!isAllowedPath) {
     console.error(`❌ Security: File path outside allowed directories: ${fullPath}`);
     process.exit(1);
@@ -494,9 +517,10 @@ async function handleSingleServiceStart(file: string, options: StartOptions): Pr
 async function checkServiceExists(serviceName: string, platformInfo: any): Promise<boolean> {
   try {
     if (platformInfo.isLinux) {
-      // Check if service exists in systemctl list-units
+      // Check if service exists in systemctl list-units (exact unit name match)
       const listOutput = execSync("systemctl --user list-units --type=service --all --no-pager --no-legend", { encoding: "utf-8" });
-      const serviceExists = listOutput.includes(`${serviceName}.service`);
+      const targetUnit = `${serviceName}.service`;
+      const serviceExists = listOutput.split(/\r?\n/).some((line) => line.trim().split(/\s+/)[0] === targetUnit);
       return serviceExists;
     } else if (platformInfo.isMacOS) {
       // Check if launchd service exists

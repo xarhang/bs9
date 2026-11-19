@@ -31,7 +31,11 @@ export function parseCronField(field: string, min: number, max: number): Set<num
     const stepParts = token.split("/");
     if (stepParts.length > 2) throw new Error(`Invalid cron step in '${token}'`);
     const rangePart = stepParts[0];
+    if (!rangePart) throw new Error(`Invalid cron field '${token}'`);
     const step = stepParts[1] !== undefined ? Number(stepParts[1]) : 1;
+    if (!stepParts[1] && stepParts.length === 2) {
+      throw new Error(`Invalid cron step in '${token}'`);
+    }
     if (!Number.isInteger(step) || step < 1) {
       throw new Error(`Invalid cron step value '${stepParts[1]}'`);
     }
@@ -40,9 +44,12 @@ export function parseCronField(field: string, min: number, max: number): Set<num
     let end = max;
     if (rangePart !== "*") {
       if (rangePart.includes("-")) {
-        const [aStr, bStr] = rangePart.split("-");
-        const a = Number(aStr);
-        const b = Number(bStr);
+        const rangeBounds = rangePart.split("-");
+        if (rangeBounds.length !== 2 || !rangeBounds[0] || !rangeBounds[1]) {
+          throw new Error(`Invalid cron range '${rangePart}' (expected ${min}-${max})`);
+        }
+        const a = Number(rangeBounds[0]);
+        const b = Number(rangeBounds[1]);
         if (!Number.isInteger(a) || !Number.isInteger(b) || a < min || b > max || a > b) {
           throw new Error(`Invalid cron range '${rangePart}' (expected ${min}-${max})`);
         }
@@ -85,13 +92,12 @@ export function parseCronExpression(expr: string): ParsedCron {
 
 export function getNextCronDate(expr: string, from: Date = new Date()): Date {
   const parsed = parseCronExpression(expr);
-  // Start checking from the next whole minute
-  const candidate = new Date(from.getTime());
-  candidate.setSeconds(0, 0);
-  candidate.setMinutes(candidate.getMinutes() + 1);
+  // Start checking from the next whole minute (advance monotonically by 60s to avoid DST skips/repeats)
+  const startMs = Math.floor(from.getTime() / 60_000) * 60_000 + 60_000;
+  const candidate = new Date(startMs);
 
-  // Bounded search up to 366 days (527,040 minutes) to prevent infinite loops on impossible dates like Feb 31
-  const maxIterations = 527_040;
+  // Bounded search up to 4 years (handles Feb 29 leap-day expressions without infinite loops on Feb 31)
+  const maxIterations = 4 * 366 * 24 * 60;
   for (let i = 0; i < maxIterations; i++) {
     if (
       parsed.months.has(candidate.getMonth() + 1) &&
@@ -102,10 +108,10 @@ export function getNextCronDate(expr: string, from: Date = new Date()): Date {
     ) {
       return candidate;
     }
-    candidate.setMinutes(candidate.getMinutes() + 1);
+    candidate.setTime(candidate.getTime() + 60_000);
   }
 
-  throw new Error(`Cron expression '${expr}' has no matching date within the next year`);
+  throw new Error(`Cron expression '${expr}' has no matching date within the next 4 years`);
 }
 
 export function getNextCronDelayMs(expr: string, from: Date = new Date()): number {

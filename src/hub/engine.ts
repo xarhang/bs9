@@ -88,11 +88,31 @@ export function validateSafeData(value: any, depth = 0): void {
 }
 
 export function isDeepEqual(a: any, b: any): boolean {
-  if (a === b) return true;
+  if (Object.is(a, b)) return true;
   if (a === null || b === null || typeof a !== "object" || typeof b !== "object") {
     return false;
   }
-  return JSON.stringify(a) === JSON.stringify(b);
+  if (Buffer.isBuffer(a) || Buffer.isBuffer(b)) {
+    return Buffer.isBuffer(a) && Buffer.isBuffer(b) && a.equals(b);
+  }
+  const aIsArray = Array.isArray(a);
+  const bIsArray = Array.isArray(b);
+  if (aIsArray !== bIsArray) return false;
+  if (aIsArray) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (!isDeepEqual(a[i], b[i])) return false;
+    }
+    return true;
+  }
+  const keysA = Object.keys(a);
+  const keysB = Object.keys(b);
+  if (keysA.length !== keysB.length) return false;
+  for (const key of keysA) {
+    if (!Object.prototype.hasOwnProperty.call(b, key)) return false;
+    if (!isDeepEqual(a[key], b[key])) return false;
+  }
+  return true;
 }
 
 export class KvEngine {
@@ -203,8 +223,13 @@ export class KvEngine {
     if (!existing) return false;
 
     store.delete(key);
-    const currentMem = this.getNamespaceMemory(namespace);
-    this.memoryUsage.set(namespace, Math.max(0, currentMem - existing.sizeBytes));
+    if (store.size === 0) {
+      this.stores.delete(namespace);
+      this.memoryUsage.delete(namespace);
+    } else {
+      const currentMem = this.getNamespaceMemory(namespace);
+      this.memoryUsage.set(namespace, Math.max(0, currentMem - existing.sizeBytes));
+    }
 
     // If expired at time of deletion, report false as it wasn't effectively active
     if (existing.expiresAt && Date.now() >= existing.expiresAt) {
@@ -278,7 +303,10 @@ export class KvEngine {
           evicted++;
         }
       }
-      if (freedBytes > 0) {
+      if (store.size === 0) {
+        this.stores.delete(namespace);
+        this.memoryUsage.delete(namespace);
+      } else if (freedBytes > 0) {
         const currentMem = this.getNamespaceMemory(namespace);
         this.memoryUsage.set(namespace, Math.max(0, currentMem - freedBytes));
       }

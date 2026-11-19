@@ -530,13 +530,31 @@ export class StreamingFrameDecoder {
    * Pushes a raw chunk of bytes and returns any complete envelopes decoded.
    */
   public push(chunk: Buffer): Bs9Envelope[] {
-    this.buffer = Buffer.concat([this.buffer, chunk]);
+    if (this.buffer.length === 0 && chunk.length >= 4) {
+      const firstLen = chunk.readUInt32BE(0);
+      if (firstLen > MAX_FRAME_SIZE) {
+        throw new Error(
+          `Security violation: incoming frame length ${firstLen} exceeds maximum limit of ${MAX_FRAME_SIZE} bytes`
+        );
+      }
+    } else if (this.buffer.length >= 4) {
+      const pendingLen = this.buffer.readUInt32BE(0);
+      if (pendingLen > MAX_FRAME_SIZE) {
+        this.buffer = Buffer.alloc(0);
+        throw new Error(
+          `Security violation: incoming frame length ${pendingLen} exceeds maximum limit of ${MAX_FRAME_SIZE} bytes`
+        );
+      }
+    }
+
+    this.buffer = this.buffer.length === 0 ? chunk : Buffer.concat([this.buffer, chunk]);
     const envelopes: Bs9Envelope[] = [];
 
     while (this.buffer.length >= 4) {
       const frameLength = this.buffer.readUInt32BE(0);
 
       if (frameLength > MAX_FRAME_SIZE) {
+        this.buffer = Buffer.alloc(0);
         throw new Error(
           `Security violation: incoming frame length ${frameLength} exceeds maximum limit of ${MAX_FRAME_SIZE} bytes`
         );
@@ -549,7 +567,10 @@ export class StreamingFrameDecoder {
       }
 
       const payloadSlice = this.buffer.subarray(4, totalLength);
-      this.buffer = this.buffer.subarray(totalLength);
+      this.buffer =
+        totalLength === this.buffer.length
+          ? Buffer.alloc(0)
+          : Buffer.from(this.buffer.subarray(totalLength));
 
       try {
         const jsonStr = payloadSlice.toString("utf-8");
@@ -558,8 +579,10 @@ export class StreamingFrameDecoder {
         if (
           !parsed ||
           typeof parsed !== "object" ||
+          Array.isArray(parsed) ||
           parsed.protocolVersion !== PROTOCOL_VERSION ||
-          typeof parsed.type !== "string"
+          typeof parsed.type !== "string" ||
+          (parsed.namespace !== undefined && typeof parsed.namespace !== "string")
         ) {
           throw new Error("Invalid envelope format");
         }

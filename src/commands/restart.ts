@@ -9,7 +9,7 @@
  * https://github.com/xarhang/bs9
  */
 
-import { execSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { getPlatformInfo } from "../platform/detect.js";
@@ -23,22 +23,36 @@ interface RestartOptions {
 // Security: Service name validation
 function isValidServiceName(name: string): boolean {
   const validPattern = /^[a-zA-Z0-9._-]+$/;
-  return validPattern.test(name) && name.length <= 64 && !name.includes('..') && !name.includes('/');
+  return (
+    validPattern.test(name) &&
+    name.length > 0 &&
+    name.length <= 64 &&
+    !name.startsWith("-") &&
+    name !== "." &&
+    !name.includes('..') &&
+    !name.includes('/') &&
+    !name.includes('\\')
+  );
 }
 
 export async function restartCommand(names: string[], options: RestartOptions = {}): Promise<void> {
   const { recordAuditEvent } = await import("../utils/audit-log.js");
   const targetLabel = names.join(",") || "unknown";
-  // Handle multi-service if: multiple args, single arg with array syntax, or 'all' keyword
-  if (names.length > 1 || (names.length === 1 && (names[0].includes('[') || names[0] === 'all'))) {
-    await handleMultiServiceRestart(names, options);
-    recordAuditEvent({ action: "restart", target: targetLabel, status: "success" });
-    return;
-  }
+  try {
+    // Handle multi-service if: multiple args, single arg with array/wildcard syntax, or 'all' keyword
+    if (names.length > 1 || (names.length === 1 && (names[0].includes('[') || names[0].includes('*') || names[0] === 'all'))) {
+      await handleMultiServiceRestart(names, options);
+      recordAuditEvent({ action: "restart", target: targetLabel, status: "success" });
+      return;
+    }
 
-  // Single service operation
-  await handleSingleServiceRestart(names[0] || '');
-  recordAuditEvent({ action: "restart", target: targetLabel, status: "success" });
+    // Single service operation
+    await handleSingleServiceRestart(names[0] || '');
+    recordAuditEvent({ action: "restart", target: targetLabel, status: "success" });
+  } catch (err: any) {
+    recordAuditEvent({ action: "restart", target: targetLabel, status: "failure", details: err?.message ? String(err.message) : "error" });
+    throw err;
+  }
 }
 
 async function handleMultiServiceRestart(name: string | string[], options: RestartOptions): Promise<void> {
@@ -85,38 +99,36 @@ async function handleSingleServiceRestart(name: string): Promise<void> {
 
   const platformInfo = getPlatformInfo();
 
-  try {
-    if (platformInfo.isLinux) {
-      const escapedName = name.replace(/[^a-zA-Z0-9._-]/g, '');
-      const unitPath = join(platformInfo.serviceDir, `${escapedName}.service`);
-      if (existsSync(unitPath)) {
-        ensurePrivateDirectory(platformInfo.serviceDir);
-        securePrivateFile(unitPath);
-      }
-      execSync(`systemctl --user restart "${escapedName}"`, { stdio: "inherit" });
-      console.log(`🔄 User service '${name}' restarted`);
-    } else if (platformInfo.isMacOS) {
-      const { launchdCommand } = await import("../macos/launchd.js");
-      await launchdCommand('restart', { name: name.startsWith('bs9.') ? name : `bs9.${name}` });
-    } else if (platformInfo.isWindows) {
-      const { WindowsServiceManager } = await import("../windows/service.js");
-      const manager = new WindowsServiceManager();
-      const fullName = name.startsWith('BS9_') ? name : `BS9_${name}`;
-      // Stop first (ignore error if already stopped), then always attempt start
-      try {
-        await manager.stopService(fullName);
-      } catch {
-        // Service may already be stopped — proceed to start
-      }
-      try {
-        await manager.startService(fullName);
-      } catch (startErr) {
-        throw new Error(`Restart failed: service stopped but could not start: ${startErr}`);
-      }
+  if (platformInfo.isLinux) {
+    const escapedName = name.replace(/[^a-zA-Z0-9._-]/g, '');
+    const unitPath = join(platformInfo.serviceDir, `${escapedName}.service`);
+    if (existsSync(unitPath)) {
+      ensurePrivateDirectory(platformInfo.serviceDir);
+      securePrivateFile(unitPath);
     }
-  } catch (err) {
-    console.error(`❌ Failed to restart service '${name}': ${err}`);
-    process.exit(1);
+    const res = spawnSync("systemctl", ["--user", "restart", escapedName], { stdio: "inherit" });
+    if (res.status !== 0) {
+      throw new Error(`systemctl --user restart failed with exit code ${res.status ?? 1}`);
+    }
+    console.log(`🔄 User service '${name}' restarted`);
+  } else if (platformInfo.isMacOS) {
+    const { launchdCommand } = await import("../macos/launchd.js");
+    await launchdCommand('restart', { name: name.startsWith('bs9.') ? name : `bs9.${name}` });
+  } else if (platformInfo.isWindows) {
+    const { WindowsServiceManager } = await import("../windows/service.js");
+    const manager = new WindowsServiceManager();
+    const fullName = name.startsWith('BS9_') ? name : `BS9_${name}`;
+    // Stop first (ignore error if already stopped), then always attempt start
+    try {
+      await manager.stopService(fullName);
+    } catch {
+      // Service may already be stopped — proceed to start
+    }
+    try {
+      await manager.startService(fullName);
+    } catch (startErr) {
+      throw new Error(`Restart failed: service stopped but could not start: ${startErr}`);
+    }
   }
 }
 

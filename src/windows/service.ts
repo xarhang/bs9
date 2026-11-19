@@ -119,7 +119,17 @@ if (requiresWindowsSystemDirectoryApi) {
 
 export function isValidServiceName(name: string): boolean {
   const validPattern = /^[a-zA-Z0-9._-]+$/;
-  return validPattern.test(name) && name.length <= 64 && !name.includes('..') && !name.includes('/');
+  return (
+    typeof name === 'string' &&
+    name.length > 0 &&
+    name.length <= 64 &&
+    validPattern.test(name) &&
+    !name.startsWith('-') &&
+    name !== '.' &&
+    !name.includes('..') &&
+    !name.includes('/') &&
+    !name.includes('\\')
+  );
 }
 
 function writeFileAtomically(path: string, contents: string | Buffer): void {
@@ -1092,24 +1102,32 @@ export class WindowsServiceManager {
     this.saveProcessMetadata(metadata.name, metadata);
 
     const watchdogOut = openSync(join(logsDir, `${metadata.name}.watchdog.log`), 'a');
-
-    // Spawn detached watchdog agent that persists even after CLI exits
-    const watchdog = spawn(process.execPath, ['run', agentFile, metadata.name, this.servicesDir], {
-      cwd: metadata.workingDir || process.cwd(),
-      detached: true,
-      windowsHide: true,
-      stdio: ['ignore', watchdogOut, watchdogOut],
-      env: {
-        ...process.env,
-        ...(process.env.BS9_HOME ? { BS9_HOME: process.env.BS9_HOME } : {}),
-        BS9_SERVICES_DIR: this.servicesDir,
-      },
-    });
+    let watchdog;
+    try {
+      // Spawn detached watchdog agent that persists even after CLI exits
+      watchdog = spawn(process.execPath, ['run', agentFile, metadata.name, this.servicesDir], {
+        cwd: metadata.workingDir || process.cwd(),
+        detached: true,
+        windowsHide: true,
+        stdio: ['ignore', watchdogOut, watchdogOut],
+        env: {
+          ...process.env,
+          ...(process.env.BS9_HOME ? { BS9_HOME: process.env.BS9_HOME } : {}),
+          BS9_SERVICES_DIR: this.servicesDir,
+        },
+      });
+    } finally {
+      try {
+        const { closeSync } = require("node:fs") as typeof import("node:fs");
+        closeSync(watchdogOut);
+      } catch {}
+    }
 
     watchdog.unref();
 
-    metadata.watchdogPid = watchdog.pid;
-    this.saveProcessMetadata(metadata.name, metadata);
+    const latestMeta = this.getProcessMetadata(metadata.name) || metadata;
+    latestMeta.watchdogPid = watchdog.pid;
+    this.saveProcessMetadata(metadata.name, latestMeta);
 
     // Wait up to 3 seconds for child process to be spawned and record PID
     let attempts = 0;
@@ -1513,7 +1531,12 @@ export class WindowsServiceManager {
   public getProcessMetadata(name: string): any {
     if (!isValidServiceName(name)) return null;
     const path = join(this.servicesDir, `${name}.json`);
-    return existsSync(path) ? JSON.parse(readFileSync(path, 'utf-8')) : null;
+    if (!existsSync(path)) return null;
+    try {
+      return JSON.parse(readFileSync(path, 'utf-8'));
+    } catch {
+      return null;
+    }
   }
 
   public generateServiceScript(
@@ -1615,6 +1638,9 @@ export async function windowsCommand(action: string, options: any): Promise<void
         break;
       case 'resurrect':
         if (options.name) {
+          if (!isValidServiceName(options.name)) {
+            throw new Error(`Security: Invalid service name: ${options.name}`);
+          }
           const platformInfo = getPlatformInfo();
           const backupFile = join(platformInfo.backupDir, `${options.name}.json`);
           if (existsSync(backupFile)) {

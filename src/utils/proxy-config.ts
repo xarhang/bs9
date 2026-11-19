@@ -36,7 +36,15 @@ export function sanitizeProxyDomain(domain: string): string {
 
 export function sanitizeProxyHost(host: string): string {
   const trimmed = host.trim();
-  if (!/^[a-zA-Z0-9.:-]+$/.test(trimmed) || trimmed.length > 253) {
+  const unbracketed = trimmed.startsWith("[") && trimmed.endsWith("]") ? trimmed.slice(1, -1) : trimmed;
+  const isIpv6 = unbracketed.includes(":");
+  if (isIpv6) {
+    if (!/^[a-fA-F0-9:]+$/.test(unbracketed) || unbracketed.length > 45) {
+      throw new Error(`Security: Invalid IPv6 upstream host '${host}'`);
+    }
+    return `[${unbracketed}]`;
+  }
+  if (!/^[a-zA-Z0-9.-]+$/.test(trimmed) || trimmed.length > 253) {
     throw new Error(`Security: Invalid upstream host '${host}'`);
   }
   return trimmed;
@@ -70,7 +78,12 @@ export function generateNginxConfig(options: ProxyConfigOptions): string {
   const domain = sanitizeProxyDomain(options.domain || "localhost");
   const upstreamName = sanitizeUpstreamName(options.serviceName);
   const upstreams = validateUpstreams(options.upstreams);
-  const rps = options.rateLimitRps && options.rateLimitRps > 0 ? Math.floor(options.rateLimitRps) : 50;
+  const rps =
+    options.rateLimitRps !== undefined &&
+    Number.isFinite(options.rateLimitRps) &&
+    options.rateLimitRps > 0
+      ? Math.min(1_000_000, Math.floor(options.rateLimitRps))
+      : 50;
 
   const upstreamLines = upstreams
     .map((u) => `    server ${u.host}:${u.port} max_fails=3 fail_timeout=10s;`)

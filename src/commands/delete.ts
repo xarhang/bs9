@@ -9,7 +9,7 @@
  * https://github.com/xarhang/bs9
  */
 
-import { execSync } from "node:child_process";
+import { execSync, spawnSync } from "node:child_process";
 import { existsSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { getPlatformInfo } from "../platform/detect.js";
@@ -34,7 +34,16 @@ export function isValidServiceName(name: string): boolean {
   // Only allow alphanumeric, hyphens, underscores, and dots
   // Prevent command injection and path traversal
   const validPattern = /^[a-zA-Z0-9._-]+$/;
-  return validPattern.test(name) && name.length <= 64 && !name.includes('..') && !name.includes('/');
+  return (
+    validPattern.test(name) &&
+    name.length > 0 &&
+    name.length <= 64 &&
+    !name.startsWith('-') &&
+    name !== '.' &&
+    !name.includes('..') &&
+    !name.includes('/') &&
+    !name.includes('\\')
+  );
 }
 
 export function shouldUseMultiServiceDelete(names: string[]): boolean {
@@ -81,24 +90,28 @@ export function findFullyCoveredClusters(
 export async function deleteCommand(names: string[], options: DeleteOptions): Promise<void> {
   const platformInfo = getPlatformInfo();
   const { recordAuditEvent } = await import("../utils/audit-log.js");
-  recordAuditEvent({ action: "delete", target: names.join(",") || (options.all ? "all" : "unknown"), status: "success" });
+  const auditTarget = names.join(",") || (options.all ? "all" : "unknown");
 
   try {
     // Handle multi-service if: multiple args, single arg with array syntax, or 'all' keyword
     if (shouldUseMultiServiceDelete(names)) {
       await handleMultiServiceDelete(names, options);
+      recordAuditEvent({ action: "delete", target: auditTarget, status: "success" });
       return;
     }
 
     // Handle delete all services (legacy)
     if (options.all) {
       await deleteAllServices(platformInfo, options);
+      recordAuditEvent({ action: "delete", target: auditTarget, status: "success" });
       return;
     }
 
     // Single service operation
     await handleSingleServiceDelete(names[0] || '', platformInfo, options);
-  } catch {
+    recordAuditEvent({ action: "delete", target: auditTarget, status: "success" });
+  } catch (err: any) {
+    recordAuditEvent({ action: "delete", target: auditTarget, status: "failure", details: err?.message ? String(err.message) : "error" });
     process.exitCode = 1;
   }
 }
@@ -339,13 +352,13 @@ async function deleteDirectService(name: string, platformInfo: any, options: Del
   try {
     if (platformInfo.isLinux) {
       const escapedName = name.replace(/[^a-zA-Z0-9._-]/g, '');
-      try { execSync(`systemctl --user stop "${escapedName}"`, { stdio: "inherit" }); } catch { }
-      try { execSync(`systemctl --user disable "${escapedName}"`, { stdio: "inherit" }); } catch { }
+      try { spawnSync("systemctl", ["--user", "stop", escapedName], { stdio: "inherit" }); } catch { }
+      try { spawnSync("systemctl", ["--user", "disable", escapedName], { stdio: "inherit" }); } catch { }
 
       if (options.remove) {
         const serviceFile = join(platformInfo.serviceDir, `${escapedName}.service`);
         try { unlinkSync(serviceFile); } catch { }
-        try { execSync(`systemctl --user daemon-reload`, { stdio: "ignore" }); } catch { }
+        try { spawnSync("systemctl", ["--user", "daemon-reload"], { stdio: "ignore" }); } catch { }
       }
       console.log(`🗑️ Service '${name}' deleted successfully`);
     } else if (platformInfo.isMacOS) {

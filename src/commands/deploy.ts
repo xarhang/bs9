@@ -57,8 +57,9 @@ function isValidHost(host: string): boolean {
 
 // Security: Port validation
 function isValidPort(port: string): boolean {
-  const portNum = parseInt(port, 10);
-  return !isNaN(portNum) && portNum >= 1 && portNum <= 65535;
+  if (!/^\d+$/.test(port)) return false;
+  const portNum = Number(port);
+  return Number.isInteger(portNum) && portNum >= 1 && portNum <= 65535;
 }
 
 export async function deployCommand(file: string, options: DeployOptions): Promise<void> {
@@ -96,9 +97,13 @@ export async function deployCommand(file: string, options: DeployOptions): Promi
   if (options.linger !== false && platformInfo.isLinux) {
     try {
       const { userInfo } = await import("node:os");
+      const { spawnSync } = await import("node:child_process");
       const username = userInfo().username;
       console.log("🔧 Enabling user services persistence...");
-      execSync(`loginctl enable-linger ${username}`, { stdio: "pipe" });
+      const res = spawnSync("loginctl", ["enable-linger", username], { stdio: "pipe" });
+      if (res.status !== 0) {
+        throw new Error(`loginctl exited with ${res.status ?? 1}`);
+      }
       console.log("✅ User services persistence enabled");
     } catch (error: any) {
       console.warn("⚠️  Could not enable linger (may require root):", error?.message || error);

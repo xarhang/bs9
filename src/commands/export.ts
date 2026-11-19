@@ -27,15 +27,38 @@ interface ExportOptions {
   ssl?: boolean;
 }
 
+const ALLOWED_EXPORT_FORMATS = new Set(['json', 'csv', 'grafana', 'nginx', 'caddy']);
+
 function isContainedExportPath(filePath: string): boolean {
-  const resolved = resolve(filePath);
-  const allowedRoots = [resolve(process.cwd()), resolve(homedir()), resolve(tmpdir())];
-  return allowedRoots.some((root) => resolved === root || resolved.startsWith(root + sep));
+  try {
+    const { existsSync, lstatSync, realpathSync } = require("node:fs") as typeof import("node:fs");
+    const { dirname } = require("node:path") as typeof import("node:path");
+    const resolved = resolve(filePath);
+    const allowedRoots = [process.cwd(), homedir(), tmpdir()].map((r) =>
+      existsSync(r) ? realpathSync(r) : resolve(r)
+    );
+    if (existsSync(resolved)) {
+      if (lstatSync(resolved).isSymbolicLink()) return false;
+      const real = realpathSync(resolved);
+      return allowedRoots.some((root) => real === root || real.startsWith(root + sep));
+    }
+    const parent = dirname(resolved);
+    const realParent = existsSync(parent) ? realpathSync(parent) : resolve(parent);
+    return allowedRoots.some((root) => realParent === root || realParent.startsWith(root + sep));
+  } catch {
+    return false;
+  }
 }
 
 export async function exportCommand(options: ExportOptions): Promise<void> {
   const format = (options.format || 'json').toLowerCase();
-  const hours = Number(options.hours) || 24;
+  if (!ALLOWED_EXPORT_FORMATS.has(format)) {
+    console.error(`❌ Unsupported export format '${format}'. Use json, csv, grafana, nginx, or caddy.`);
+    process.exitCode = 1;
+    return;
+  }
+  const rawHours = Number(options.hours);
+  const hours = Number.isFinite(rawHours) && rawHours > 0 ? Math.floor(rawHours) : 24;
   const serviceName = options.service;
 
   if (options.output && !isContainedExportPath(options.output)) {
@@ -85,10 +108,12 @@ export async function exportCommand(options: ExportOptions): Promise<void> {
   
   try {
     let data: string;
+    let recordCount: number | string = 'all services';
     
     if (serviceName) {
       // Export specific service metrics
       const serviceMetrics = storage.getServiceMetrics(serviceName, hours);
+      recordCount = serviceMetrics.length;
       data = format === 'csv' ? serviceMetricsToCsv(serviceMetrics, serviceName) : JSON.stringify(serviceMetrics, null, 2);
       console.log(`📈 Exporting metrics for service: ${serviceName}`);
     } else {
@@ -102,7 +127,7 @@ export async function exportCommand(options: ExportOptions): Promise<void> {
     
     console.log(`✅ Metrics exported to: ${outputFile}`);
     console.log(`   Size: ${(data.length / 1024).toFixed(2)} KB`);
-    console.log(`   Records: ${serviceName ? storage.getServiceMetrics(serviceName, hours).length : 'all services'}`);
+    console.log(`   Records: ${recordCount}`);
     
   } catch (error) {
     console.error(`❌ Failed to export metrics: ${error}`);
@@ -111,24 +136,37 @@ export async function exportCommand(options: ExportOptions): Promise<void> {
   }
 }
 
+function escapeCsvCell(val: unknown): string {
+  let str = String(val ?? "");
+  // Prevent CSV formula injection in spreadsheet applications
+  if (/^[=+\-@\t\r]/.test(str)) {
+    str = `'${str}`;
+  }
+  if (/[",\r\n]/.test(str)) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
 function serviceMetricsToCsv(metrics: any[], serviceName: string): string {
   const headers = ['timestamp', 'service_name', 'cpu_ms', 'memory_bytes', 'uptime', 'tasks', 'health', 'state'];
   const rows = [headers.join(',')];
   
   for (const metric of metrics) {
-    const cpuMatch = metric.cpu.match(/([\d.]+)ms/);
+    const cpuStr = typeof metric?.cpu === 'string' ? metric.cpu : '';
+    const cpuMatch = cpuStr.match(/([\d.]+)ms/);
     const cpuMs = cpuMatch ? cpuMatch[1] : '0';
     
     rows.push([
       new Date().toISOString(),
       serviceName,
       cpuMs,
-      metric.memory.toString(),
-      metric.uptime,
-      metric.tasks.toString(),
-      metric.health,
-      metric.state,
-    ].join(','));
+      metric?.memory ?? 0,
+      metric?.uptime ?? '',
+      metric?.tasks ?? 0,
+      metric?.health ?? '',
+      metric?.state ?? '',
+    ].map(escapeCsvCell).join(','));
   }
   
   return rows.join('\n');

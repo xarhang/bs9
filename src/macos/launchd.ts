@@ -515,6 +515,12 @@ export async function launchdCommand(action: string, options: any): Promise<void
             const plistContent = readFileSync(backupFile, 'utf-8');
             const plistFile = join(platformInfo.serviceDir, `${options.name}.plist`);
             writePrivateFile(plistFile, plistContent);
+            const { spawnSync } = await import("node:child_process");
+            spawnSync("launchctl", ["unload", plistFile], { stdio: "ignore" });
+            const loadRes = spawnSync("launchctl", ["load", plistFile], { stdio: "inherit" });
+            if (loadRes.status !== 0) {
+              throw new Error(`launchctl load failed with exit code ${loadRes.status ?? 1}`);
+            }
             await manager.startService(options.name);
             console.log(`✅ Service '${options.name}' resurrected from backup`);
           } else {

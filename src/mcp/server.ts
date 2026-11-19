@@ -13,19 +13,82 @@
  */
 
 import { createInterface } from "node:readline";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { join, resolve, sep } from "node:path";
+import { closeSync, constants, existsSync, fstatSync, lstatSync, openSync, readdirSync, readFileSync, readSync, realpathSync } from "node:fs";
+import { dirname, join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
+
+const O_NOFOLLOW = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0;
 
 // Security: Path containment and service name validation
 function isValidServiceName(name: string): boolean {
-  return /^[a-zA-Z0-9._-]+$/.test(name) && name.length <= 64 && !name.includes("..") && !name.includes("/") && !name.includes("\\");
+  return (
+    typeof name === "string" &&
+    name.length > 0 &&
+    name.length <= 64 &&
+    /^[a-zA-Z0-9._-]+$/.test(name) &&
+    !name.startsWith("-") &&
+    name !== "." &&
+    !name.includes("..") &&
+    !name.includes("/") &&
+    !name.includes("\\")
+  );
 }
 
 function isPathContained(targetPath: string, parentDir: string): boolean {
-  const resolvedTarget = resolve(targetPath);
-  const resolvedParent = resolve(parentDir);
-  return resolvedTarget.startsWith(resolvedParent + sep) || resolvedTarget === resolvedParent;
+  try {
+    const resolvedParent = existsSync(parentDir) ? realpathSync(parentDir) : resolve(parentDir);
+    const resolvedTarget = resolve(targetPath);
+    if (!(resolvedTarget.startsWith(resolvedParent + sep) || resolvedTarget === resolvedParent)) {
+      return false;
+    }
+    if (existsSync(targetPath)) {
+      const st = lstatSync(targetPath);
+      if (st.isSymbolicLink()) return false;
+      const realTarget = realpathSync(targetPath);
+      return realTarget.startsWith(resolvedParent + sep) || realTarget === resolvedParent;
+    }
+    const targetParent = dirname(resolvedTarget);
+    if (existsSync(targetParent)) {
+      const realTargetParent = realpathSync(targetParent);
+      return realTargetParent.startsWith(resolvedParent + sep) || realTargetParent === resolvedParent;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readTailBounded(filePath: string, maxLines: number, maxBytes = 256 * 1024): string {
+  let fd: number | undefined;
+  try {
+    const st = lstatSync(filePath);
+    if (st.isSymbolicLink() || !st.isFile()) return "";
+    fd = openSync(filePath, constants.O_RDONLY | O_NOFOLLOW);
+    const fdStat = fstatSync(fd);
+    if (!fdStat.isFile() || fdStat.size === 0) return "";
+    const bytesToRead = Math.min(fdStat.size, maxBytes);
+    const offset = fdStat.size - bytesToRead;
+    const buf = Buffer.allocUnsafe(bytesToRead);
+    let total = 0;
+    while (total < bytesToRead) {
+      const n = readSync(fd, buf, total, bytesToRead - total, offset + total);
+      if (n <= 0) break;
+      total += n;
+    }
+    let text = buf.subarray(0, total).toString("utf-8");
+    if (offset > 0) {
+      const idx = text.indexOf("\n");
+      text = idx >= 0 ? text.slice(idx + 1) : text;
+    }
+    const clampedLines = Number.isFinite(maxLines) ? Math.max(1, Math.min(5000, Math.floor(maxLines))) : 50;
+    return text.split("\n").slice(-clampedLines).join("\n");
+  } catch {
+    return "";
+  } finally {
+    if (fd !== undefined) {
+      try { closeSync(fd); } catch {}
+    }
+  }
 }
 
 import { listServices } from "../utils/service-discovery.js";
@@ -53,9 +116,24 @@ export const MUTATING_MCP_TOOLS = new Set([
   "bs9_send_signal",
 ]);
 
-const SENSITIVE_KEY_RE = /secret|token|password|passwd|api[_-]?key|private[_-]?key|auth|database_url|db_url|connection_string/i;
+const SENSITIVE_KEY_RE = /secret|token|password|passwd|passphrase|api[_-]?key|private[_-]?key|access[_-]?key|encryption[_-]?key|master[_-]?key|credential|auth|cookie|session[_-]?id|jwt|bearer|database_url|db_url|redis_url|mongo_uri|postgres_url|connection_string/i;
+const INLINE_SECRET_ASSIGN_RE = /\b([A-Z0-9_]*(?:SECRET|TOKEN|PASSWORD|PASSWD|PASSPHRASE|API_KEY|PRIVATE_KEY|ACCESS_KEY|ENCRYPTION_KEY|MASTER_KEY|CREDENTIAL|DATABASE_URL|DB_URL|REDIS_URL|MONGO_URI|POSTGRES_URL)[A-Z0-9_]*)=([^\s"'`]+)/gi;
+const INLINE_FLAG_SECRET_RE = /(--?(?:token|password|passwd|secret|api-key|apikey|auth)=?)([^\s"'`]+)/gi;
+const INLINE_URI_CRED_RE = /([a-z][a-z0-9+.-]*:\/\/[^:\s/@]+:)([^@\s]+)(@)/gi;
+const INLINE_BEARER_RE = /\b(Bearer\s+)([A-Za-z0-9\-._~+/]+=*)/gi;
+
+export function redactSensitiveText(text: string): string {
+  return text
+    .replace(INLINE_SECRET_ASSIGN_RE, "$1=***REDACTED***")
+    .replace(INLINE_FLAG_SECRET_RE, "$1***REDACTED***")
+    .replace(INLINE_URI_CRED_RE, "$1***REDACTED***$3")
+    .replace(INLINE_BEARER_RE, "$1***REDACTED***");
+}
 
 export function redactSensitiveEnv<T>(input: T): T {
+  if (typeof input === "string") {
+    return redactSensitiveText(input) as unknown as T;
+  }
   if (input === null || input === undefined || typeof input !== "object") {
     return input;
   }
@@ -66,6 +144,8 @@ export function redactSensitiveEnv<T>(input: T): T {
   for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
     if (SENSITIVE_KEY_RE.test(k) && typeof v === "string" && v.length > 0) {
       out[k] = "***REDACTED***";
+    } else if (typeof v === "string") {
+      out[k] = redactSensitiveText(v);
     } else if (v && typeof v === "object") {
       out[k] = redactSensitiveEnv(v);
     } else {
@@ -261,10 +341,11 @@ export async function handleToolCall(
   options: McpServerOptions = {}
 ): Promise<string> {
   const isReadOnly = options.readOnly ?? process.env.BS9_MCP_READONLY === "true";
+  const targetForAudit = typeof args?.name === "string" ? args.name : "all";
   if (isReadOnly && MUTATING_MCP_TOOLS.has(name)) {
     recordAuditEvent({
       action: name,
-      target: String(args.name || "all"),
+      target: targetForAudit,
       status: "denied",
       actor: "mcp-agent",
       details: "blocked_by_readonly_mode",
@@ -272,296 +353,380 @@ export async function handleToolCall(
     throw new Error(`Security: Tool '${name}' is blocked in BS9 MCP read-only mode`);
   }
 
-  if (MUTATING_MCP_TOOLS.has(name)) {
-    recordAuditEvent({
-      action: name,
-      target: String(args.name || "all"),
-      status: "success",
-      actor: "mcp-agent",
-    });
-  }
-
   const platformInfo = getPlatformInfo();
+  const isMutating = MUTATING_MCP_TOOLS.has(name);
 
-  switch (name) {
-    case "bs9_list_processes": {
-      const services = await listServices();
-      return JSON.stringify(services, null, 2);
-    }
+  try {
+    let resultText: string;
 
-    case "bs9_audit_log": {
-      const limit = Math.min(500, Math.max(1, Number(args.limit) || 50));
-      let events = readAuditEvents(limit);
-      if (args.action) {
-        const filter = String(args.action).trim().toLowerCase();
-        events = events.filter((e) => e.action.toLowerCase() === filter);
+    switch (name) {
+      case "bs9_list_processes": {
+        const services = await listServices();
+        resultText = JSON.stringify(redactSensitiveEnv(services), null, 2);
+        break;
       }
-      return JSON.stringify(events, null, 2);
-    }
 
-    case "bs9_export_config": {
-      const format = String(args.format || "").toLowerCase();
-      const serviceName = String(args.serviceName || "app");
-      if (format === "grafana") {
-        return generateGrafanaDashboard({ serviceName });
-      }
-      const port = Number(args.port) || 3000;
-      const domain = String(args.domain || "localhost");
-      if (format === "nginx") {
-        return generateNginxConfig({
-          serviceName,
-          domain,
-          upstreams: [{ host: "127.0.0.1", port }],
-          ssl: Boolean(args.ssl),
-        });
-      }
-      if (format === "caddy") {
-        return generateCaddyConfig({
-          serviceName,
-          domain,
-          upstreams: [{ host: "127.0.0.1", port }],
-        });
-      }
-      throw new Error(`Unsupported export format '${format}'. Use nginx, caddy, or grafana.`);
-    }
-
-    case "bs9_describe_process": {
-      const target = args.name;
-      if (!target) throw new Error("Missing 'name' argument");
-      const clean = target.replace(/^(BS9_|bs9\.)/, "");
-      if (!isValidServiceName(clean)) throw new Error(`Invalid service name: '${target}'`);
-      const all = await listServices();
-      const service = all.find(s => {
-        const sClean = s.name.replace(/^(BS9_|bs9\.)/, "");
-        return s.name === target || sClean === clean;
-      });
-
-      const crash = getCrashState(clean);
-
-      let metadata: any = null;
-      if (platformInfo.isWindows) {
-        const servicesDir = join(homedir(), ".bs9", "services");
-        const metaPath = join(servicesDir, `BS9_${clean}.json`);
-        if (isPathContained(metaPath, servicesDir) && existsSync(metaPath)) {
-          try { metadata = JSON.parse(readFileSync(metaPath, "utf-8")); } catch {}
+      case "bs9_audit_log": {
+        const rawLimit = Number(args.limit);
+        const limit = Number.isFinite(rawLimit) ? Math.min(500, Math.max(1, Math.floor(rawLimit))) : 50;
+        let events = readAuditEvents(limit);
+        if (typeof args.action === "string" && args.action.trim()) {
+          const filter = args.action.trim().toLowerCase();
+          events = events.filter((e) => e.action.toLowerCase() === filter);
         }
+        resultText = JSON.stringify(events, null, 2);
+        break;
       }
 
-      return JSON.stringify({
-        service: service || { name: target, status: "stopped" },
-        crashTracker: crash ? {
-          state: crash.state,
-          consecutiveCrashes: crash.consecutiveCrashes,
-          formatted: formatCrashState(crash),
-          backoffMs: crash.backoffMs,
-          recentCrashes: crash.crashes
-        } : null,
-        metadata: metadata ? redactSensitiveEnv(metadata) : null
-      }, null, 2);
-    }
+      case "bs9_export_config": {
+        const format = String(args.format || "").toLowerCase();
+        const serviceName = String(args.serviceName || "app");
+        if (format === "grafana") {
+          resultText = generateGrafanaDashboard({ serviceName });
+          break;
+        }
+        const rawPort = Number(args.port);
+        const port = Number.isFinite(rawPort) && rawPort >= 1 && rawPort <= 65535 ? Math.floor(rawPort) : 3000;
+        const domain = String(args.domain || "localhost");
+        if (format === "nginx") {
+          resultText = generateNginxConfig({
+            serviceName,
+            domain,
+            upstreams: [{ host: "127.0.0.1", port }],
+            ssl: Boolean(args.ssl),
+          });
+          break;
+        }
+        if (format === "caddy") {
+          resultText = generateCaddyConfig({
+            serviceName,
+            domain,
+            upstreams: [{ host: "127.0.0.1", port }],
+          });
+          break;
+        }
+        throw new Error(`Unsupported export format '${format}'. Use nginx, caddy, or grafana.`);
+      }
 
-    case "bs9_tail_logs": {
-      const logDir = platformInfo.logDir;
-      const count = Number(args.lines) || 50;
-      const targetName = args.name;
+      case "bs9_describe_process": {
+        const target = args.name;
+        if (typeof target !== "string" || !target) throw new Error("Missing or invalid 'name' argument");
+        const clean = target.replace(/^(BS9_|bs9\.)/, "");
+        if (!isValidServiceName(clean)) throw new Error(`Invalid service name: '${target}'`);
+        const all = await listServices();
+        const service = all.find(s => {
+          const sClean = s.name.replace(/^(BS9_|bs9\.)/, "");
+          return s.name === target || sClean === clean;
+        });
 
-      if (!existsSync(logDir)) return "No log directory found.";
+        const crash = getCrashState(clean);
 
-      if (targetName) {
-        const clean = targetName.replace(/^(BS9_|bs9\.)/, "");
-        if (!isValidServiceName(clean)) throw new Error(`Invalid service name: '${targetName}'`);
+        let metadata: any = null;
+        if (platformInfo.isWindows) {
+          const servicesDir = join(homedir(), ".bs9", "services");
+          const metaPath = join(servicesDir, `BS9_${clean}.json`);
+          if (isPathContained(metaPath, servicesDir) && existsSync(metaPath)) {
+            try { metadata = JSON.parse(readFileSync(metaPath, "utf-8")); } catch {}
+          }
+        }
+
+        resultText = JSON.stringify({
+          service: redactSensitiveEnv(service || { name: target, status: "stopped" }),
+          crashTracker: crash ? {
+            state: crash.state,
+            consecutiveCrashes: crash.consecutiveCrashes,
+            formatted: formatCrashState(crash),
+            backoffMs: crash.backoffMs,
+            recentCrashes: crash.crashes
+          } : null,
+          metadata: metadata ? redactSensitiveEnv(metadata) : null
+        }, null, 2);
+        break;
+      }
+
+      case "bs9_tail_logs": {
+        const logDir = platformInfo.logDir;
+        const rawLines = Number(args.lines);
+        const count = Number.isFinite(rawLines) ? Math.max(1, Math.min(5000, Math.floor(rawLines))) : 50;
+        const targetName = args.name;
+
+        if (!existsSync(logDir)) {
+          resultText = "No log directory found.";
+          break;
+        }
+
+        if (targetName !== undefined && targetName !== null && targetName !== "") {
+          if (typeof targetName !== "string") throw new Error("Invalid 'name' argument");
+          const clean = targetName.replace(/^(BS9_|bs9\.)/, "");
+          if (!isValidServiceName(clean)) throw new Error(`Invalid service name: '${targetName}'`);
+          const prefix = platformInfo.isWindows ? `BS9_${clean}` : platformInfo.isMacOS ? `bs9.${clean}` : clean;
+          const outPath = join(logDir, `${prefix}.out.log`);
+          const errPath = join(logDir, `${prefix}.err.log`);
+
+          if (!isPathContained(outPath, logDir) || !isPathContained(errPath, logDir)) {
+            throw new Error("Access denied: path traversal detected");
+          }
+
+          let result = `=== LOGS FOR '${targetName}' (last ${count} lines) ===\n\n`;
+          if (existsSync(outPath)) {
+            const lines = redactSensitiveText(readTailBounded(outPath, count));
+            result += `--- STDOUT ---\n${lines}\n\n`;
+          }
+          if (existsSync(errPath)) {
+            const lines = redactSensitiveText(readTailBounded(errPath, count));
+            result += `--- STDERR ---\n${lines}\n`;
+          }
+          resultText = result;
+        } else {
+          const files = readdirSync(logDir).filter(f => f.endsWith(".out.log") || f.endsWith(".err.log"));
+          let result = `=== COMBINED LOGS (last ${count} lines each) ===\n\n`;
+          for (const file of files) {
+            const filePath = join(logDir, file);
+            if (!isPathContained(filePath, logDir)) continue;
+            const content = redactSensitiveText(readTailBounded(filePath, count));
+            result += `--- [${file}] ---\n${content}\n\n`;
+          }
+          resultText = result;
+        }
+        break;
+      }
+
+      case "bs9_restart_process": {
+        const target = args.name === undefined ? "all" : args.name;
+        if (typeof target !== "string") throw new Error("Invalid 'name' argument");
+        if (target !== "all") {
+          const clean = target.replace(/^(BS9_|bs9\.)/, "");
+          if (!isValidServiceName(clean)) throw new Error(`Invalid service name: '${target}'`);
+        }
+        await restartCommand([target], { force: true });
+        resultText = `Restarted '${target}' successfully.`;
+        break;
+      }
+
+      case "bs9_reload_process": {
+        const target = args.name === undefined ? "all" : args.name;
+        if (typeof target !== "string") throw new Error("Invalid 'name' argument");
+        if (target !== "all") {
+          const clean = target.replace(/^(BS9_|bs9\.)/, "");
+          if (!isValidServiceName(clean)) throw new Error(`Invalid service name: '${target}'`);
+        }
+        await reloadCommand([target], { force: true });
+        resultText = `Zero-downtime reload for '${target}' completed.`;
+        break;
+      }
+
+      case "bs9_scale_process": {
+        if (typeof args.name !== "string" || !args.name || args.instances === undefined || args.instances === null) {
+          throw new Error("name and instances required");
+        }
+        const clean = args.name.replace(/^(BS9_|bs9\.)/, "");
+        if (!isValidServiceName(clean)) throw new Error(`Invalid service name: '${args.name}'`);
+        await scaleCommand(args.name, String(args.instances));
+        resultText = `Scaled '${args.name}' to ${args.instances} worker(s).`;
+        break;
+      }
+
+      case "bs9_stop_process": {
+        if (typeof args.name !== "string" || !args.name) throw new Error("Missing or invalid 'name' argument");
+        if (args.name !== "all") {
+          const clean = args.name.replace(/^(BS9_|bs9\.)/, "");
+          if (!isValidServiceName(clean)) throw new Error(`Invalid service name: '${args.name}'`);
+        }
+        await stopCommand([args.name], { force: true });
+        resultText = `Stopped '${args.name}' successfully.`;
+        break;
+      }
+
+      case "bs9_delete_process": {
+        if (typeof args.name !== "string" || !args.name) throw new Error("Missing or invalid 'name' argument");
+        if (args.name !== "all") {
+          const clean = args.name.replace(/^(BS9_|bs9\.)/, "");
+          if (!isValidServiceName(clean)) throw new Error(`Invalid service name: '${args.name}'`);
+        }
+        await deleteCommand([args.name], { force: true, remove: true });
+        resultText = `Deleted '${args.name}' successfully.`;
+        break;
+      }
+
+      case "bs9_diagnose_crash": {
+        if (typeof args.name !== "string" || !args.name) throw new Error("Missing or invalid 'name' argument");
+        const clean = args.name.replace(/^(BS9_|bs9\.)/, "");
+        if (!isValidServiceName(clean)) throw new Error(`Invalid service name: '${args.name}'`);
+        const crash = getCrashState(clean);
+        const logDir = platformInfo.logDir;
         const prefix = platformInfo.isWindows ? `BS9_${clean}` : platformInfo.isMacOS ? `bs9.${clean}` : clean;
-        const outPath = join(logDir, `${prefix}.out.log`);
         const errPath = join(logDir, `${prefix}.err.log`);
-
-        if (!isPathContained(outPath, logDir) || !isPathContained(errPath, logDir)) {
+        if (!isPathContained(errPath, logDir)) {
           throw new Error("Access denied: path traversal detected");
         }
 
-        let result = `=== LOGS FOR '${targetName}' (last ${count} lines) ===\n\n`;
-        if (existsSync(outPath)) {
-          const lines = readFileSync(outPath, "utf-8").split("\n").slice(-count).join("\n");
-          result += `--- STDOUT ---\n${lines}\n\n`;
-        }
+        let lastErrorLines = "No error log available.";
         if (existsSync(errPath)) {
-          const lines = readFileSync(errPath, "utf-8").split("\n").slice(-count).join("\n");
-          result += `--- STDERR ---\n${lines}\n`;
+          lastErrorLines = redactSensitiveText(readTailBounded(errPath, 30)) || "No error log available.";
         }
-        return result;
-      } else {
-        const files = readdirSync(logDir).filter(f => f.endsWith(".out.log") || f.endsWith(".err.log"));
-        let result = `=== COMBINED LOGS (last ${count} lines each) ===\n\n`;
-        for (const file of files) {
-          const content = readFileSync(join(logDir, file), "utf-8").split("\n").slice(-count).join("\n");
-          result += `--- [${file}] ---\n${content}\n\n`;
+
+        resultText = JSON.stringify({
+          service: clean,
+          circuitBreaker: crash.state,
+          consecutiveCrashes: crash.consecutiveCrashes,
+          backoffDelaySeconds: crash.backoffMs / 1000,
+          crashHistory: crash.crashes,
+          recentStderr: lastErrorLines,
+          diagnosisSummary: crash.state === "circuit-open"
+            ? `Circuit breaker is OPEN due to ${crash.crashes.length} crashes within 60 seconds. Fix the underlying crash before resetting with 'bs9_reset_crash'.`
+            : crash.consecutiveCrashes > 0
+              ? `Service experienced ${crash.consecutiveCrashes} crash(es). Currently in exponential backoff delay of ${crash.backoffMs / 1000}s.`
+              : `Service is healthy with 0 consecutive crashes.`
+        }, null, 2);
+        break;
+      }
+
+      case "bs9_reset_crash": {
+        if (typeof args.name !== "string" || !args.name) throw new Error("Missing or invalid 'name' argument");
+        const clean = args.name.replace(/^(BS9_|bs9\.)/, "");
+        if (!isValidServiceName(clean)) throw new Error(`Invalid service name: '${args.name}'`);
+        forceResetCircuit(clean);
+        resultText = `Reset crash tracking and circuit breaker for '${clean}'.`;
+        break;
+      }
+
+      case "bs9_flush_logs": {
+        if (args.name !== undefined && args.name !== null && args.name !== "") {
+          if (typeof args.name !== "string") throw new Error("Invalid 'name' argument");
+          const clean = args.name.replace(/^(BS9_|bs9\.)/, "");
+          if (!isValidServiceName(clean)) throw new Error(`Invalid service name: '${args.name}'`);
         }
-        return result;
+        await flushCommand(args.name);
+        resultText = `Flushed logs for ${args.name || "all services"}.`;
+        break;
       }
-    }
 
-    case "bs9_restart_process": {
-      const target = args.name || "all";
-      if (target !== "all") {
-        const clean = target.replace(/^(BS9_|bs9\.)/, "");
-        if (!isValidServiceName(clean)) throw new Error(`Invalid service name: '${target}'`);
-      }
-      await restartCommand([target], { force: true });
-      return `Restarted '${target}' successfully.`;
-    }
-
-    case "bs9_reload_process": {
-      const target = args.name || "all";
-      if (target !== "all") {
-        const clean = target.replace(/^(BS9_|bs9\.)/, "");
-        if (!isValidServiceName(clean)) throw new Error(`Invalid service name: '${target}'`);
-      }
-      await reloadCommand([target], { force: true });
-      return `Zero-downtime reload for '${target}' completed.`;
-    }
-
-    case "bs9_scale_process": {
-      if (!args.name || !args.instances) throw new Error("name and instances required");
-      const clean = args.name.replace(/^(BS9_|bs9\.)/, "");
-      if (!isValidServiceName(clean)) throw new Error(`Invalid service name: '${args.name}'`);
-      await scaleCommand(args.name, String(args.instances));
-      return `Scaled '${args.name}' to ${args.instances} worker(s).`;
-    }
-
-    case "bs9_stop_process": {
-      if (!args.name) throw new Error("Missing 'name' argument");
-      if (args.name !== "all") {
+      case "bs9_send_signal": {
+        if (typeof args.signal !== "string" || !args.signal || typeof args.name !== "string" || !args.name) {
+          throw new Error("signal and name are required strings");
+        }
         const clean = args.name.replace(/^(BS9_|bs9\.)/, "");
         if (!isValidServiceName(clean)) throw new Error(`Invalid service name: '${args.name}'`);
-      }
-      await stopCommand([args.name], { force: true });
-      return `Stopped '${args.name}' successfully.`;
-    }
-
-    case "bs9_delete_process": {
-      if (!args.name) throw new Error("Missing 'name' argument");
-      if (args.name !== "all") {
-        const clean = args.name.replace(/^(BS9_|bs9\.)/, "");
-        if (!isValidServiceName(clean)) throw new Error(`Invalid service name: '${args.name}'`);
-      }
-      await deleteCommand([args.name], { force: true, remove: true });
-      return `Deleted '${args.name}' successfully.`;
-    }
-
-    case "bs9_diagnose_crash": {
-      const clean = (args.name || "").replace(/^(BS9_|bs9\.)/, "");
-      if (!isValidServiceName(clean)) throw new Error(`Invalid service name: '${args.name}'`);
-      const crash = getCrashState(clean);
-      const logDir = platformInfo.logDir;
-      const prefix = platformInfo.isWindows ? `BS9_${clean}` : platformInfo.isMacOS ? `bs9.${clean}` : clean;
-      const errPath = join(logDir, `${prefix}.err.log`);
-      if (!isPathContained(errPath, logDir)) {
-        throw new Error("Access denied: path traversal detected");
-      }
-
-      let lastErrorLines = "No error log available.";
-      if (existsSync(errPath)) {
-        lastErrorLines = readFileSync(errPath, "utf-8").split("\n").slice(-30).join("\n");
+        const trimmedSig = args.signal.trim();
+        const allowedSignals = new Set([
+          "SIGINT", "SIGTERM", "SIGKILL", "SIGUSR1", "SIGUSR2",
+          "SIGHUP", "SIGQUIT", "SIGCONT", "SIGSTOP", "SIGABRT",
+          "SIGALRM", "SIGPIPE", "SIGTSTP", "SIGTTIN", "SIGTTOU", "SIGWINCH"
+        ]);
+        if (/^\d+$/.test(trimmedSig)) {
+          const sigNum = parseInt(trimmedSig, 10);
+          if (sigNum < 1 || sigNum > 31) throw new Error(`Invalid signal number: ${sigNum}`);
+        } else {
+          const formatted = trimmedSig.toUpperCase().startsWith("SIG") ? trimmedSig.toUpperCase() : `SIG${trimmedSig.toUpperCase()}`;
+          if (!allowedSignals.has(formatted)) throw new Error(`Signal '${args.signal}' is not allowed`);
+        }
+        const allServices = await listServices();
+        const matched = allServices.filter(s => {
+          const sClean = s.name.replace(/^(BS9_|bs9\.)/, "");
+          const isWorker = sClean.startsWith(`${clean}-`) && /^\d+$/.test(sClean.slice(clean.length + 1));
+          return sClean === clean || isWorker;
+        });
+        if (matched.length === 0) {
+          throw new Error(`No running services found matching '${args.name}'`);
+        }
+        await sendSignalCommand(args.signal, args.name);
+        resultText = `Sent signal ${args.signal} to '${args.name}'.`;
+        break;
       }
 
-      return JSON.stringify({
-        service: clean,
-        circuitBreaker: crash.state,
-        consecutiveCrashes: crash.consecutiveCrashes,
-        backoffDelaySeconds: crash.backoffMs / 1000,
-        crashHistory: crash.crashes,
-        recentStderr: lastErrorLines,
-        diagnosisSummary: crash.state === "circuit-open"
-          ? `Circuit breaker is OPEN due to ${crash.crashes.length} crashes within 60 seconds. Fix the underlying crash before resetting with 'bs9_reset_crash'.`
-          : crash.consecutiveCrashes > 0
-            ? `Service experienced ${crash.consecutiveCrashes} crash(es). Currently in exponential backoff delay of ${crash.backoffMs / 1000}s.`
-            : `Service is healthy with 0 consecutive crashes.`
-      }, null, 2);
-    }
-
-    case "bs9_reset_crash": {
-      const clean = (args.name || "").replace(/^(BS9_|bs9\.)/, "");
-      if (!isValidServiceName(clean)) throw new Error(`Invalid service name: '${args.name}'`);
-      forceResetCircuit(clean);
-      return `Reset crash tracking and circuit breaker for '${clean}'.`;
-    }
-
-    case "bs9_flush_logs": {
-      if (args.name) {
-        const clean = args.name.replace(/^(BS9_|bs9\.)/, "");
-        if (!isValidServiceName(clean)) throw new Error(`Invalid service name: '${args.name}'`);
+      case "bs9_doctor": {
+        resultText = JSON.stringify({
+          status: "healthy",
+          bunVersion: typeof Bun !== "undefined" ? Bun.version : "N/A",
+          nodeVersion: process.version,
+          platform: platformInfo.platform,
+          serviceManager: platformInfo.serviceManager,
+          directories: {
+            configDir: platformInfo.configDir,
+            logDir: platformInfo.logDir,
+            serviceDir: platformInfo.serviceDir
+          },
+          uptime: process.uptime(),
+          memoryUsageMb: Math.round(process.memoryUsage().rss / 1024 / 1024)
+        }, null, 2);
+        break;
       }
-      await flushCommand(args.name);
-      return `Flushed logs for ${args.name || "all services"}.`;
-    }
 
-    case "bs9_send_signal": {
-      if (!args.signal || !args.name) throw new Error("signal and name are required");
-      await sendSignalCommand(args.signal, args.name);
-      return `Sent signal ${args.signal} to '${args.name}'.`;
-    }
+      case "bs9_get_issues": {
+        const { parseErrorLogs } = await import("../commands/issues.js");
+        const logDir = platformInfo.logDir;
+        if (!existsSync(logDir)) {
+          resultText = "[]";
+          break;
+        }
 
-    case "bs9_doctor": {
-      return JSON.stringify({
-        status: "healthy",
-        bunVersion: typeof Bun !== "undefined" ? Bun.version : "N/A",
-        nodeVersion: process.version,
-        platform: platformInfo.platform,
-        serviceManager: platformInfo.serviceManager,
-        directories: {
-          configDir: platformInfo.configDir,
-          logDir: platformInfo.logDir,
-          serviceDir: platformInfo.serviceDir
-        },
-        uptime: process.uptime(),
-        memoryUsageMb: Math.round(process.memoryUsage().rss / 1024 / 1024)
-      }, null, 2);
-    }
+        const allServices = await listServices();
+        const targetName = args.name;
+        if (targetName !== undefined && targetName !== null && typeof targetName !== "string") {
+          throw new Error("Invalid 'name' argument");
+        }
+        const targetServices = targetName
+          ? allServices.filter(s => {
+              const clean = s.name.replace(/^(BS9_|bs9\.)/, "");
+              const tClean = targetName.replace(/^(BS9_|bs9\.)/, "");
+              return s.name === targetName || clean === tClean || clean.startsWith(`${tClean}-`);
+            })
+          : allServices;
 
-    case "bs9_get_issues": {
-      const { parseErrorLogs } = await import("../commands/issues.js");
-      const logDir = platformInfo.logDir;
-      if (!existsSync(logDir)) return "[]";
+        const rawLines = Number(args.lines);
+        const maxLines = Number.isFinite(rawLines) ? Math.max(1, Math.min(5000, Math.floor(rawLines))) : 100;
+        const issues: any[] = [];
+        const seen = new Set<string>();
 
-      const allServices = await listServices();
-      const targetName = args.name;
-      const targetServices = targetName
-        ? allServices.filter(s => {
-            const clean = s.name.replace(/^(BS9_|bs9\.)/, "");
-            const tClean = targetName.replace(/^(BS9_|bs9\.)/, "");
-            return s.name === targetName || clean === tClean || clean.startsWith(`${tClean}-`);
-          })
-        : allServices;
+        for (const svc of targetServices) {
+          const clean = svc.name.replace(/^(BS9_|bs9\.)/, "");
+          if (seen.has(clean)) continue;
+          seen.add(clean);
 
-      const maxLines = Number(args.lines) || 100;
-      const issues: any[] = [];
-      const seen = new Set<string>();
+          const prefix = platformInfo.isWindows ? `BS9_${clean}` : platformInfo.isMacOS ? `bs9.${clean}` : clean;
+          const errPath = join(logDir, `${prefix}.err.log`);
+          if (!isPathContained(errPath, logDir)) continue;
+          const crash = getCrashState(clean);
 
-      for (const svc of targetServices) {
-        const clean = svc.name.replace(/^(BS9_|bs9\.)/, "");
-        if (seen.has(clean)) continue;
-        seen.add(clean);
-
-        const prefix = platformInfo.isWindows ? `BS9_${clean}` : platformInfo.isMacOS ? `bs9.${clean}` : clean;
-        const errPath = join(logDir, `${prefix}.err.log`);
-        const crash = getCrashState(clean);
-
-        if (existsSync(errPath)) {
-          const content = readFileSync(errPath, "utf-8");
-          const recentLines = content.split("\n").slice(-maxLines).join("\n");
-          const parsed = parseErrorLogs(recentLines, clean);
-          for (const p of parsed) {
-            p.crashCount = crash.consecutiveCrashes;
-            p.circuitState = crash.state;
-            issues.push(p);
+          if (existsSync(errPath)) {
+            const recentLines = redactSensitiveText(readTailBounded(errPath, maxLines));
+            const parsed = parseErrorLogs(recentLines, clean);
+            for (const p of parsed) {
+              p.crashCount = crash.consecutiveCrashes;
+              p.circuitState = crash.state;
+              issues.push(redactSensitiveEnv(p));
+            }
           }
         }
+
+        resultText = JSON.stringify(issues, null, 2);
+        break;
       }
 
-      return JSON.stringify(issues, null, 2);
+      default:
+        throw new Error(`Unknown BS9 MCP tool: ${name}`);
     }
 
-    default:
-      throw new Error(`Unknown BS9 MCP tool: ${name}`);
+    if (isMutating) {
+      recordAuditEvent({
+        action: name,
+        target: targetForAudit,
+        status: "success",
+        actor: "mcp-agent",
+      });
+    }
+    return resultText;
+  } catch (err: any) {
+    if (isMutating) {
+      recordAuditEvent({
+        action: name,
+        target: targetForAudit,
+        status: "failure",
+        actor: "mcp-agent",
+        details: err?.message ? String(err.message) : "error",
+      });
+    }
+    throw err;
   }
 }
 
@@ -587,6 +752,15 @@ export async function runMcpServer(options: McpServerOptions = {}): Promise<void
         jsonrpc: "2.0",
         id: null,
         error: { code: -32700, message: "Parse error: Invalid JSON" }
+      });
+      return;
+    }
+
+    if (!request || typeof request !== "object" || Array.isArray(request)) {
+      send({
+        jsonrpc: "2.0",
+        id: null,
+        error: { code: -32600, message: "Invalid Request" }
       });
       return;
     }
@@ -627,6 +801,11 @@ export async function runMcpServer(options: McpServerOptions = {}): Promise<void
       } else if (method === "tools/call") {
         const toolName = params?.name;
         const toolArgs = params?.arguments || {};
+        // Redirect console.log/info to stderr during tool execution so delegated CLI commands never corrupt stdio JSON-RPC
+        const origLog = console.log;
+        const origInfo = console.info;
+        console.log = (...a: any[]) => console.error(...a);
+        console.info = (...a: any[]) => console.error(...a);
         try {
           const output = await handleToolCall(toolName, toolArgs, { readOnly: isReadOnly });
           send({
@@ -655,6 +834,9 @@ export async function runMcpServer(options: McpServerOptions = {}): Promise<void
               isError: true
             }
           });
+        } finally {
+          console.log = origLog;
+          console.info = origInfo;
         }
       } else {
         send({

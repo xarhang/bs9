@@ -18,6 +18,7 @@ import { type ClusterManifestData } from "../hub/protocol.js";
 export interface ReconcilerOptions {
   intervalMs?: number;
   missingGraceMs?: number;
+  maxResurrectionAttempts?: number;
   onResurrectSlot?: (manifest: ClusterManifestData, slot: number, nextGen: number) => Promise<void>;
 }
 
@@ -25,11 +26,13 @@ export class ClusterReconciler extends EventEmitter {
   private controller: ClusterController;
   private intervalMs: number;
   private missingGraceMs: number;
+  private maxResurrectionAttempts: number;
   private timer: any = null;
   private isRunning = false;
   private isReconciling = false;
   private inFlightResurrections: Map<string, { nextGen: number; timestamp: number }> = new Map();
   private missingSince: Map<string, number> = new Map();
+  private failureBackoff: Map<string, { attempts: number; nextRetryAt: number; exhausted?: boolean }> = new Map();
   private onResurrectSlot?: (manifest: ClusterManifestData, slot: number, nextGen: number) => Promise<void>;
   private boundOnWorkerReady: (worker: any) => void;
   private boundOnWorkerConnected: (worker: any) => void;
@@ -42,13 +45,16 @@ export class ClusterReconciler extends EventEmitter {
     // physical unit after a crash. Give that unit time to reconnect before
     // creating a new generation, otherwise both can become active.
     this.missingGraceMs = options.missingGraceMs ?? Math.max(3000, this.intervalMs * 2);
+    this.maxResurrectionAttempts = options.maxResurrectionAttempts ?? 10;
     this.onResurrectSlot = options.onResurrectSlot;
 
     // Listen to worker ready/connected events to clear in-flight status
     this.boundOnWorkerReady = (worker: any) => {
       if (worker && worker.clusterName !== undefined && worker.slot !== undefined) {
-        this.inFlightResurrections.delete(`${worker.clusterName}:${worker.slot}`);
-        this.missingSince.delete(`${worker.clusterName}:${worker.slot}`);
+        const slotKey = `${worker.clusterName}:${worker.slot}`;
+        this.inFlightResurrections.delete(slotKey);
+        this.missingSince.delete(slotKey);
+        this.failureBackoff.delete(slotKey);
       }
     };
     this.boundOnWorkerConnected = (worker: any) => {
@@ -57,9 +63,6 @@ export class ClusterReconciler extends EventEmitter {
         this.missingSince.delete(`${worker.clusterName}:${worker.slot}`);
       }
     };
-
-    this.controller.on("worker:ready", this.boundOnWorkerReady);
-    this.controller.on("worker:connected", this.boundOnWorkerConnected);
 
     // Register status provider with controller for ADMIN_PING
     this.controller.setReconcilerProvider(() => ({
@@ -72,6 +75,11 @@ export class ClusterReconciler extends EventEmitter {
   public start(): void {
     if (this.isRunning) return;
     this.isRunning = true;
+
+    this.controller.off("worker:ready", this.boundOnWorkerReady);
+    this.controller.off("worker:connected", this.boundOnWorkerConnected);
+    this.controller.on("worker:ready", this.boundOnWorkerReady);
+    this.controller.on("worker:connected", this.boundOnWorkerConnected);
 
     this.timer = setInterval(() => {
       this.reconcile().catch((err) => {
@@ -97,6 +105,7 @@ export class ClusterReconciler extends EventEmitter {
     this.controller.off("worker:connected", this.boundOnWorkerConnected);
     this.inFlightResurrections.clear();
     this.missingSince.clear();
+    this.failureBackoff.clear();
     this.emit("stopped");
   }
 
@@ -122,7 +131,7 @@ export class ClusterReconciler extends EventEmitter {
         }
 
         const workers = this.controller.getClusterWorkers(clusterName);
-        const desiredInstances = manifest.instances || 1;
+        const desiredInstances = manifest.instances ?? 1;
 
         // Group existing connected workers by slot
         const slotMap = new Map<number, typeof workers>();
@@ -169,6 +178,20 @@ export class ClusterReconciler extends EventEmitter {
             continue;
           }
 
+          const backoff = this.failureBackoff.get(slotKey);
+          if (backoff) {
+            if (backoff.attempts >= this.maxResurrectionAttempts) {
+              if (!backoff.exhausted) {
+                backoff.exhausted = true;
+                this.emit("slot:exhausted", { clusterName, slot, attempts: backoff.attempts });
+              }
+              continue;
+            }
+            if (Date.now() < backoff.nextRetryAt) {
+              continue;
+            }
+          }
+
           if (!hasAliveWorker) {
             this.missingSince.delete(slotKey);
             const lock = this.controller.lockCluster(clusterName, "manual", 120_000, `reconciler:${slot}`);
@@ -208,22 +231,37 @@ export class ClusterReconciler extends EventEmitter {
                 lockLost = true;
                 continue;
               }
-              latestManifest.currentGeneration = nextGen;
-              latestManifest.updatedAt = Date.now();
-              this.controller.setManifest(latestManifest);
-              manifest.currentGeneration = nextGen;
-              manifest.updatedAt = latestManifest.updatedAt;
+
+              const nextAttempts = (this.failureBackoff.get(slotKey)?.attempts ?? 0) + 1;
+              const backoffDelayMs = Math.min(60_000, this.intervalMs * Math.pow(2, nextAttempts - 1));
+              this.failureBackoff.set(slotKey, {
+                attempts: nextAttempts,
+                nextRetryAt: Date.now() + backoffDelayMs,
+              });
+
+              const updatedManifest: ClusterManifestData = {
+                ...latestManifest,
+                currentGeneration: nextGen,
+                updatedAt: Date.now(),
+              };
 
               this.emit("slot:missing", { clusterName, slot, nextGen });
               if (this.onResurrectSlot) {
                 this.inFlightResurrections.set(slotKey, { nextGen, timestamp: Date.now() });
                 try {
-                  await this.onResurrectSlot(latestManifest, slot, nextGen);
+                  await this.onResurrectSlot(updatedManifest, slot, nextGen);
+                  this.controller.setManifest(updatedManifest);
+                  manifest.currentGeneration = nextGen;
+                  manifest.updatedAt = updatedManifest.updatedAt;
                   this.emit("slot:resurrected", { clusterName, slot, nextGen });
                 } catch (err) {
                   this.inFlightResurrections.delete(slotKey);
                   this.emit("slot:resurrect-failed", { clusterName, slot, nextGen, error: err });
                 }
+              } else {
+                this.controller.setManifest(updatedManifest);
+                manifest.currentGeneration = nextGen;
+                manifest.updatedAt = updatedManifest.updatedAt;
               }
             } finally {
               clearInterval(renewalTimer);

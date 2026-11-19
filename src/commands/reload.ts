@@ -37,69 +37,96 @@ export interface ReloadOptions {
 export const READY_TIMEOUT_MS = 15000;
 export const DRAIN_TIMEOUT_MS = 10000;
 
+function isValidReloadTarget(name: string): boolean {
+  return (
+    typeof name === "string" &&
+    name.length > 0 &&
+    name.length <= 64 &&
+    /^[a-zA-Z0-9._-]+$/.test(name) &&
+    !name.startsWith("-") &&
+    name !== "." &&
+    !name.includes("..") &&
+    !name.includes("/") &&
+    !name.includes("\\")
+  );
+}
+
 export async function reloadCommand(names: string[] = [], options: ReloadOptions = {}): Promise<void> {
   const target = names[0] || "all";
   const { recordAuditEvent } = await import("../utils/audit-log.js");
-  recordAuditEvent({ action: "reload", target, status: "success" });
-  const allServices = await listServices();
 
-  // If target is 'all', find all cluster apps or reload all
-  if (target === "all") {
-    const clusterApps = new Set<string>();
-    for (const s of allServices) {
-      const info = parseWorkerSlot(s.name);
-      if (info) clusterApps.add(info.appName);
+  try {
+    if (target !== "all" && !isValidReloadTarget(target)) {
+      throw new Error(`Security: Invalid service/cluster name '${target}'`);
     }
-    if (clusterApps.size > 0) {
-      for (const app of clusterApps) {
-        await reloadClusterApp(app, options);
+
+    const allServices = await listServices();
+
+    // If target is 'all', find all cluster apps or reload all
+    if (target === "all") {
+      const clusterApps = new Set<string>();
+      for (const s of allServices) {
+        const info = parseWorkerSlot(s.name);
+        if (info) clusterApps.add(info.appName);
       }
+      if (clusterApps.size > 0) {
+        for (const app of clusterApps) {
+          await reloadClusterApp(app, options);
+        }
+        recordAuditEvent({ action: "reload", target, status: "success" });
+        return;
+      }
+      console.log(`🔄 Reloading all services...`);
+      await restartCommand(names, options);
+      recordAuditEvent({ action: "reload", target, status: "success" });
       return;
     }
-    console.log(`🔄 Reloading all services...`);
-    await restartCommand(names, options);
-    return;
-  }
 
-  // Check if target is a cluster parent (workers named target-0, target-0-g1, etc.)
-  const escapedTarget = target.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  let clusterWorkers = allServices.filter(s => {
-    const clean = s.name.replace(/^(BS9_|bs9\.)/, "");
-    return new RegExp(`^${escapedTarget}-\\d+(-g\\d+)?$`).test(clean);
-  });
+    // Check if target is a cluster parent (workers named target-0, target-0-g1, etc.)
+    const escapedTarget = target.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    let clusterWorkers = allServices.filter(s => {
+      const clean = s.name.replace(/^(BS9_|bs9\.)/, "");
+      return new RegExp(`^${escapedTarget}-\\d+(-g\\d+)?$`).test(clean);
+    });
 
-  // Also check if controller has connected workers for this cluster
-  if (clusterWorkers.length === 0 && options.controller) {
-    const connected = options.controller.getClusterWorkers(target);
-    if (connected.length > 0) {
-      clusterWorkers = connected.map(w => ({
-        name: `${target}-${w.slot}-g${w.generation}`,
-        loaded: "loaded",
-        active: w.status === "ready" ? "active" : "inactive",
-        sub: w.status === "ready" ? "running" : "stopped",
-        state: w.status,
-        cpu: "-",
-        memory: "-",
-        uptime: "-",
-        tasks: "-",
-        pid: String(w.pid),
-        description: `BS9 Cluster Worker ${target}-${w.slot}-g${w.generation}`,
-        slot: w.slot,
-        generation: w.generation,
-        appName: target,
-        logicalSlot: `${target}-${w.slot}`,
-      }));
+    // Also check if controller has connected workers for this cluster
+    if (clusterWorkers.length === 0 && options.controller) {
+      const connected = options.controller.getClusterWorkers(target);
+      if (connected.length > 0) {
+        clusterWorkers = connected.map(w => ({
+          name: `${target}-${w.slot}-g${w.generation}`,
+          loaded: "loaded",
+          active: w.status === "ready" ? "active" : "inactive",
+          sub: w.status === "ready" ? "running" : "stopped",
+          state: w.status,
+          cpu: "-",
+          memory: "-",
+          uptime: "-",
+          tasks: "-",
+          pid: String(w.pid),
+          description: `BS9 Cluster Worker ${target}-${w.slot}-g${w.generation}`,
+          slot: w.slot,
+          generation: w.generation,
+          appName: target,
+          logicalSlot: `${target}-${w.slot}`,
+        }));
+      }
     }
-  }
 
-  if (clusterWorkers.length >= 1) {
-    await reloadClusterApp(target, options, clusterWorkers);
-    return;
-  }
+    if (clusterWorkers.length >= 1) {
+      await reloadClusterApp(target, options, clusterWorkers);
+      recordAuditEvent({ action: "reload", target, status: "success" });
+      return;
+    }
 
-  // Fallback to smooth restart if not a cluster
-  console.log(`🔄 Reloading service '${target}'...`);
-  await restartCommand(names, options);
+    // Fallback to smooth restart if not a cluster
+    console.log(`🔄 Reloading service '${target}'...`);
+    await restartCommand(names, options);
+    recordAuditEvent({ action: "reload", target, status: "success" });
+  } catch (err: any) {
+    recordAuditEvent({ action: "reload", target, status: "failure", details: err?.message ? String(err.message) : "error" });
+    throw err;
+  }
 }
 
 async function reloadClusterApp(

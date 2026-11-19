@@ -9,7 +9,7 @@
  * https://github.com/xarhang/bs9
  */
 
-import { execSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { getPlatformInfo } from "../platform/detect.js";
 import { parseServiceArray, confirmAction, displayBatchResults } from "../utils/array-parser.js";
@@ -22,22 +22,36 @@ interface StopOptions {
 // Security: Service name validation
 function isValidServiceName(name: string): boolean {
   const validPattern = /^[a-zA-Z0-9._-]+$/;
-  return validPattern.test(name) && name.length <= 64 && !name.includes('..') && !name.includes('/');
+  return (
+    validPattern.test(name) &&
+    name.length > 0 &&
+    name.length <= 64 &&
+    !name.startsWith("-") &&
+    name !== "." &&
+    !name.includes('..') &&
+    !name.includes('/') &&
+    !name.includes('\\')
+  );
 }
 
 export async function stopCommand(names: string[], options: StopOptions): Promise<void> {
   const { recordAuditEvent } = await import("../utils/audit-log.js");
   const targetLabel = names.join(",") || "unknown";
-  // Handle multi-service if: multiple args, single arg with array syntax, or 'all' keyword
-  if (names.length > 1 || (names.length === 1 && (names[0].includes('[') || names[0] === 'all'))) {
-    await handleMultiServiceStop(names, options);
-    recordAuditEvent({ action: "stop", target: targetLabel, status: "success" });
-    return;
-  }
+  try {
+    // Handle multi-service if: multiple args, single arg with array/wildcard syntax, or 'all' keyword
+    if (names.length > 1 || (names.length === 1 && (names[0].includes('[') || names[0].includes('*') || names[0] === 'all'))) {
+      await handleMultiServiceStop(names, options);
+      recordAuditEvent({ action: "stop", target: targetLabel, status: "success" });
+      return;
+    }
 
-  // Single service operation
-  await handleSingleServiceStop(names[0] || '');
-  recordAuditEvent({ action: "stop", target: targetLabel, status: "success" });
+    // Single service operation
+    await handleSingleServiceStop(names[0] || '');
+    recordAuditEvent({ action: "stop", target: targetLabel, status: "success" });
+  } catch (err: any) {
+    recordAuditEvent({ action: "stop", target: targetLabel, status: "failure", details: err?.message ? String(err.message) : "error" });
+    throw err;
+  }
 }
 
 async function handleMultiServiceStop(name: string | string[], options: StopOptions): Promise<void> {
@@ -83,37 +97,36 @@ async function handleSingleServiceStop(name: string): Promise<void> {
   }
 
   const clean = name.replace(/^(BS9_|bs9\.)/, "");
-  try {
-    const allServices = await listServices();
+  const escapedClean = clean.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const allServices = await listServices();
 
-    // 1. Logical slot match (e.g. "api-0" matching "api-0-g1", "api-0-g2")
-    const slotWorkers = allServices.filter(s => {
-      const sClean = s.name.replace(/^(BS9_|bs9\.)/, "");
-      return new RegExp(`^${clean}-g\\d+$`).test(sClean);
-    });
+  // 1. Logical slot match (e.g. "api-0" matching "api-0-g1", "api-0-g2")
+  const slotWorkers = allServices.filter(s => {
+    const sClean = s.name.replace(/^(BS9_|bs9\.)/, "");
+    return new RegExp(`^${escapedClean}-g\\d+$`).test(sClean);
+  });
 
-    if (slotWorkers.length > 0) {
-      for (const w of slotWorkers) {
-        const wClean = w.name.replace(/^(BS9_|bs9\.)/, "");
-        await stopDirectService(wClean);
-      }
-      return;
+  if (slotWorkers.length > 0) {
+    for (const w of slotWorkers) {
+      const wClean = w.name.replace(/^(BS9_|bs9\.)/, "");
+      await stopDirectService(wClean);
     }
+    return;
+  }
 
-    // 2. Cluster app match (e.g. "api" matching "api-0-g1", "api-1-g1")
-    const clusterWorkers = allServices.filter(s => {
-      const sClean = s.name.replace(/^(BS9_|bs9\.)/, "");
-      return new RegExp(`^${clean}-\\d+(-g\\d+)?$`).test(sClean);
-    });
+  // 2. Cluster app match (e.g. "api" matching "api-0-g1", "api-1-g1")
+  const clusterWorkers = allServices.filter(s => {
+    const sClean = s.name.replace(/^(BS9_|bs9\.)/, "");
+    return new RegExp(`^${escapedClean}-\\d+(-g\\d+)?$`).test(sClean);
+  });
 
-    if (clusterWorkers.length > 0) {
-      for (const w of clusterWorkers) {
-        const wClean = w.name.replace(/^(BS9_|bs9\.)/, "");
-        await stopDirectService(wClean);
-      }
-      return;
+  if (clusterWorkers.length > 0) {
+    for (const w of clusterWorkers) {
+      const wClean = w.name.replace(/^(BS9_|bs9\.)/, "");
+      await stopDirectService(wClean);
     }
-  } catch {}
+    return;
+  }
 
   await stopDirectService(name);
 }
@@ -121,23 +134,21 @@ async function handleSingleServiceStop(name: string): Promise<void> {
 async function stopDirectService(name: string): Promise<void> {
   const platformInfo = getPlatformInfo();
 
-  try {
-    if (platformInfo.isLinux) {
-      const escapedName = name.replace(/[^a-zA-Z0-9._-]/g, '');
-      execSync(`systemctl --user stop "${escapedName}"`, { stdio: "inherit" });
-      console.log(`🛑 User service '${name}' stopped`);
-    } else if (platformInfo.isMacOS) {
-      const { launchdCommand } = await import("../macos/launchd.js");
-      await launchdCommand('stop', { name: name.startsWith('bs9.') ? name : `bs9.${name}` });
-    } else if (platformInfo.isWindows) {
-      const { WindowsServiceManager } = await import("../windows/service.js");
-      const manager = new WindowsServiceManager();
-      const fullName = name.startsWith('BS9_') ? name : `BS9_${name}`;
-      await manager.stopService(fullName);
+  if (platformInfo.isLinux) {
+    const escapedName = name.replace(/[^a-zA-Z0-9._-]/g, '');
+    const res = spawnSync("systemctl", ["--user", "stop", escapedName], { stdio: "inherit" });
+    if (res.status !== 0) {
+      throw new Error(`systemctl --user stop failed for '${escapedName}' with exit code ${res.status ?? 1}`);
     }
-  } catch (err) {
-    console.error(`❌ Failed to stop service '${name}': ${err}`);
-    process.exit(1);
+    console.log(`🛑 User service '${name}' stopped`);
+  } else if (platformInfo.isMacOS) {
+    const { launchdCommand } = await import("../macos/launchd.js");
+    await launchdCommand('stop', { name: name.startsWith('bs9.') ? name : `bs9.${name}` });
+  } else if (platformInfo.isWindows) {
+    const { WindowsServiceManager } = await import("../windows/service.js");
+    const manager = new WindowsServiceManager();
+    const fullName = name.startsWith('BS9_') ? name : `BS9_${name}`;
+    await manager.stopService(fullName);
   }
 }
 

@@ -395,6 +395,9 @@ export class ClusterController extends EventEmitter {
   }
 
   public setManifest(manifest: ClusterManifestData): void {
+    if (!isValidClusterName(manifest?.clusterName)) {
+      throw new Error(`Invalid cluster name '${manifest?.clusterName}'`);
+    }
     const platformInfo = getPlatformInfo();
     const usesPrivatePosixFiles = platformInfo.isLinux || platformInfo.isMacOS;
     if (usesPrivatePosixFiles) ensurePrivateDirectory(platformInfo.clusterDir);
@@ -409,6 +412,9 @@ export class ClusterController extends EventEmitter {
   }
 
   public getManifest(clusterName: string): ClusterManifestData | undefined {
+    if (!isValidClusterName(clusterName)) {
+      return undefined;
+    }
     const cached = this.manifests.get(clusterName);
     const platformInfo = getPlatformInfo();
     const usesPrivatePosixFiles = platformInfo.isLinux || platformInfo.isMacOS;
@@ -428,6 +434,9 @@ export class ClusterController extends EventEmitter {
   }
 
   public deleteManifest(clusterName: string, lockToken?: string): boolean {
+    if (!isValidClusterName(clusterName)) {
+      return false;
+    }
     const platformInfo = getPlatformInfo();
     const manifestPath = join(platformInfo.clusterDir, `${clusterName}.manifest.json`);
     try {
@@ -772,6 +781,7 @@ export class ClusterController extends EventEmitter {
         const payload = envelope.payload as AdminDrainWorkerPayload;
         this.drainWorker(payload.clusterName, payload.slot, payload.generation, payload.drainTimeoutMs)
           .then((result) => {
+            if (socket.destroyed || !socket.writable) return;
             const resEnv = createEnvelope<AdminDrainWorkerResponsePayload>(
               "ADMIN_DRAIN_WORKER_RESPONSE",
               "system",
@@ -784,16 +794,17 @@ export class ClusterController extends EventEmitter {
               },
               envelope.id
             );
-            socket.write(encodeFrame(resEnv));
+            try { socket.write(encodeFrame(resEnv)); } catch {}
           })
           .catch((err) => {
+            if (socket.destroyed || !socket.writable) return;
             const errEnv = createEnvelope<AdminErrorPayload>(
               "ADMIN_ERROR",
               "system",
               { error: (err as Error).message },
               envelope.id
             );
-            socket.write(encodeFrame(errEnv));
+            try { socket.write(encodeFrame(errEnv)); } catch {}
           });
         break;
       }
@@ -1105,19 +1116,29 @@ export function setDefaultClusterController(controller: ClusterController | null
   defaultClusterController = controller;
 }
 
+let pendingControllerStart: Promise<ClusterController> | null = null;
+
 export async function getOrStartClusterController(options: ControllerOptions = {}): Promise<ClusterController> {
   if (defaultClusterController) {
     return defaultClusterController;
   }
-  const controller = new ClusterController(options);
-  try {
-    await controller.start();
-    defaultClusterController = controller;
-    return controller;
-  } catch (err: any) {
-    if (err && err.code === "EADDRINUSE") {
-      return defaultClusterController || controller;
-    }
-    throw err;
+  if (pendingControllerStart) {
+    return pendingControllerStart;
   }
+  pendingControllerStart = (async () => {
+    const controller = new ClusterController(options);
+    try {
+      await controller.start();
+      defaultClusterController = controller;
+      return controller;
+    } catch (err: any) {
+      if (err && err.code === "EADDRINUSE" && defaultClusterController) {
+        return defaultClusterController;
+      }
+      throw err;
+    } finally {
+      pendingControllerStart = null;
+    }
+  })();
+  return pendingControllerStart;
 }

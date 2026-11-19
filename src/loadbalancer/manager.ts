@@ -213,6 +213,7 @@ export class LoadBalancer {
   private config: LoadBalancerConfig;
   private currentIndex = 0;
   private draining = false;
+  private healthCheckInFlight = false;
   private healthCheckTimer: ReturnType<typeof setInterval> | null = null;
   private stats: LoadBalancerStats = {
     totalRequests: 0,
@@ -278,29 +279,44 @@ export class LoadBalancer {
   }
 
   private async performHealthChecks(): Promise<void> {
-    for (const backend of this.config.backends) {
-      try {
-        const startTime = Date.now();
-        const response = await fetch(`http://${backend.host}:${backend.port}${this.config.healthCheck.path}`, {
-          method: 'GET',
-          signal: AbortSignal.timeout(this.config.healthCheck.timeout),
-        });
+    if (this.healthCheckInFlight || this.draining) {
+      return;
+    }
+    this.healthCheckInFlight = true;
+    try {
+      for (const backend of this.config.backends) {
+        if (this.draining) break;
+        try {
+          const startTime = Date.now();
+          const response = await fetch(`http://${backend.host}:${backend.port}${this.config.healthCheck.path}`, {
+            method: 'GET',
+            signal: AbortSignal.timeout(this.config.healthCheck.timeout),
+          });
 
-        const responseTime = Date.now() - startTime;
+          const responseTime = Date.now() - startTime;
+          await response.body?.cancel().catch(() => {});
 
-        if (response.ok) {
-          backend.healthy = true;
-          backend.responseTime = responseTime;
-        } else {
+          if (response.ok) {
+            backend.healthy = true;
+            backend.responseTime = responseTime;
+          } else {
+            backend.healthy = false;
+          }
+
+          backend.lastHealthCheck = Date.now();
+        } catch (error) {
           backend.healthy = false;
+          backend.lastHealthCheck = Date.now();
         }
 
-        backend.lastHealthCheck = Date.now();
-
-      } catch (error) {
-        backend.healthy = false;
-        backend.lastHealthCheck = Date.now();
+        const backendStats = this.stats.backendStats.find(s => s.id === backend.id);
+        if (backendStats) {
+          backendStats.healthy = backend.healthy;
+          backendStats.responseTime = backend.responseTime;
+        }
       }
+    } finally {
+      this.healthCheckInFlight = false;
     }
   }
 
@@ -379,6 +395,17 @@ export class LoadBalancer {
       backendStats.responseTime = backend.responseTime;
     }
 
+    let released = false;
+    const releaseConnection = () => {
+      if (released) return;
+      released = true;
+      backend.connections = Math.max(0, backend.connections - 1);
+      this.stats.activeConnections = Math.max(0, this.stats.activeConnections - 1);
+      if (backendStats) {
+        backendStats.connections = backend.connections;
+      }
+    };
+
     try {
       const startTime = Date.now();
 
@@ -413,22 +440,55 @@ export class LoadBalancer {
       forwardedHeaders.set('X-Load-Balancer', 'BS9');
       forwardedHeaders.set('X-Load-Balancer-Response-Time', responseTime.toString());
 
-      return new Response(response.body, {
+      if (!response.body) {
+        releaseConnection();
+        return new Response(null, {
+          status: response.status,
+          headers: forwardedHeaders,
+        });
+      }
+
+      const reader = response.body.getReader();
+      const trackedBody = new ReadableStream<Uint8Array>({
+        async pull(controller) {
+          try {
+            const { done, value } = await reader.read();
+            if (done) {
+              releaseConnection();
+              controller.close();
+              return;
+            }
+            if (value) {
+              controller.enqueue(value);
+            }
+          } catch (err) {
+            releaseConnection();
+            controller.error(err);
+          }
+        },
+        async cancel(reason) {
+          try {
+            await reader.cancel(reason);
+          } finally {
+            releaseConnection();
+          }
+        },
+      });
+
+      return new Response(trackedBody, {
         status: response.status,
         headers: forwardedHeaders,
       });
 
     } catch (error) {
-      backend.healthy = false;
-      return new Response('Bad Gateway', { status: 502 });
-    } finally {
-      // Update connection count
-      backend.connections--;
-      this.stats.activeConnections--;
-
-      if (backendStats) {
-        backendStats.connections = backend.connections;
+      releaseConnection();
+      if (this.config.healthCheck.enabled) {
+        backend.healthy = false;
+        if (backendStats) {
+          backendStats.healthy = false;
+        }
       }
+      return new Response('Bad Gateway', { status: 502 });
     }
   }
 
@@ -498,7 +558,24 @@ export class LoadBalancer {
       throw new Error(`❌ Security: Invalid load balancing algorithm: ${newConfig.algorithm}`);
     }
 
-    this.config = { ...this.config, ...newConfig };
+    const mergedHealthCheck = newConfig.healthCheck
+      ? { ...this.config.healthCheck, ...newConfig.healthCheck }
+      : this.config.healthCheck;
+
+    const normalizedBackends = newConfig.backends
+      ? newConfig.backends.map((b) => ({
+          ...b,
+          healthy: b.healthy ?? true,
+          connections: b.connections ?? 0,
+        }))
+      : this.config.backends;
+
+    this.config = {
+      ...this.config,
+      ...newConfig,
+      healthCheck: mergedHealthCheck,
+      backends: normalizedBackends,
+    };
 
     // Update backend stats if backends changed
     if (newConfig.backends) {
@@ -592,9 +669,16 @@ async function startLoadBalancer(options?: any): Promise<void> {
         if (!isAuthorized) {
           return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
         }
+        if (request.method !== 'GET' && request.method !== 'POST') {
+          return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405, headers: { 'Content-Type': 'application/json', 'Allow': 'GET, POST' } });
+        }
         if (request.method === 'POST') {
           try {
-            const body = await request.json() as Partial<LoadBalancerConfig>;
+            const rawText = await request.text();
+            if (rawText.length > 65536) {
+              return new Response(JSON.stringify({ error: 'Payload Too Large' }), { status: 413, headers: { 'Content-Type': 'application/json' } });
+            }
+            const body = JSON.parse(rawText) as Partial<LoadBalancerConfig>;
             loadBalancer.updateConfig(body);
             return new Response(JSON.stringify({ message: 'Configuration updated successfully', config: loadBalancer.getConfig() }), {
               headers: { 'Content-Type': 'application/json' }

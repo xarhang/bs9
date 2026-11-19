@@ -9,7 +9,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { listServices } from "../utils/service-discovery.js";
+import { listServices, parseWorkerSlot } from "../utils/service-discovery.js";
 import { stopCommand } from "./stop.js";
 import { deleteCommand } from "./delete.js";
 import { getPlatformInfo } from "../platform/detect.js";
@@ -153,32 +153,46 @@ export async function scaleCommand(name: string, countStr: string): Promise<void
       const { WindowsServiceManager } = await import("../windows/service.js");
       const manager = new WindowsServiceManager();
 
-      for (let i = currentCount; i < targetCount; i++) {
+      const usedSlots = new Set<number>(
+        workers.map((w) => parseWorkerSlot(w.name)?.slot).filter((s): s is number => s !== undefined)
+      );
+      let nextSlot = 0;
+      const slotsToAdd: number[] = [];
+      for (let k = currentCount; k < targetCount; k++) {
+        while (usedSlots.has(nextSlot)) nextSlot++;
+        usedSlots.add(nextSlot);
+        slotsToAdd.push(nextSlot);
+      }
+
+      for (const i of slotsToAdd) {
         await lockSession.assertActive();
         const workerName = `${cleanName}-${i}-g${generation}`;
-        const newMeta = {
-          ...baseMeta,
-          name: `BS9_${workerName}`,
-          description: `BS9 managed cluster worker: ${workerName}`,
-          environment: {
-            ...baseMeta.environment,
-            BS9_CLUSTER: "true",
-            BS9_CLUSTER_NAME: cleanName,
-            BS9_CLUSTER_ID: String(i),
-            NODE_APP_INSTANCE: String(i),
-            BS9_CLUSTER_TOTAL: String(targetCount),
-            BS9_CLUSTER_GENERATION: baseMeta.environment?.BS9_CLUSTER_GENERATION || "1",
-            BS9_REUSE_PORT: "true",
-            BS9_AUTH_TOKEN_FILE: baseMeta.environment?.BS9_AUTH_TOKEN_FILE || "",
-            SERVICE_NAME: workerName
-          },
-          status: "stopped",
-          pid: null,
-          watchdogPid: null
+        const workerEnv = {
+          ...baseMeta.environment,
+          BS9_CLUSTER: "true",
+          BS9_CLUSTER_NAME: cleanName,
+          BS9_CLUSTER_ID: String(i),
+          NODE_APP_INSTANCE: String(i),
+          BS9_CLUSTER_TOTAL: String(targetCount),
+          BS9_CLUSTER_GENERATION: baseMeta.environment?.BS9_CLUSTER_GENERATION || "1",
+          BS9_REUSE_PORT: "true",
+          BS9_AUTH_TOKEN_FILE: baseMeta.environment?.BS9_AUTH_TOKEN_FILE || "",
+          SERVICE_NAME: workerName
         };
 
-        const targetMetaPath = join(servicesDir, `BS9_${workerName}.json`);
-        writeFileSync(targetMetaPath, JSON.stringify(newMeta, null, 2));
+        await manager.createService({
+          name: `BS9_${workerName}`,
+          displayName: `BS9 Service: ${workerName}`,
+          description: `BS9 managed cluster worker: ${workerName}`,
+          executable: baseMeta.executable,
+          arguments: baseMeta.args || [],
+          workingDirectory: baseMeta.workingDir || process.cwd(),
+          environment: workerEnv,
+          scriptFile: baseMeta.scriptFile || (Array.isArray(baseMeta.args) && baseMeta.args.length > 0 ? baseMeta.args[baseMeta.args.length - 1] : baseMeta.executable),
+          serviceAccount: baseMeta.serviceAccount,
+          watch: baseMeta.watch,
+          maxMemoryRestart: baseMeta.maxMemoryRestart,
+        });
         await lockSession.assertActive();
 
         console.log(`   ➕ Starting worker ${workerName}...`);
@@ -198,7 +212,18 @@ export async function scaleCommand(name: string, countStr: string): Promise<void
       securePrivateFile(baseUnitPath);
       const baseContent = readFileSync(baseUnitPath, "utf-8");
 
-      for (let i = currentCount; i < targetCount; i++) {
+      const usedSlots = new Set<number>(
+        workers.map((w) => parseWorkerSlot(w.name)?.slot).filter((s): s is number => s !== undefined)
+      );
+      let nextSlot = 0;
+      const slotsToAdd: number[] = [];
+      for (let k = currentCount; k < targetCount; k++) {
+        while (usedSlots.has(nextSlot)) nextSlot++;
+        usedSlots.add(nextSlot);
+        slotsToAdd.push(nextSlot);
+      }
+
+      for (const i of slotsToAdd) {
         await lockSession.assertActive();
         const workerName = `${cleanName}-${i}-g${generation}`;
         const newUnitPath = join(userUnitDir, `${workerName}.service`);
@@ -230,7 +255,18 @@ export async function scaleCommand(name: string, countStr: string): Promise<void
       }
       const { launchdCommand } = await import("../macos/launchd.js");
 
-      for (let i = currentCount; i < targetCount; i++) {
+      const usedSlots = new Set<number>(
+        workers.map((w) => parseWorkerSlot(w.name)?.slot).filter((s): s is number => s !== undefined)
+      );
+      let nextSlot = 0;
+      const slotsToAdd: number[] = [];
+      for (let k = currentCount; k < targetCount; k++) {
+        while (usedSlots.has(nextSlot)) nextSlot++;
+        usedSlots.add(nextSlot);
+        slotsToAdd.push(nextSlot);
+      }
+
+      for (const i of slotsToAdd) {
         await lockSession.assertActive();
         const workerName = `${cleanName}-${i}-g${generation}`;
         const environmentVariables = {

@@ -21,10 +21,12 @@ import { listServices, ServiceMetrics as UnifiedMetrics } from "../utils/service
 import { spawn } from "node:child_process";
 import { resolve, join } from "node:path";
 import { randomBytes, timingSafeEqual, createHash } from "node:crypto";
-import { appendFileSync, closeSync, existsSync, lstatSync, openSync, readFileSync, readSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, constants, existsSync, fstatSync, lstatSync, openSync, readFileSync, readSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { getPlatformInfo } from "../platform/detect.js";
 import { recordAuditEvent } from "../utils/audit-log.js";
+
+const O_NOFOLLOW = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0;
 
 
 // Detach from console on Windows if running in background
@@ -55,10 +57,25 @@ const bs9Bin = resolve(import.meta.dir, "../../bin/bs9");
 // Security: Service name validation
 function isValidServiceName(name: string): boolean {
   const validPattern = /^[a-zA-Z0-9._-]+$/;
-  return validPattern.test(name) && name.length <= 64 && !name.includes("..") && !name.includes("/") && !name.includes("\\");
+  return (
+    validPattern.test(name) &&
+    name.length > 0 &&
+    name.length <= 64 &&
+    !name.startsWith("-") &&
+    name !== "." &&
+    !name.includes("..") &&
+    !name.includes("/") &&
+    !name.includes("\\")
+  );
+}
+
+function getLogFilePrefix(cleanName: string): string {
+  const platformInfo = getPlatformInfo();
+  return platformInfo.isWindows ? `BS9_${cleanName}` : platformInfo.isMacOS ? `bs9.${cleanName}` : cleanName;
 }
 
 const ALLOWED_ACTIONS = new Set(["restart", "stop"]);
+const MAX_WS_CLIENTS = 100;
 
 // --- Active WebSocket clients ---
 const clients = new Set<{ send: (data: string) => void }>();
@@ -123,6 +140,7 @@ const buildPayload = async () => {
 // --- Coalescing Cache for Metrics (Finding 7 & 14) ---
 let cachedPayload: any = null;
 let lastCacheTime = 0;
+let inFlightPayload: Promise<any> | null = null;
 const CACHE_TTL_MS = 2000;
 
 const getCachedOrFreshPayload = async () => {
@@ -130,9 +148,19 @@ const getCachedOrFreshPayload = async () => {
   if (cachedPayload && (now - lastCacheTime) < CACHE_TTL_MS) {
     return cachedPayload;
   }
-  cachedPayload = await buildPayload();
-  lastCacheTime = now;
-  return cachedPayload;
+  if (inFlightPayload) {
+    return inFlightPayload;
+  }
+  inFlightPayload = buildPayload()
+    .then((payload) => {
+      cachedPayload = payload;
+      lastCacheTime = Date.now();
+      return payload;
+    })
+    .finally(() => {
+      inFlightPayload = null;
+    });
+  return inFlightPayload;
 };
 
 // --- Auth check helper ---
@@ -255,18 +283,22 @@ export const isAuthorized = (req: Request): boolean => {
   if (cookies["bs9_session"] && safeCompare(cookies["bs9_session"], SESSION_TOKEN)) {
     return true;
   }
-  // Allow token as query param for WebSocket handshake
+  // Allow token as query param strictly for WebSocket handshake (/ws)
   const url = new URL(req.url);
-  const queryToken = url.searchParams.get("token");
-  if (queryToken && safeCompare(queryToken, SESSION_TOKEN)) {
-    return true;
+  if (url.pathname === "/ws") {
+    const queryToken = url.searchParams.get("token");
+    if (queryToken && safeCompare(queryToken, SESSION_TOKEN)) {
+      return true;
+    }
   }
   return false;
 };
 
 // --- WebSocket push loop ---
+let pushLoopTimer: ReturnType<typeof setInterval> | null = null;
 const startPushLoop = () => {
-  setInterval(async () => {
+  if (pushLoopTimer) clearInterval(pushLoopTimer);
+  pushLoopTimer = setInterval(async () => {
     if (clients.size === 0) return;
     try {
       const payload = await getCachedOrFreshPayload();
@@ -276,37 +308,44 @@ const startPushLoop = () => {
       }
     } catch {}
   }, 2000);
+  if (typeof pushLoopTimer.unref === "function") pushLoopTimer.unref();
 };
 
 const readDelta = (filePath: string, offset: number): { text: string; nextOffset: number } => {
   if (!existsSync(filePath)) return { text: "", nextOffset: 0 };
+  let fd: number | undefined;
   try {
     const st = lstatSync(filePath);
     if (st.isSymbolicLink() || !st.isFile()) return { text: "", nextOffset: offset };
-    if (st.size < offset) offset = 0; // Handle log truncation/rotation
-    if (st.size === offset) return { text: "", nextOffset: offset };
-    const toRead = Math.min(32768, st.size - offset);
+    fd = openSync(filePath, constants.O_RDONLY | O_NOFOLLOW);
+    const fdStat = fstatSync(fd);
+    if (!fdStat.isFile()) return { text: "", nextOffset: offset };
+    if (fdStat.size < offset) offset = 0; // Handle log truncation/rotation
+    if (fdStat.size === offset) return { text: "", nextOffset: offset };
+    const toRead = Math.min(32768, fdStat.size - offset);
     const buf = Buffer.allocUnsafe(toRead);
-    const fd = openSync(filePath, "r");
-    try {
-      const bytesRead = readSync(fd, buf, 0, toRead, offset);
-      return { text: buf.subarray(0, bytesRead).toString("utf8"), nextOffset: offset + bytesRead };
-    } finally {
-      closeSync(fd);
-    }
+    const bytesRead = readSync(fd, buf, 0, toRead, offset);
+    return { text: buf.subarray(0, bytesRead).toString("utf8"), nextOffset: offset + bytesRead };
   } catch {
     return { text: "", nextOffset: offset };
+  } finally {
+    if (fd !== undefined) {
+      try { closeSync(fd); } catch {}
+    }
   }
 };
 
+let logStreamTimer: ReturnType<typeof setInterval> | null = null;
 const startLogStreamLoop = () => {
-  const timer = setInterval(() => {
+  if (logStreamTimer) clearInterval(logStreamTimer);
+  logStreamTimer = setInterval(() => {
     if (logSubscriptions.size === 0) return;
     const logDir = getPlatformInfo().logDir;
     for (const [ws, sub] of logSubscriptions.entries()) {
       const cleanName = sub.service.replace(/^(BS9_|bs9\.)/, "");
-      const outRes = readDelta(join(logDir, `${cleanName}.out.log`), sub.outOffset);
-      const errRes = readDelta(join(logDir, `${cleanName}.err.log`), sub.errOffset);
+      const prefix = getLogFilePrefix(cleanName);
+      const outRes = readDelta(join(logDir, `${prefix}.out.log`), sub.outOffset);
+      const errRes = readDelta(join(logDir, `${prefix}.err.log`), sub.errOffset);
       sub.outOffset = outRes.nextOffset;
       sub.errOffset = errRes.nextOffset;
       if (outRes.text || errRes.text) {
@@ -318,7 +357,7 @@ const startLogStreamLoop = () => {
       }
     }
   }, 500);
-  if (typeof timer.unref === "function") timer.unref();
+  if (typeof logStreamTimer.unref === "function") logStreamTimer.unref();
 };
 
 // --- Login Page Template (when authentication is required) ---
@@ -697,6 +736,7 @@ export function startDashboardServer() {
           headers: { "Content-Type": "application/json" },
         });
       }
+      recordAuditEvent({ action: "web_logout", target: "dashboard", status: "success", actor: "web-user" });
       return new Response(JSON.stringify({ ok: true }), {
         headers: {
           "Content-Type": "application/json",
@@ -715,6 +755,9 @@ export function startDashboardServer() {
         return new Response("Forbidden: browser WebSocket requests require Origin", { status: 403 });
       }
       if (!isAuthorized(req)) return new Response("Unauthorized", { status: 401 });
+      if (clients.size >= MAX_WS_CLIENTS) {
+        return new Response("Too Many Connections", { status: 429 });
+      }
       const upgraded = server.upgrade(req);
       if (upgraded) return undefined;
       return new Response("WebSocket upgrade failed", { status: 500 });
@@ -746,7 +789,15 @@ export function startDashboardServer() {
           headers: { "Content-Type": "application/json" }
         });
       }
-      const name = decodeURIComponent(logsMatch[1]);
+      let name: string;
+      try {
+        name = decodeURIComponent(logsMatch[1]);
+      } catch {
+        return new Response(JSON.stringify({ error: "Invalid URL encoding" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
       if (!isValidServiceName(name)) {
         return new Response(JSON.stringify({ error: "Security: Invalid service name" }), {
           status: 400,
@@ -754,25 +805,47 @@ export function startDashboardServer() {
         });
       }
       const cleanName = name.replace(/^(BS9_|bs9\.)/, "");
-      const linesLimit = Math.min(500, Math.max(1, Number(url.searchParams.get("lines")) || 100));
+      const prefix = getLogFilePrefix(cleanName);
+      const rawLines = Number(url.searchParams.get("lines"));
+      const linesLimit = Number.isFinite(rawLines) ? Math.min(500, Math.max(1, Math.floor(rawLines))) : 100;
       const logDir = getPlatformInfo().logDir;
       const readTail = (filePath: string): string => {
         if (!existsSync(filePath)) return "";
+        let fd: number | undefined;
         try {
           const st = lstatSync(filePath);
           if (st.isSymbolicLink() || !st.isFile()) return "";
-          const raw = readFileSync(filePath, "utf8");
-          const bounded = raw.length > 65536 ? raw.slice(-65536) : raw;
+          fd = openSync(filePath, constants.O_RDONLY | O_NOFOLLOW);
+          const fdStat = fstatSync(fd);
+          if (!fdStat.isFile() || fdStat.size === 0) return "";
+          const toRead = Math.min(65536, fdStat.size);
+          const offset = fdStat.size - toRead;
+          const buf = Buffer.allocUnsafe(toRead);
+          let totalRead = 0;
+          while (totalRead < toRead) {
+            const n = readSync(fd, buf, totalRead, toRead - totalRead, offset + totalRead);
+            if (n <= 0) break;
+            totalRead += n;
+          }
+          let bounded = buf.subarray(0, totalRead).toString("utf8");
+          if (offset > 0) {
+            const firstNl = bounded.indexOf("\n");
+            bounded = firstNl >= 0 ? bounded.slice(firstNl + 1) : bounded;
+          }
           return bounded.split(/\r?\n/).slice(-linesLimit).join("\n");
         } catch {
           return "";
+        } finally {
+          if (fd !== undefined) {
+            try { closeSync(fd); } catch {}
+          }
         }
       };
       return new Response(
         JSON.stringify({
           service: cleanName,
-          out: readTail(join(logDir, `${cleanName}.out.log`)),
-          err: readTail(join(logDir, `${cleanName}.err.log`)),
+          out: readTail(join(logDir, `${prefix}.out.log`)),
+          err: readTail(join(logDir, `${prefix}.err.log`)),
         }),
         { headers: { "Content-Type": "application/json" } }
       );
@@ -787,7 +860,12 @@ export function startDashboardServer() {
       if (!isAuthorized(req)) {
         return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { "Content-Type": "application/json" } });
       }
-      const name = decodeURIComponent(actionMatch[1]);
+      let name: string;
+      try {
+        name = decodeURIComponent(actionMatch[1]);
+      } catch {
+        return new Response(JSON.stringify({ error: "Invalid URL encoding" }), { status: 400, headers: { "Content-Type": "application/json" } });
+      }
       const cmd = actionMatch[2];
 
       // Security: Validate command and service name against strict allowlist & regex
@@ -814,9 +892,14 @@ export function startDashboardServer() {
           detached: true,
           windowsHide: true,
         });
+        child.on("error", (err) => {
+          recordAuditEvent({ action: `web_${cmd}`, target: name, status: "failure", actor: "web-user", details: err.message });
+        });
         child.unref();
+        recordAuditEvent({ action: `web_${cmd}`, target: name, status: "success", actor: "web-user" });
         return new Response(JSON.stringify({ message: `Service '${name}' ${cmd} initiated` }), { headers: { "Content-Type": "application/json" } });
       } catch (e) {
+        recordAuditEvent({ action: `web_${cmd}`, target: name, status: "failure", actor: "web-user", details: String(e) });
         return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: { "Content-Type": "application/json" } });
       }
     }
@@ -833,6 +916,8 @@ export function startDashboardServer() {
   },
 
   websocket: {
+    idleTimeout: 120,
+    maxPayloadLength: 64 * 1024,
     open(ws) { clients.add(ws); },
     close(ws) {
       clients.delete(ws);
@@ -847,6 +932,7 @@ export function startDashboardServer() {
         }
         if (parsed?.type === "subscribe_logs" && typeof parsed.service === "string" && isValidServiceName(parsed.service)) {
           const cleanName = parsed.service.replace(/^(BS9_|bs9\.)/, "");
+          const prefix = getLogFilePrefix(cleanName);
           const logDir = getPlatformInfo().logDir;
           const getSize = (p: string): number => {
             if (!existsSync(p)) return 0;
@@ -859,8 +945,8 @@ export function startDashboardServer() {
           };
           logSubscriptions.set(ws, {
             service: parsed.service,
-            outOffset: getSize(join(logDir, `${cleanName}.out.log`)),
-            errOffset: getSize(join(logDir, `${cleanName}.err.log`)),
+            outOffset: getSize(join(logDir, `${prefix}.out.log`)),
+            errOffset: getSize(join(logDir, `${prefix}.err.log`)),
           });
         }
       } catch {}

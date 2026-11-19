@@ -67,7 +67,9 @@ export class Bs9Daemon {
   constructor(options: DaemonOptions = {}) {
     const platformInfo = getPlatformInfo();
     const runtimeDir = platformInfo.runtimeDir;
-    if (!existsSync(runtimeDir)) {
+    if (platformInfo.isLinux || platformInfo.isMacOS) {
+      ensurePrivateDirectory(runtimeDir);
+    } else if (!existsSync(runtimeDir)) {
       mkdirSync(runtimeDir, { recursive: true });
     }
 
@@ -111,6 +113,15 @@ export class Bs9Daemon {
   ): Promise<void> {
     const platformInfo = getPlatformInfo();
     const clusterName = manifest.clusterName;
+    if (
+      !clusterName ||
+      !/^[a-zA-Z0-9._-]+$/.test(clusterName) ||
+      clusterName.startsWith("-") ||
+      clusterName === "." ||
+      clusterName.includes("..")
+    ) {
+      throw new Error(`Security: Invalid clusterName '${clusterName}'`);
+    }
     const physicalName = `${clusterName}-${slot}-g${nextGen}`;
     const tokenFilePath = join(platformInfo.runtimeDir, "tokens", `${clusterName}.token`);
 
@@ -119,6 +130,7 @@ export class Bs9Daemon {
     const runtime = resolveRuntime(manifest.appFile, manifest.options?.interpreter, preloadArgs);
 
     const envVars: Record<string, string> = {
+      ...(manifest.env || {}),
       PORT: String(manifest.port),
       HOST: manifest.host || "localhost",
       NODE_ENV: "production",
@@ -132,7 +144,6 @@ export class Bs9Daemon {
       BS9_CLUSTER_GENERATION: String(nextGen),
       BS9_AUTH_TOKEN_FILE: tokenFilePath,
       BS9_CONTROLLER_SOCKET: this.controller.getSocketPath(),
-      ...(manifest.env || {}),
     };
 
     if (platformInfo.isWindows) {
@@ -187,16 +198,25 @@ export class Bs9Daemon {
     // Start Hub
     await this.hub.start();
 
-    // Start Controller
-    await this.controller.start();
+    // Start Controller (clean up Hub if Controller fails)
+    try {
+      await this.controller.start();
+    } catch (err) {
+      await this.hub.stop().catch(() => {});
+      throw err;
+    }
 
     // Start Reconciler
     this.reconciler.start();
 
     this.isRunning = true;
 
-    // Record PID
-    writeFileSync(this.pidFilePath, String(process.pid), { encoding: "utf-8" });
+    // Record PID securely
+    if (getPlatformInfo().isLinux || getPlatformInfo().isMacOS) {
+      writePrivateFile(this.pidFilePath, String(process.pid));
+    } else {
+      writeFileSync(this.pidFilePath, String(process.pid), { encoding: "utf-8" });
+    }
 
     console.log(`BS9 Unified Daemon running (PID: ${process.pid})`);
     console.log(`   Controller Socket: ${this.controller.getSocketPath()}`);
@@ -228,8 +248,11 @@ if (import.meta.main) {
   await detachWindowsConsole();
 
   const daemon = new Bs9Daemon();
+  let shuttingDown = false;
 
   const handleSignal = async (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     console.log(`\nReceived ${signal}, shutting down daemon...`);
     await daemon.stop();
     process.exit(0);

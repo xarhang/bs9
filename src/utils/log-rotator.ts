@@ -9,18 +9,24 @@
  */
 
 import {
+  closeSync,
+  constants,
   existsSync,
+  fstatSync,
+  ftruncateSync,
   lstatSync,
+  openSync,
   readFileSync,
   renameSync,
-  truncateSync,
   unlinkSync,
-  writeFileSync,
+  writeSync,
 } from "node:fs";
 import { gzipSync } from "node:zlib";
 
 export const DEFAULT_MAX_LOG_BYTES = 50 * 1024 * 1024; // 50 MB
 export const DEFAULT_MAX_LOG_FILES = 5;
+
+const O_NOFOLLOW = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0;
 
 export interface LogRotationOptions {
   maxBytes?: number;
@@ -44,6 +50,28 @@ export function parseLogSizeBytes(value?: string | number): number {
   if (unit.startsWith("M")) return Math.round(num * 1024 * 1024);
   if (unit.startsWith("K")) return Math.round(num * 1024);
   return Math.round(num);
+}
+
+function writeFileNoFollow(filePath: string, data: Buffer): void {
+  if (existsSync(filePath)) {
+    const st = lstatSync(filePath);
+    if (st.isSymbolicLink()) {
+      throw new Error(`Refusing to write through symlink: ${filePath}`);
+    }
+  }
+  const fd = openSync(
+    filePath,
+    constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | O_NOFOLLOW,
+    0o600
+  );
+  try {
+    let offset = 0;
+    while (offset < data.length) {
+      offset += writeSync(fd, data, offset, data.length - offset);
+    }
+  } finally {
+    closeSync(fd);
+  }
 }
 
 /**
@@ -78,7 +106,11 @@ export function rotateLogIfNeeded(logPath: string, options: LogRotationOptions =
       const candidate = `${logPath}.${idx}${ext}`;
       if (!existsSync(candidate)) continue;
       try {
-        if (lstatSync(candidate).isSymbolicLink()) continue;
+        if (lstatSync(candidate).isSymbolicLink()) {
+          // Remove attacker-placed symlinks at archive slots instead of leaving them
+          unlinkSync(candidate);
+          continue;
+        }
       } catch {
         continue;
       }
@@ -86,23 +118,65 @@ export function rotateLogIfNeeded(logPath: string, options: LogRotationOptions =
         try { unlinkSync(candidate); } catch {}
       } else {
         const nextPath = `${logPath}.${idx + 1}${ext}`;
-        try { renameSync(candidate, nextPath); } catch {}
+        try {
+          if (existsSync(nextPath) && lstatSync(nextPath).isSymbolicLink()) {
+            unlinkSync(nextPath);
+          }
+          renameSync(candidate, nextPath);
+        } catch {}
       }
     }
   }
 
   const rotatedRaw = `${logPath}.1`;
+  // Prefer atomic rename first so concurrent appends to the path aren't lost
+  let renamed = false;
   try {
-    const content = readFileSync(logPath);
+    if (existsSync(rotatedRaw) && lstatSync(rotatedRaw).isSymbolicLink()) {
+      unlinkSync(rotatedRaw);
+    }
+    renameSync(logPath, rotatedRaw);
+    renamed = true;
+  } catch {
+    renamed = false;
+  }
+
+  if (renamed) {
+    try {
+      if (compress) {
+        const content = readFileSync(rotatedRaw);
+        const compressed = gzipSync(content);
+        writeFileNoFollow(`${rotatedRaw}.gz`, compressed);
+        try { unlinkSync(rotatedRaw); } catch {}
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // Fallback for platforms/filesystems where renaming an open file fails (e.g. Windows EBUSY)
+  let fd: number | undefined;
+  try {
+    fd = openSync(logPath, constants.O_RDWR | O_NOFOLLOW);
+    const fdStat = fstatSync(fd);
+    if (!fdStat.isFile()) {
+      return false;
+    }
+    const content = readFileSync(fd);
     if (compress) {
       const compressed = gzipSync(content);
-      writeFileSync(`${rotatedRaw}.gz`, compressed, { mode: 0o600 });
+      writeFileNoFollow(`${rotatedRaw}.gz`, compressed);
     } else {
-      writeFileSync(rotatedRaw, content, { mode: 0o600 });
+      writeFileNoFollow(rotatedRaw, content);
     }
-    truncateSync(logPath, 0);
+    ftruncateSync(fd, 0);
     return true;
   } catch {
     return false;
+  } finally {
+    if (fd !== undefined) {
+      try { closeSync(fd); } catch {}
+    }
   }
 }

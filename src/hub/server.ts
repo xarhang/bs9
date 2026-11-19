@@ -13,7 +13,7 @@
  */
 
 import { createServer, type Server, type Socket } from "node:net";
-import { existsSync, unlinkSync, chmodSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, lstatSync, unlinkSync, chmodSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
 import { timingSafeEqual } from "node:crypto";
@@ -176,7 +176,8 @@ export class HubServer extends EventEmitter {
     this.namespaceTokens.set(namespace, token);
 
     const tokensDir = join(platformInfo.runtimeDir, "tokens");
-    if (platformInfo.isLinux) {
+    const isPosix = platformInfo.isLinux || platformInfo.isMacOS;
+    if (isPosix) {
       ensurePrivateDirectory(platformInfo.runtimeDir);
       ensurePrivateDirectory(tokensDir);
     } else if (!existsSync(tokensDir)) {
@@ -184,7 +185,7 @@ export class HubServer extends EventEmitter {
     }
 
     const tokenFilePath = join(tokensDir, `${namespace}.token`);
-    if (platformInfo.isLinux) writePrivateFile(tokenFilePath, token);
+    if (isPosix) writePrivateFile(tokenFilePath, token);
     else {
       writeFileSync(tokenFilePath, token, { encoding: "utf-8", mode: 0o600 });
       try {
@@ -208,9 +209,10 @@ export class HubServer extends EventEmitter {
     }
 
     const platformInfo = getPlatformInfo();
+    const isPosix = platformInfo.isLinux || platformInfo.isMacOS;
 
     // Check cluster/runtime token file
-    if (platformInfo.isLinux) {
+    if (isPosix) {
       ensurePrivateDirectory(platformInfo.runtimeDir);
       const tokensDir = join(platformInfo.runtimeDir, "tokens");
       if (existsSync(tokensDir)) ensurePrivateDirectory(tokensDir);
@@ -218,7 +220,7 @@ export class HubServer extends EventEmitter {
     const tokenFilePath = join(platformInfo.runtimeDir, "tokens", `${namespace}.token`);
     if (existsSync(tokenFilePath)) {
       try {
-        if (platformInfo.isLinux) {
+        if (isPosix) {
           ensurePrivateDirectory(join(platformInfo.runtimeDir, "tokens"));
           securePrivateFile(tokenFilePath);
         }
@@ -283,9 +285,10 @@ export class HubServer extends EventEmitter {
       this.isWalRecovered = true;
     }
 
-    // Clean up stale Unix domain socket
-    if (!platformInfo.isWindows && existsSync(this.socketPath)) {
+    // Clean up stale Unix domain socket (including dangling symlinks)
+    if (!platformInfo.isWindows) {
       try {
+        lstatSync(this.socketPath);
         unlinkSync(this.socketPath);
       } catch {}
     }
@@ -786,11 +789,13 @@ export class HubServer extends EventEmitter {
             }
 
             const payload = envelope.payload as HandshakeResponsePayload;
-            const namespace = payload.namespace || "default";
+            const namespace = typeof payload?.namespace === "string" && payload.namespace ? payload.namespace : "default";
 
             let authSuccess = false;
 
-            if (this.allowAnonymous) {
+            if (!isValidNamespace(namespace)) {
+              authSuccess = false;
+            } else if (this.allowAnonymous) {
               authSuccess = true;
             } else {
               const expectedToken = this.getNamespaceToken(namespace);

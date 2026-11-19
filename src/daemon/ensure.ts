@@ -12,13 +12,15 @@
  */
 
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, openSync } from "node:fs";
+import { closeSync, constants, existsSync, mkdirSync, openSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { getPlatformInfo } from "../platform/detect.js";
 import { ControllerAdminClient } from "../cluster/admin-client.js";
 import { generateSystemdUnit, startUserSystemdUnit } from "../utils/systemd.js";
 import { ensurePrivateDirectory, writePrivateFile } from "../utils/private-files.js";
 import { rotateLogIfNeeded, parseLogSizeBytes } from "../utils/log-rotator.js";
+
+const O_NOFOLLOW = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0;
 
 export interface EnsureDaemonOptions {
   timeoutMs?: number;
@@ -37,7 +39,10 @@ export async function isDaemonResponsive(options: EnsureDaemonOptions = {}): Pro
 
   try {
     const connected = await client.connect(1000);
-    if (!connected) return false;
+    if (!connected) {
+      client.disconnect();
+      return false;
+    }
 
     const ping = await client.ping();
     client.disconnect();
@@ -83,7 +88,7 @@ export async function launchSupervisedDaemon(): Promise<void> {
     try {
       const serviceFile = join(platformInfo.serviceDir, "bs9-daemon.service");
       const daemonEnv: Record<string, string> = { BS9_DAEMON: "true" };
-      for (const key of ["BS9_HOME", "BS9_CONTROLLER_SOCKET", "BS9_HUB_SOCKET"]) {
+      for (const key of ["BS9_HOME", "BS9_CONTROLLER_SOCKET", "BS9_HUB_SOCKET", "BS9_ADMIN_TOKEN", "XDG_RUNTIME_DIR"]) {
         const value = process.env[key];
         if (value) daemonEnv[key] = value;
       }
@@ -106,7 +111,7 @@ export async function launchSupervisedDaemon(): Promise<void> {
     try {
       const { launchdCommand } = await import("../macos/launchd.js");
       const daemonEnv: Record<string, string> = { BS9_DAEMON: "true" };
-      for (const key of ["BS9_HOME", "BS9_CONTROLLER_SOCKET", "BS9_HUB_SOCKET"]) {
+      for (const key of ["BS9_HOME", "BS9_CONTROLLER_SOCKET", "BS9_HUB_SOCKET", "BS9_ADMIN_TOKEN"]) {
         const value = process.env[key];
         if (value) daemonEnv[key] = value;
       }
@@ -137,7 +142,9 @@ export function spawnDetachedDaemon(): void {
   const daemonFile = existsSync(daemonTs) ? daemonTs : daemonJs;
 
   const logsDir = platformInfo.logDir;
-  if (!existsSync(logsDir)) {
+  if (platformInfo.isLinux || platformInfo.isMacOS) {
+    ensurePrivateDirectory(logsDir);
+  } else if (!existsSync(logsDir)) {
     mkdirSync(logsDir, { recursive: true });
   }
 
@@ -145,17 +152,25 @@ export function spawnDetachedDaemon(): void {
   try {
     rotateLogIfNeeded(daemonLogPath, { maxBytes: parseLogSizeBytes(process.env.BS9_MAX_LOG_SIZE) });
   } catch {}
-  const daemonOut = openSync(daemonLogPath, "a");
+  const daemonOut = openSync(
+    daemonLogPath,
+    constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | O_NOFOLLOW,
+    0o600
+  );
 
-  const child = spawn(process.execPath, ["run", daemonFile], {
-    cwd: process.cwd(),
-    detached: true,
-    windowsHide: true,
-    stdio: ["ignore", daemonOut, daemonOut],
-    env: { ...process.env },
-  });
+  try {
+    const child = spawn(process.execPath, ["run", daemonFile], {
+      cwd: process.cwd(),
+      detached: true,
+      windowsHide: true,
+      stdio: ["ignore", daemonOut, daemonOut],
+      env: { ...process.env },
+    });
 
-  child.unref();
+    child.unref();
+  } finally {
+    try { closeSync(daemonOut); } catch {}
+  }
 }
 
 /**
