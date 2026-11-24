@@ -797,7 +797,7 @@ export async function runMcpServer(options: McpServerOptions = {}): Promise<void
               },
               serverInfo: {
                 name: "bs9-mcp",
-                version: "1.7.2"
+                version: "1.8.0"
               }
             }
           });

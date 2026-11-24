@@ -12,3 +12,6 @@ export * from "./server.js";
 export * from "./client.js";
 export * from "./leases.js";
 export * from "./queues.js";
+export * from "./peer-transport.js";
+export * from "./replication.js";
+export * from "./membership.js";

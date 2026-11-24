@@ -17,9 +17,10 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { existsSync, writeFileSync, unlinkSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { HubServer, getDefaultHubSocketPath } from "../hub/server.js";
+import type { HubClusterOptions } from "../hub/membership.js";
 import { ClusterController } from "../cluster/controller.js";
 import { ClusterReconciler } from "./reconciler.js";
 import { getPlatformInfo } from "../platform/detect.js";
@@ -54,6 +55,52 @@ export interface DaemonOptions {
   adminToken?: string;
   reconcilerIntervalMs?: number;
   onResurrectSlot?: (manifest: ClusterManifestData, slot: number, nextGen: number) => Promise<void>;
+  hubCluster?: HubClusterOptions;
+}
+
+export function resolveHubClusterFromEnv(stateDir?: string): HubClusterOptions | undefined {
+  const listen = process.env.BS9_HUB_LISTEN?.trim();
+  const peersRaw = process.env.BS9_HUB_PEERS?.trim();
+  if (!listen && !peersRaw) return undefined;
+
+  const baseDir = stateDir || getPlatformInfo().stateDir;
+  const peerRootDir = join(baseDir, "hub-peer");
+  const defaultSecretFile = join(peerRootDir, "cluster.secret");
+  const defaultNodeIdFile = join(peerRootDir, "node.id");
+
+  const secretFile = process.env.BS9_HUB_CLUSTER_SECRET_FILE?.trim() || defaultSecretFile;
+  let clusterSecret = process.env.BS9_HUB_CLUSTER_SECRET?.trim() || "";
+  if (!clusterSecret && existsSync(secretFile)) {
+    clusterSecret = readFileSync(secretFile, "utf-8").trim();
+  }
+  if (!clusterSecret) {
+    throw new Error(
+      "Multi-host Hub requires BS9_HUB_CLUSTER_SECRET, BS9_HUB_CLUSTER_SECRET_FILE, or running `bs9 hub init` first."
+    );
+  }
+
+  let nodeId = process.env.BS9_HUB_NODE_ID?.trim() || "";
+  if (!nodeId && existsSync(defaultNodeIdFile)) {
+    nodeId = readFileSync(defaultNodeIdFile, "utf-8").trim();
+  }
+  if (!nodeId) {
+    nodeId = `${process.env.HOSTNAME || "node"}-${process.pid}`;
+  }
+
+  const peers = peersRaw
+    ? peersRaw
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : [];
+
+  return {
+    nodeId,
+    listen: listen || "0.0.0.0:7409",
+    clusterSecret,
+    peers,
+    stateDir: baseDir,
+  };
 }
 
 export class Bs9Daemon {
@@ -76,9 +123,12 @@ export class Bs9Daemon {
     this.pidFilePath = join(runtimeDir, "bs9-daemon.pid");
     this.customResurrectSlot = options.onResurrectSlot;
 
+    const clusterOpts = options.hubCluster ?? resolveHubClusterFromEnv(platformInfo.stateDir);
+
     this.hub = new HubServer({
       socketPath: options.hubSocketPath || process.env.BS9_HUB_SOCKET || getDefaultHubSocketPath(),
       autoRecover: true,
+      cluster: clusterOpts,
     });
 
     this.controller = new ClusterController({
@@ -87,12 +137,28 @@ export class Bs9Daemon {
     });
 
     // Wire Hub health provider into Controller for ADMIN_PING
-    this.controller.setHubProvider(() => ({
-      listening: this.hub.isListening(),
-      namespacesCount: Math.max(this.hub.getSessionCount(), this.hub.getRecoveredNamespacesCount()),
-      walRecovered: this.hub.isRecovered(),
-      walRecordsCount: this.hub.wal.getTotalWalRecordsCount(),
-    }));
+    this.controller.setHubProvider(() => {
+      const clusterStatus = this.hub.getClusterStatus();
+      return {
+        listening: this.hub.isListening(),
+        namespacesCount: Math.max(this.hub.getSessionCount(), this.hub.getRecoveredNamespacesCount()),
+        walRecovered: this.hub.isRecovered(),
+        walRecordsCount: this.hub.wal.getTotalWalRecordsCount(),
+        ...(clusterStatus
+          ? {
+              cluster: {
+                enabled: true,
+                nodeId: clusterStatus.nodeId,
+                role: clusterStatus.role,
+                term: clusterStatus.term,
+                leaderId: clusterStatus.leaderId,
+                commitIndex: clusterStatus.commitIndex,
+                peersCount: clusterStatus.peers.length,
+              },
+            }
+          : {}),
+      };
+    });
 
     this.reconciler = new ClusterReconciler(this.controller, {
       intervalMs: options.reconcilerIntervalMs || 2000,

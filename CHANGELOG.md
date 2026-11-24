@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] - 2026-11-23
+
+### Added
+- **Opt-in Multi-Host State Hub (`bs9 hub`)**: Built-in Raft-lite quorum replication over TCP + TLS with mutual challenge-response HMAC authentication (`PeerTransport`, `ReplicationLog`, `ClusterCoordinator`). Supports automatic self-signed ECDSA TLS certificate generation (`bs9 hub init`), transparent follower-to-leader write forwarding, term-encoded monotonic lease fencing tokens, and automatic snapshot catch-up for lagging followers (`BS9_HUB_LISTEN`, `BS9_HUB_PEERS`, `bs9 hub status`, `bs9 hub peers`) with zero external dependencies and zero application code changes.
+- **Cluster-Safe Shared Collections (`bs9/runtime`)**: Added `SharedMap<V>` and `SharedSet<T>` backed by the State Hub with CAS-protected index updates and automatic lazy eviction of expired entries.
+- **Framework-Agnostic Web & Bun.serve Adapters (`bs9/runtime`)**: Added `Bs9WebSessionStore`, `Bs9RateLimiter`, `parseSessionCookie`, and `formatSessionCookie` for native `Bun.serve`, Hono, and Elysia applications alongside Express `connect.sid` compatibility.
+- **Complex PM2 Migration Compatibility**: Extended `ecosystem.config.cjs/.json` loader to support `env_<profile>` (`--env staging`), `instances: "max" | 0 | -1`, `node_args` / `interpreter_args`, `kill_timeout` (mapped to `TimeoutStopSec` / `ExitTimeOut`), `out_file` / `error_file` / `log_file`, `ignore_watch`, `min_uptime`, `listen_timeout`, `wait_ready`, and `merge_logs`.
+- **AI Assistant Indexing (`llms.txt`)**: Added root `llms.txt` following the llmstxt.org specification for AI coding assistants.
+
+### Testing
+- Added `tests/hub-peer-transport.test.ts`, `tests/hub-replication.test.ts`, `tests/hub-election.test.ts`, `tests/hub-chaos.test.ts`, `tests/shared-collections.test.ts`, and `tests/web-adapters.test.ts`, plus expanded `tests/ecosystem-config.test.ts`.
+
 ## [1.7.2] - 2026-11-19
 
 ### Security

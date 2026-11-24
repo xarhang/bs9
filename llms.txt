@@ -1,15 +1,16 @@
-# BS9 (Bun Sentinel 9)
+# BS9 (Bun Sentinel 9) — v1.8.0
 
-> Self-healing process manager for Bun with zero-downtime `SO_REUSEPORT` clustering, real-time dashboards, TypeScript build support, AI-safe MCP server, and durable same-host state (`bs9/runtime`). Works on Linux (systemd), macOS (launchd), and Windows (Services / background watchdog). Licensed under `AGPL-3.0-or-later`.
+> Self-healing process manager for Bun with zero-downtime `SO_REUSEPORT` clustering, real-time dashboards, TypeScript build support, AI-safe MCP server, and durable same-host or opt-in multi-host state (`bs9/runtime`). Works on Linux (systemd), macOS (launchd), and Windows (Services / background watchdog). Licensed under `AGPL-3.0-or-later`.
 
 ## Core CLI Commands
 
-- `bs9 start <file|config>` — Start a service, polyglot runtime (`.py`, `.go`, binary, shell), or ecosystem config (`ecosystem.config.js`, `bs9.config.json`). Supports `-i max|<N>` for `SO_REUSEPORT` clustering.
+- `bs9 start <file|config>` — Start a service, polyglot runtime (`.py`, `.go`, binary, shell), or ecosystem config (`ecosystem.config.js`, `bs9.config.json`). Supports `-i max|<N>` for `SO_REUSEPORT` clustering and `--env <profile>` for PM2 `env_<profile>`.
 - `bs9 deploy <file>` — Zero-config production deployment with health checks (`/healthz`, `/metrics`), OTEL env setup, and restart policies.
 - `bs9 reload <app>` — Replace-first zero-downtime rolling reload with authenticated `READY` signal and 2-phase drain.
 - `bs9 scale <app> <count|+N|-N>` — Scale cluster worker slots.
 - `bs9 inspect-ha <file>` — Static analysis classifying apps into Tier 1 (Stateless HA Ready), Tier 2 (`bs9/runtime`), or Tier 3 (In-Memory State Warning).
 - `bs9 verify-ha <file>` — Isolated sandbox fault-injection (`kill -9` + rolling reload) with availability and latency percentiles.
+- `bs9 hub init|status|peers` — Initialize shared cluster secret / node ID and inspect opt-in Multi-Host State Hub Raft-lite replication over TLS (`BS9_HUB_LISTEN`, `BS9_HUB_PEERS`, `BS9_HUB_NODE_ID`, `BS9_HUB_CLUSTER_SECRET_FILE`).
 - `bs9 mcp [--readonly]` — Launch stdio Model Context Protocol (MCP) server (16 tools) for AI assistants with secret redaction.
 - `bs9 export --format nginx|caddy|grafana` — Generate hardened reverse proxy and observability configs.
 
@@ -43,6 +44,6 @@ Run `bs9 start ecosystem.config.js` or `bs9 start ecosystem.config.js --env stag
 
 ## Boundaries & Architecture
 
-- **Same-Host Only**: The bundled State Hub coordinates processes on one host via UDS / Named Pipe; it is not a multi-node consensus database.
+- **Same-Host Default + Opt-in Multi-Host Replication**: By default, the bundled State Hub coordinates processes on one host via UDS / Named Pipe with zero configuration. For 3–5 node multi-host clusters, opt-in Raft-lite replication over TLS + mutual HMAC can be enabled via `bs9 hub init`, `BS9_HUB_LISTEN`, and `BS9_HUB_PEERS` without external Redis/Postgres dependencies or application code changes.
 - **No Arbitrary Heap Replication**: Plain JS variables (`let`, `Map`, `Set`) are not shared across OS processes; use `bs9/runtime` (`State`, `SharedMap`, `SharedSet`).
 - **License**: `AGPL-3.0-or-later` (normal CLI usage to run proprietary apps does not require open-sourcing the app; modifying BS9 itself and serving it over a network triggers AGPL-3.0).

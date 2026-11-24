@@ -824,6 +824,19 @@ bs9 consul register --name api-service --address 127.0.0.1 --port 3000 --health-
 
 ---
 
+### `bs9 hub`
+
+Manages Multi-Host State Hub cluster identity, shared secrets, and Raft-lite replication status over TLS.
+
+```bash
+bs9 hub init --node-id node-1
+bs9 hub init --node-id node-2 --secret <CLUSTER_SECRET>
+bs9 hub status
+bs9 hub peers
+```
+
+---
+
 ## 🔗 Related Documentation
 
 - [Quick Start Guide](../README.md#-quick-start)
@@ -835,5 +848,5 @@ bs9 consul register --name api-service --address 127.0.0.1 --port 3000 --health-
 
 ---
 
-*Last Updated: November 19, 2026*
-*BS9 Version: 1.7.2*
+*Last Updated: November 23, 2026*
+*BS9 Version: 1.8.0*

@@ -428,12 +428,130 @@ export interface AdminPingResponsePayload {
     namespacesCount: number;
     walRecovered: boolean;
     walRecordsCount: number;
+    cluster?: {
+      enabled: boolean;
+      nodeId: string;
+      role: "leader" | "follower" | "candidate";
+      term: number;
+      leaderId: string | null;
+      commitIndex: number;
+      peersCount: number;
+    };
   };
   reconciler: {
     active: boolean;
     lockedClusters: string[];
     managedClustersCount: number;
   };
+}
+
+export type HubPeerMessageType =
+  | "PEER_HELLO"
+  | "PEER_HELLO_ACK"
+  | "PEER_HEARTBEAT"
+  | "PEER_HEARTBEAT_ACK"
+  | "REPL_APPEND"
+  | "REPL_ACK"
+  | "REPL_SNAPSHOT_REQ"
+  | "REPL_SNAPSHOT_CHUNK"
+  | "VOTE_REQUEST"
+  | "VOTE_RESPONSE"
+  | "FORWARD_WRITE"
+  | "FORWARD_RESULT"
+  | "NOT_LEADER";
+
+export interface PeerHelloPayload {
+  nodeId: string;
+  nonce: string;
+  listenAddress?: string;
+  tlsFingerprint?: string;
+}
+
+export interface PeerHelloAckPayload {
+  nodeId: string;
+  hmac: string;
+  challengeNonce?: string;
+  tlsFingerprint?: string;
+}
+
+export interface PeerHeartbeatPayload {
+  nodeId: string;
+  term: number;
+  commitIndex: number;
+  leaderId: string | null;
+  sentAt: number;
+}
+
+export interface PeerHeartbeatAckPayload {
+  nodeId: string;
+  term: number;
+  matchIndex: number;
+  sentAt: number;
+}
+
+export interface ReplLogEntry {
+  index: number;
+  term: number;
+  namespace: string;
+  record: Record<string, any>;
+}
+
+export interface ReplAppendPayload {
+  term: number;
+  leaderId: string;
+  prevLogIndex: number;
+  prevLogTerm: number;
+  entries: ReplLogEntry[];
+  leaderCommit: number;
+}
+
+export interface ReplAckPayload {
+  nodeId: string;
+  term: number;
+  success: boolean;
+  matchIndex: number;
+  conflictIndex?: number;
+}
+
+export interface ReplSnapshotReqPayload {
+  nodeId: string;
+  fromIndex: number;
+}
+
+export interface ReplSnapshotChunkPayload {
+  term: number;
+  leaderId: string;
+  lastIncludedIndex: number;
+  lastIncludedTerm: number;
+  namespaces: Record<string, any>;
+}
+
+export interface VoteRequestPayload {
+  term: number;
+  candidateId: string;
+  lastLogIndex: number;
+  lastLogTerm: number;
+}
+
+export interface VoteResponsePayload {
+  nodeId: string;
+  term: number;
+  voteGranted: boolean;
+}
+
+export interface ForwardWritePayload {
+  fromNodeId: string;
+  originalEnvelope: Bs9Envelope<any>;
+}
+
+export interface ForwardResultPayload {
+  responseEnvelope: Bs9Envelope<any>;
+}
+
+export interface NotLeaderPayload {
+  leaderId: string | null;
+  leaderAddress?: string | null;
+  term: number;
 }
 
 export interface AdminErrorPayload {

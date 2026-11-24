@@ -1,15 +1,15 @@
 ---
 layout: default
 title: Documentation
-description: Self-healing process manager for Bun with zero-downtime clustering, real-time dashboards, TypeScript build support, and durable same-host state.
+description: Self-healing process manager for Bun with zero-downtime clustering, real-time dashboards, TypeScript build support, and durable same-host or opt-in multi-host state.
 home: true
 permalink: /
 ---
 
 <section class="hero">
-  <p class="eyebrow">Bun Sentinel 9 · v1.7.2</p>
+  <p class="eyebrow">Bun Sentinel 9 · v1.8.0</p>
   <h1>Keep services running.<br><span>Stay in control.</span></h1>
-  <p class="lede">Self-healing process manager for Bun with zero-downtime clustering, WebSocket live dashboards, AI-safe MCP guardrails, and durable same-host state.</p>
+  <p class="lede">Self-healing process manager for Bun with zero-downtime clustering, WebSocket live dashboards, AI-safe MCP guardrails, and durable same-host or opt-in multi-host state.</p>
   <div class="actions">
     <a class="button primary" href="{{ '/commands/' | relative_url }}">Explore commands →</a>
     <a class="button" href="https://github.com/xarhang/bs9">View on GitHub ↗</a>
@@ -21,19 +21,19 @@ bs9 status</code></pre></div>
 
 <section class="feature-grid" aria-label="Key capabilities">
   <article class="card">
-    <span class="kicker">Resilience</span>
-    <h3>Zero-downtime &amp; readiness</h3>
-    <p>Replace-first rolling generations, startup readiness gates, and size-based gzip log rotation.</p>
+    <span class="kicker">Resilience &amp; Multi-Host</span>
+    <h3>Zero-downtime &amp; Raft-lite Hub</h3>
+    <p>Replace-first rolling generations, SharedMap/SharedSet, Web session/rate-limit adapters, and opt-in TLS Multi-Host State Hub replication.</p>
   </article>
   <article class="card">
-    <span class="kicker">AI-Safe MCP</span>
+    <span class="kicker">AI-Safe MCP &amp; llms.txt</span>
     <h3>Read-only &amp; audit-logged</h3>
-    <p>Native 16-tool MCP server with <code>--readonly</code> guardrails, secret redaction, and tamper-safe <code>bs9 audit</code>.</p>
+    <p>Native 16-tool MCP server with <code>--readonly</code> guardrails, secret redaction, <code>llms.txt</code> indexing, and tamper-safe <code>bs9 audit</code>.</p>
   </article>
   <article class="card">
-    <span class="kicker">Observable</span>
-    <h3>Live logs &amp; exports</h3>
-    <p>WebSocket delta log streaming, anomaly detection, plus hardened Nginx, Caddy, and Grafana exports.</p>
+    <span class="kicker">Observable &amp; PM2 Ready</span>
+    <h3>Live logs &amp; PM2 migration</h3>
+    <p>WebSocket delta log streaming, complex PM2 <code>ecosystem.config.js</code> support (<code>--env</code>, <code>kill_timeout</code>), plus Nginx, Caddy, and Grafana exports.</p>
   </article>
 </section>
 
@@ -41,7 +41,7 @@ bs9 status</code></pre></div>
 
 <section class="docs-grid" aria-label="Documentation sections">
   <a class="card" href="{{ '/commands/' | relative_url }}">
-    <span class="kicker">40 commands</span>
+    <span class="kicker">41+ commands</span>
     <h3>CLI reference →</h3>
     <p>Lifecycle, monitoring, clustering, deployment, diagnostics, and platform commands.</p>
   </a>

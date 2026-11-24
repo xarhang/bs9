@@ -48,6 +48,7 @@ import { issuesCommand } from "../src/commands/issues.js";
 import { inspectHaCommand } from "../src/commands/inspect-ha.js";
 import { verifyHaCommand } from "../src/commands/verify-ha.js";
 import { daemonCommand } from "../src/commands/daemon.js";
+import { hubCommand } from "../src/commands/hub.js";
 import { auditCommand } from "../src/commands/audit.js";
 import { initializePlatformDirectories } from "../src/platform/detect.js";
 
@@ -481,6 +482,16 @@ program
   .argument("[action]", "Action to perform: start, stop, status", "status")
   .option("-f, --foreground", "Run daemon in foreground (for systemd/launchd supervision)", false)
   .action(daemonCommand);
+
+program
+  .command("hub")
+  .description("🌐 Manage Multi-Host State Hub cluster identity, peers, and replication status")
+  .argument("[action]", "Action to perform: init, status, peers", "status")
+  .option("--node-id <id>", "Explicit node ID for multi-host cluster")
+  .option("--secret <secret>", "Explicit shared cluster secret (>= 16 chars)")
+  .option("--force", "Overwrite existing cluster secret or node ID on init", false)
+  .option("--json", "Output result as JSON", false)
+  .action(hubCommand);
 
 const rawArgs = process.argv.slice(2);
 if (rawArgs.length === 1 && (rawArgs[0] === "-v" || rawArgs[0] === "-V" || rawArgs[0] === "--version")) {

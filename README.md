@@ -1,16 +1,21 @@
 # BS9 (Bun Sentinel 9)
 
 [![License: AGPL v3+](https://img.shields.io/badge/License-AGPL_v3%2B-blue.svg)](https://www.gnu.org/licenses/agpl-3.0.html)
-[![Version](https://img.shields.io/badge/version-1.7.2-blue.svg)](https://github.com/xarhang/bs9)
+[![Version](https://img.shields.io/badge/version-1.8.0-blue.svg)](https://github.com/xarhang/bs9)
 [![Security](https://img.shields.io/badge/security-hardened-green.svg)](SECURITY.md)
-[![Tests](https://img.shields.io/badge/tests-2%2C460%2B%20passing-brightgreen.svg)](https://github.com/xarhang/bs9/actions)
+[![Tests](https://img.shields.io/badge/tests-2%2C485%2B%20passing-brightgreen.svg)](https://github.com/xarhang/bs9/actions)
 [![Cross-Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](https://github.com/xarhang/bs9)
 
-**Self-healing process manager for Bun with zero-downtime clustering, real-time dashboards, TypeScript build support, and durable same-host state.**
+**Self-healing process manager for Bun with zero-downtime clustering, real-time dashboards, TypeScript build support, and durable same-host or opt-in multi-host state.**
 
 Works on Windows, macOS, and Linux.
 
-Every release is gated by 2,470+ automated tests (including Playwright browser E2E, security tests, and 1,000-service scale stress tests) plus GitHub-hosted native and packaged qualification across Linux, Windows, and macOS. The compatibility matrix also exercises major Linux distributions in containers, including Debian, CentOS Stream, Red Hat UBI, Rocky Linux, AlmaLinux, Fedora, openSUSE, Arch Linux, Alpine Linux, and Linux Mint. See [Testing and release qualification](docs/TESTING.md).
+Every release is gated by 2,485+ automated tests (including Playwright browser E2E, security tests, and 1,000-service scale stress tests) plus GitHub-hosted native and packaged qualification across Linux, Windows, and macOS. The compatibility matrix also exercises major Linux distributions in containers, including Debian, CentOS Stream, Red Hat UBI, Rocky Linux, AlmaLinux, Fedora, openSUSE, Arch Linux, Alpine Linux, and Linux Mint. See [Testing and release qualification](docs/TESTING.md).
+
+### What's New in v1.8.0
+- **Opt-in Multi-Host State Hub (`bs9 hub`)**: Built-in Raft-lite quorum replication over TCP + TLS with mutual HMAC authentication (`bs9 hub init`, `bs9 hub status`, `bs9 hub peers`, `BS9_HUB_LISTEN`, `BS9_HUB_PEERS`). Replicates `State`, `SharedMap`, `SharedSet`, `Lease` (with term-encoded fencing tokens), and `Queue` across 3–5 hosts with automatic leader election, follower write forwarding, and snapshot catch-up — zero external Redis/Postgres dependencies and zero application code changes.
+- **Cluster-Safe Shared Collections & Web Adapters (`bs9/runtime`)**: Added `SharedMap`, `SharedSet`, `Bs9WebSessionStore`, `Bs9RateLimiter`, `parseSessionCookie`, and `formatSessionCookie` for native `Bun.serve`, Hono, Elysia, and Express.
+- **Complex PM2 Migration & `llms.txt`**: Added support for PM2 `env_<profile>` (`--env`), `instances: "max" | 0 | -1`, `node_args`, `kill_timeout`, custom log file paths, `ignore_watch`, and root `llms.txt` for AI coding assistants.
 
 ### What's New in v1.7.2
 - **Second Security & QA Audit Pass**: Dollar-quoted/backslash-escape/`pg_sleep`/`COPY ... PROGRAM` SQL bypasses closed, full IPv6 hextet parsing for SSRF blocking (compressed loopback, NAT64, 6to4, ULA, Teredo, reserved IPv4), dashboard login rate limiting, MCP parameter validation, and PID `cmdline` verification before signaling processes.
@@ -345,6 +350,9 @@ bs9 daemon status                                  # Check daemon status and con
 bs9 daemon start                                   # Ensure daemon is running in background
 bs9 daemon stop                                    # Stop persistent daemon
 bs9 daemon start --foreground                      # Run daemon in foreground (for systemd/launchd)
+bs9 hub init                                       # Initialize shared secret & node ID for opt-in Multi-Host replication
+bs9 hub status                                     # Check State Hub & Raft-lite cluster replication status
+bs9 hub peers                                      # Inspect connected multi-host peers and commit index
 
 # Deploy applications (KILLER FEATURE)
 bs9 deploy app.ts                                  # Zero-config deployment

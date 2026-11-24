@@ -72,6 +72,13 @@ import {
   type LeaseRecord,
 } from "./leases.js";
 import { QueueManager, type QueueMessage } from "./queues.js";
+import {
+  ClusterCoordinator,
+  type HubClusterOptions,
+  type ClusterStatusInfo,
+} from "./membership.js";
+import type { ReplLogEntry } from "./protocol.js";
+import type { SnapshotData } from "./wal.js";
 
 export interface HubServerOptions extends KvEngineOptions, WalManagerOptions {
   socketPath?: string;
@@ -80,6 +87,8 @@ export interface HubServerOptions extends KvEngineOptions, WalManagerOptions {
   handshakeTimeoutMs?: number;
   allowAnonymous?: boolean;
   autoRecover?: boolean;
+  /** Optional multi-host Raft-lite cluster replication options (opt-in). */
+  cluster?: HubClusterOptions;
 }
 
 interface AuthenticatedSession {
@@ -142,6 +151,7 @@ export class HubServer extends EventEmitter {
   public readonly wal: WalManager;
   public readonly leases: LeaseManager;
   public readonly queues: QueueManager;
+  public readonly cluster: ClusterCoordinator | null = null;
 
   constructor(options: HubServerOptions = {}) {
     super();
@@ -161,6 +171,21 @@ export class HubServer extends EventEmitter {
     // The same configured per-namespace limit governs both components, while
     // the legacy KV queue projection remains covered by the engine's own limit.
     this.queues = new QueueManager(1000, options.maxNamespaceMemory);
+
+    if (options.cluster) {
+      this.cluster = new ClusterCoordinator(
+        {
+          ...options.cluster,
+          stateDir: options.cluster.stateDir ?? options.stateDir,
+        },
+        {
+          onApplyCommittedEntry: (entry) => this.applyReplicatedEntry(entry),
+          onExportAllSnapshots: () => this.exportAllNamespaceSnapshots(),
+          onInstallAllSnapshots: (namespaces) => this.installAllNamespaceSnapshots(namespaces),
+          onExecuteForwardedWrite: (env) => this.executeReplicatedEnvelopeOnLeader(env),
+        }
+      );
+    }
   }
 
   /**
@@ -264,8 +289,12 @@ export class HubServer extends EventEmitter {
     return this.recoveredNamespaces.size;
   }
 
+  public getClusterStatus(): ClusterStatusInfo | null {
+    return this.cluster ? this.cluster.getStatus() : null;
+  }
+
   /**
-   * Starts the Hub service listening on UDS / Named Pipe.
+   * Starts the Hub service listening on UDS / Named Pipe (and optional PeerTransport if cluster mode is enabled).
    */
   public async start(): Promise<void> {
     const platformInfo = getPlatformInfo();
@@ -293,7 +322,7 @@ export class HubServer extends EventEmitter {
       } catch {}
     }
 
-    return new Promise((resolve, reject) => {
+    await new Promise<void>((resolve, reject) => {
       const srv = createServer((socket: Socket) => {
         this.handleClientConnection(socket);
       });
@@ -318,12 +347,19 @@ export class HubServer extends EventEmitter {
         resolve();
       });
     });
+
+    if (this.cluster) {
+      await this.cluster.start();
+    }
   }
 
   /**
    * Stops the Hub service and disconnects clients.
    */
   public async stop(): Promise<void> {
+    if (this.cluster) {
+      await this.cluster.stop().catch(() => {});
+    }
     this.engine.close();
     this.leases.close();
     this.queues.close();
@@ -914,6 +950,11 @@ export class HubServer extends EventEmitter {
       return;
     }
 
+    if (this.cluster) {
+      this.handleClusterAuthenticatedEnvelope(socket, namespace, envelope);
+      return;
+    }
+
     try {
       switch (envelope.type) {
         case "KV_GET": {
@@ -1194,6 +1235,520 @@ export class HubServer extends EventEmitter {
       );
       try {
         socket.write(encodeFrame(errEnv));
+      } catch {}
+    }
+  }
+
+  // --- Multi-Host Cluster Replication Methods (Opt-in) ---
+
+  private handleClusterAuthenticatedEnvelope(
+    socket: Socket,
+    namespace: string,
+    envelope: Bs9Envelope
+  ): void {
+    const boundEnv: Bs9Envelope = { ...envelope, namespace };
+
+    // Local fast-path for KV_GET unless linearizable consistency is requested
+    if (boundEnv.type === "KV_GET") {
+      const payload = boundEnv.payload as KvGetPayload & { consistency?: "local" | "linearizable" };
+      if (payload?.consistency !== "linearizable" || this.cluster!.isLeader()) {
+        try {
+          const value = this.get(namespace, payload.key);
+          const resEnv = createEnvelope<KvGetResponsePayload>(
+            "KV_GET_RESPONSE",
+            namespace,
+            { key: payload.key, found: value !== null, value },
+            boundEnv.id
+          );
+          socket.write(encodeFrame(resEnv));
+        } catch (err) {
+          const errEnv = createEnvelope<KvErrorPayload>(
+            "KV_ERROR",
+            namespace,
+            { error: (err as Error).message, code: "OPERATION_FAILED" },
+            boundEnv.id
+          );
+          socket.write(encodeFrame(errEnv));
+        }
+        return;
+      }
+    }
+
+    if (boundEnv.type === "KV_SNAPSHOT") {
+      try {
+        const snapshotPath = this.snapshot(namespace);
+        const resEnv = createEnvelope<KvSnapshotResponsePayload>(
+          "KV_SNAPSHOT_RESPONSE",
+          namespace,
+          { success: true, snapshotPath, timestamp: Date.now() },
+          boundEnv.id
+        );
+        socket.write(encodeFrame(resEnv));
+      } catch (err) {
+        const errEnv = createEnvelope<KvErrorPayload>(
+          "KV_ERROR",
+          namespace,
+          { error: (err as Error).message, code: "OPERATION_FAILED" },
+          boundEnv.id
+        );
+        socket.write(encodeFrame(errEnv));
+      }
+      return;
+    }
+
+    const promise = this.cluster!.isLeader()
+      ? this.executeReplicatedEnvelopeOnLeader(boundEnv)
+      : this.cluster!.forwardWriteToLeader(boundEnv);
+
+    promise
+      .then((resEnv) => {
+        try {
+          socket.write(encodeFrame(resEnv));
+        } catch {}
+      })
+      .catch((err: Error) => {
+        const errEnv = createEnvelope<KvErrorPayload>(
+          "KV_ERROR",
+          namespace,
+          {
+            error: err.message,
+            code: (err as Error & { code?: string }).code || "CLUSTER_OPERATION_FAILED",
+          },
+          boundEnv.id
+        );
+        try {
+          socket.write(encodeFrame(errEnv));
+        } catch {}
+      });
+  }
+
+  private async proposeAndCommitWalRecord(
+    namespace: string,
+    record: Omit<WalRecord, "seq" | "timestamp"> & { timestamp?: number }
+  ): Promise<WalRecord> {
+    const seq = this.wal.peekNextSeq(namespace);
+    const timestamp = record.timestamp ?? Date.now();
+    const term = this.cluster ? this.cluster.getTerm() : undefined;
+    const walRecord = {
+      ...record,
+      seq,
+      timestamp,
+      ...(term !== undefined ? { term } : {}),
+    } as WalRecord;
+
+    if (this.cluster) {
+      const entry = await this.cluster.proposeRecord(namespace, walRecord);
+      walRecord.replIndex = entry.index;
+      walRecord.term = entry.term;
+      return walRecord;
+    }
+
+    if (
+      walRecord.op === "queue_publish" ||
+      walRecord.op === "queue_ack" ||
+      walRecord.op === "queue_nack"
+    ) {
+      this.wal.appendQueueRecord(namespace, walRecord, {
+        engine: this.engine,
+        leases: this.leases,
+        queues: this.queues,
+      });
+    } else {
+      this.wal.appendWithSnapshot(namespace, walRecord, {
+        engine: this.engine,
+        leases: this.leases,
+        queues: this.queues,
+      });
+    }
+    return walRecord;
+  }
+
+  private async executeReplicatedEnvelopeOnLeader(envelope: Bs9Envelope<any>): Promise<Bs9Envelope<any>> {
+    const namespace = envelope.namespace || "default";
+    this.ensureRecovered(namespace);
+
+    switch (envelope.type) {
+      case "KV_GET": {
+        const payload = envelope.payload as KvGetPayload;
+        const value = this.engine.get(namespace, payload.key);
+        return createEnvelope<KvGetResponsePayload>(
+          "KV_GET_RESPONSE",
+          namespace,
+          { key: payload.key, found: value !== null, value },
+          envelope.id
+        );
+      }
+
+      case "KV_SET": {
+        const payload = envelope.payload as KvSetPayload;
+        assertFiniteDuration(payload.ttlMs, "TTL");
+        const durableValue = this.preflightSet(namespace, payload.key, payload.value);
+        await this.proposeAndCommitWalRecord(namespace, {
+          op: "set",
+          key: payload.key,
+          value: durableValue,
+          ttlMs: payload.ttlMs,
+        });
+        this.engine.set(namespace, payload.key, durableValue, payload.ttlMs);
+        return createEnvelope<KvSetResponsePayload>(
+          "KV_SET_RESPONSE",
+          namespace,
+          { key: payload.key, success: true },
+          envelope.id
+        );
+      }
+
+      case "KV_DELETE": {
+        const payload = envelope.payload as KvDeletePayload;
+        if (typeof payload.key !== "string") throw new Error("KV key must be a string");
+        await this.proposeAndCommitWalRecord(namespace, {
+          op: "del",
+          key: payload.key,
+        });
+        const deleted = this.engine.delete(namespace, payload.key);
+        return createEnvelope<KvDeleteResponsePayload>(
+          "KV_DELETE_RESPONSE",
+          namespace,
+          { key: payload.key, deleted },
+          envelope.id
+        );
+      }
+
+      case "KV_INCR": {
+        const payload = envelope.payload as KvIncrPayload;
+        const delta = typeof payload.delta === "number" ? payload.delta : 1;
+        if (typeof payload.key !== "string") throw new Error("KV key must be a string");
+        if (!Number.isFinite(delta)) throw new Error("Increment delta must be a finite number");
+        const current = this.getLogicalValue(namespace, payload.key);
+        if (current !== null && current !== undefined && typeof current !== "number") {
+          throw new Error(`Cannot increment key "${payload.key}": existing value is not a numeric value`);
+        }
+        const nextVal = current === null || current === undefined ? delta : current + delta;
+        if (!Number.isFinite(nextVal)) throw new Error("Increment result must be a finite number");
+        this.preflightSet(namespace, payload.key, nextVal);
+        await this.proposeAndCommitWalRecord(namespace, {
+          op: "incr",
+          key: payload.key,
+          delta,
+        });
+        const value = this.engine.incr(namespace, payload.key, delta);
+        return createEnvelope<KvIncrResponsePayload>(
+          "KV_INCR_RESPONSE",
+          namespace,
+          { key: payload.key, value, success: true },
+          envelope.id
+        );
+      }
+
+      case "KV_CAS": {
+        const payload = envelope.payload as KvCasPayload;
+        assertFiniteDuration(payload.ttlMs, "TTL");
+        if (typeof payload.key !== "string") throw new Error("KV key must be a string");
+        const durableExpected = this.canonicalizeValue(payload.expectedValue);
+        const durableNewValue = this.canonicalizeValue(payload.newValue);
+        const current = this.getLogicalValue(namespace, payload.key);
+        if (!isDeepEqual(current, durableExpected)) {
+          return createEnvelope<KvCasResponsePayload>(
+            "KV_CAS_RESPONSE",
+            namespace,
+            { key: payload.key, success: false, currentValue: current },
+            envelope.id
+          );
+        }
+        this.preflightSet(namespace, payload.key, durableNewValue);
+        await this.proposeAndCommitWalRecord(namespace, {
+          op: "cas",
+          key: payload.key,
+          expectedValue: durableExpected,
+          newValue: durableNewValue,
+          ttlMs: payload.ttlMs,
+        });
+        const casResult = this.engine.cas(
+          namespace,
+          payload.key,
+          durableExpected,
+          durableNewValue,
+          payload.ttlMs
+        );
+        return createEnvelope<KvCasResponsePayload>(
+          "KV_CAS_RESPONSE",
+          namespace,
+          { key: payload.key, success: casResult.success, currentValue: casResult.currentValue },
+          envelope.id
+        );
+      }
+
+      case "LEASE_ACQUIRE": {
+        const payload = envelope.payload as LeaseAcquirePayload;
+        if (typeof payload.leaseName !== "string" || payload.leaseName.length === 0) {
+          throw new Error("leaseName must be a non-empty string");
+        }
+        if (typeof payload.ownerId !== "string" || payload.ownerId.length === 0) {
+          throw new Error("ownerId must be a non-empty string");
+        }
+        assertRequiredFiniteDuration(payload.ttlMs, "Lease TTL");
+        const existing = this.leases.get(namespace, payload.leaseName);
+        if (existing) {
+          const res = this.leases.acquire(namespace, payload.leaseName, payload.ttlMs, payload.ownerId);
+          return createEnvelope<LeaseAcquireResponsePayload>(
+            "LEASE_ACQUIRE_RESPONSE",
+            namespace,
+            {
+              leaseName: payload.leaseName,
+              acquired: res.acquired,
+              fencingToken: res.fencingToken,
+              expiresAt: res.expiresAt,
+              currentOwner: res.currentOwner,
+            },
+            envelope.id
+          );
+        }
+        const timestamp = Date.now();
+        const currentToken = this.leases.getCurrentFencingToken(namespace, payload.leaseName);
+        const localBase = (currentToken % 0x80000000) + 1;
+        const fencingToken = this.cluster
+          ? Math.max(currentToken + 1, this.cluster.computeFencingToken(localBase))
+          : currentToken + 1;
+        const expiresAt = timestamp + payload.ttlMs;
+        await this.proposeAndCommitWalRecord(namespace, {
+          op: "lease_acquire",
+          leaseName: payload.leaseName,
+          ownerId: payload.ownerId,
+          fencingToken,
+          expiresAt,
+          ttlMs: payload.ttlMs,
+          timestamp,
+        });
+        this.leases.applyAcquire(namespace, payload.leaseName, payload.ownerId, fencingToken, expiresAt, timestamp);
+        this.syncLeaseProjection(namespace, payload.leaseName, fencingToken, payload.ttlMs);
+        return createEnvelope<LeaseAcquireResponsePayload>(
+          "LEASE_ACQUIRE_RESPONSE",
+          namespace,
+          {
+            leaseName: payload.leaseName,
+            acquired: true,
+            fencingToken,
+            expiresAt,
+            currentOwner: payload.ownerId,
+          },
+          envelope.id
+        );
+      }
+
+      case "LEASE_RENEW": {
+        const payload = envelope.payload as LeaseRenewPayload;
+        if (typeof payload.leaseName !== "string" || payload.leaseName.length === 0) {
+          throw new Error("leaseName must be a non-empty string");
+        }
+        assertRequiredFiniteDuration(payload.ttlMs, "Lease TTL");
+        const existing = this.leases.exportState(namespace)[payload.leaseName]?.record;
+        if (!existing || existing.fencingToken !== payload.fencingToken) {
+          const failed = this.leases.renew(namespace, payload.leaseName, payload.fencingToken, payload.ttlMs);
+          return createEnvelope<LeaseRenewResponsePayload>(
+            "LEASE_RENEW_RESPONSE",
+            namespace,
+            {
+              leaseName: payload.leaseName,
+              renewed: failed.renewed,
+              expiresAt: failed.expiresAt,
+              fencingToken: failed.fencingToken,
+              error: failed.error,
+            },
+            envelope.id
+          );
+        }
+        const timestamp = Date.now();
+        const expiresAt = timestamp + payload.ttlMs;
+        await this.proposeAndCommitWalRecord(namespace, {
+          op: "lease_renew",
+          leaseName: payload.leaseName,
+          fencingToken: payload.fencingToken,
+          expiresAt,
+          ttlMs: payload.ttlMs,
+          timestamp,
+        });
+        this.leases.applyRenew(namespace, payload.leaseName, payload.fencingToken, expiresAt);
+        this.syncLeaseProjection(namespace, payload.leaseName, payload.fencingToken, payload.ttlMs);
+        return createEnvelope<LeaseRenewResponsePayload>(
+          "LEASE_RENEW_RESPONSE",
+          namespace,
+          {
+            leaseName: payload.leaseName,
+            renewed: true,
+            expiresAt,
+            fencingToken: payload.fencingToken,
+          },
+          envelope.id
+        );
+      }
+
+      case "LEASE_RELEASE": {
+        const payload = envelope.payload as LeaseReleasePayload;
+        const existing = this.leases.exportState(namespace)[payload.leaseName]?.record;
+        if (!existing || existing.fencingToken !== payload.fencingToken) {
+          return createEnvelope<LeaseReleaseResponsePayload>(
+            "LEASE_RELEASE_RESPONSE",
+            namespace,
+            { leaseName: payload.leaseName, released: false },
+            envelope.id
+          );
+        }
+        await this.proposeAndCommitWalRecord(namespace, {
+          op: "lease_release",
+          leaseName: payload.leaseName,
+          fencingToken: payload.fencingToken,
+        });
+        this.leases.applyRelease(namespace, payload.leaseName, payload.fencingToken);
+        this.engine.delete(namespace, `__bs9_lease:${payload.leaseName}`);
+        return createEnvelope<LeaseReleaseResponsePayload>(
+          "LEASE_RELEASE_RESPONSE",
+          namespace,
+          { leaseName: payload.leaseName, released: true },
+          envelope.id
+        );
+      }
+
+      case "QUEUE_PUBLISH": {
+        const payload = envelope.payload as QueuePublishPayload;
+        const prepared = this.queues.preparePublish(namespace, payload.queueName, payload.payload, payload.options);
+        await this.proposeAndCommitWalRecord(namespace, {
+          op: "queue_publish",
+          queueName: payload.queueName,
+          messageId: prepared.message.id,
+          payload: prepared.message.payload,
+          options: prepared.message.options,
+          createdAt: prepared.message.createdAt,
+        });
+        const result = this.queues.publishPrepared(namespace, payload.queueName, prepared);
+        this.syncQueueToEngine(namespace, payload.queueName);
+        return createEnvelope<QueuePublishResponsePayload>(
+          "QUEUE_PUBLISH_RESPONSE",
+          namespace,
+          { queueName: payload.queueName, messageId: result.messageId, success: true },
+          envelope.id
+        );
+      }
+
+      case "QUEUE_RESERVE": {
+        const payload = envelope.payload as QueueReservePayload;
+        const messages = this.queueReserve(
+          namespace,
+          payload.queueName,
+          payload.visibilityTimeoutMs,
+          payload.maxMessages
+        );
+        return createEnvelope<QueueReserveResponsePayload>(
+          "QUEUE_RESERVE_RESPONSE",
+          namespace,
+          { queueName: payload.queueName, messages },
+          envelope.id
+        );
+      }
+
+      case "QUEUE_ACK": {
+        const payload = envelope.payload as QueueAckPayload;
+        if (!this.queues.hasMessage(namespace, payload.queueName, payload.messageId)) {
+          return createEnvelope<QueueAckResponsePayload>(
+            "QUEUE_ACK_RESPONSE",
+            namespace,
+            { queueName: payload.queueName, messageId: payload.messageId, acked: false },
+            envelope.id
+          );
+        }
+        await this.proposeAndCommitWalRecord(namespace, {
+          op: "queue_ack",
+          queueName: payload.queueName,
+          messageId: payload.messageId,
+        });
+        const acked = this.queues.ack(namespace, payload.queueName, payload.messageId);
+        if (acked) this.syncQueueToEngine(namespace, payload.queueName);
+        return createEnvelope<QueueAckResponsePayload>(
+          "QUEUE_ACK_RESPONSE",
+          namespace,
+          { queueName: payload.queueName, messageId: payload.messageId, acked },
+          envelope.id
+        );
+      }
+
+      case "QUEUE_NACK": {
+        const payload = envelope.payload as QueueNackPayload;
+        if (!this.queues.hasMessage(namespace, payload.queueName, payload.messageId)) {
+          return createEnvelope<QueueNackResponsePayload>(
+            "QUEUE_NACK_RESPONSE",
+            namespace,
+            { queueName: payload.queueName, messageId: payload.messageId, nacked: false },
+            envelope.id
+          );
+        }
+        await this.proposeAndCommitWalRecord(namespace, {
+          op: "queue_nack",
+          queueName: payload.queueName,
+          messageId: payload.messageId,
+        });
+        const nacked = this.queues.nack(namespace, payload.queueName, payload.messageId);
+        return createEnvelope<QueueNackResponsePayload>(
+          "QUEUE_NACK_RESPONSE",
+          namespace,
+          { queueName: payload.queueName, messageId: payload.messageId, nacked },
+          envelope.id
+        );
+      }
+
+      default:
+        throw new Error(`Unsupported hub operation type: ${envelope.type}`);
+    }
+  }
+
+  private applyReplicatedEntry(entry: ReplLogEntry): void {
+    const namespace = entry.namespace;
+    this.ensureRecovered(namespace);
+    const incoming = entry.record as WalRecord;
+    const localRecord: WalRecord = {
+      ...incoming,
+      seq: incoming.seq || 1,
+      term: entry.term,
+      replIndex: entry.index,
+    };
+
+    this.wal.applyRecord(this.engine, this.leases, this.queues, namespace, localRecord);
+    this.reconcileCompatibilityProjections(namespace);
+  }
+
+  private exportAllNamespaceSnapshots(): Record<string, SnapshotData> {
+    const allNamespaces = new Set<string>([
+      ...this.recoveredNamespaces,
+      ...this.wal.listNamespacesOnDisk(),
+    ]);
+    const out: Record<string, SnapshotData> = {};
+    for (const ns of allNamespaces) {
+      try {
+        this.ensureRecovered(ns);
+      } catch {
+        continue;
+      }
+      out[ns] = {
+        version: 1,
+        namespace: ns,
+        lastWalSeq: this.wal.getCurrentSeq(ns),
+        timestamp: Date.now(),
+        entries: this.engine.exportState(ns),
+        leases: this.leases.exportState(ns),
+        queues: this.queues.exportState(ns),
+      };
+    }
+    return out;
+  }
+
+  private installAllNamespaceSnapshots(namespaces: Record<string, SnapshotData>): void {
+    for (const [ns, snap] of Object.entries(namespaces)) {
+      if (!isValidNamespace(ns) || !snap) continue;
+      this.engine.importState(ns, snap.entries ?? {});
+      if (snap.leases) this.leases.importState(ns, snap.leases);
+      if (snap.queues) this.queues.importState(ns, snap.queues);
+      this.reconcileCompatibilityProjections(ns);
+      this.recoveredNamespaces.add(ns);
+      try {
+        this.wal.createSnapshot(ns, this.engine, this.leases, this.queues);
       } catch {}
     }
   }

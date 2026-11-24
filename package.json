@@ -1,7 +1,7 @@
 {
   "name": "bs9",
-  "version": "1.7.2",
-  "description": "Self-healing process manager for Bun with zero-downtime clustering, real-time dashboards, TypeScript build support, and durable same-host state.",
+  "version": "1.8.0",
+  "description": "Self-healing process manager for Bun with zero-downtime clustering, real-time dashboards, TypeScript build support, and durable same-host or opt-in multi-host state.",
   "type": "module",
   "main": "src/index.ts",
   "exports": {

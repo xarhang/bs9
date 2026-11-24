@@ -34,6 +34,7 @@ export { mcpCommand } from "./commands/mcp.js";
 export { issuesCommand } from "./commands/issues.js";
 export { ecosystemInitCommand } from "./commands/ecosystem-init.js";
 export { daemonCommand } from "./commands/daemon.js";
+export { hubCommand, initHubClusterIdentity, type HubCommandOptions } from "./commands/hub.js";
 export { auditCommand } from "./commands/audit.js";
 export { Bs9Daemon, type DaemonOptions } from "./daemon/daemon.js";
 export { ensureDaemonRunning, isDaemonResponsive } from "./daemon/ensure.js";

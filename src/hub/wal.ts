@@ -59,6 +59,10 @@ export interface WalRecord {
   payload?: any;
   options?: Record<string, any>;
   createdAt?: number;
+
+  // Replication metadata (optional, backward-compatible)
+  term?: number;
+  replIndex?: number;
 }
 
 export interface SnapshotData {
@@ -912,7 +916,7 @@ export class WalManager {
     }
   }
 
-  private applyRecord(
+  public applyRecord(
     engine: KvEngine,
     leases: LeaseManager | undefined,
     queues: QueueManager | undefined,
