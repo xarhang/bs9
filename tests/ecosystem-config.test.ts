@@ -12,6 +12,7 @@ import { writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir, cpus } from "node:os";
 import { isEcosystemConfig, parseEcosystemConfig } from "../src/utils/ecosystem-config.js";
+import { generateLinuxServiceUnit } from "../src/commands/start.js";
 
 describe("Ecosystem Config Parser", () => {
   let tempDir: string;
@@ -245,8 +246,14 @@ describe("Ecosystem Config Parser", () => {
               NODE_ENV: "staging",
               API_KEY: "from_staging"
             },
-            out_file: "/var/log/out.log",
-            merge_logs: true
+            out_file: "./logs/out.log",
+            error_file: "./logs/err.log",
+            kill_timeout: 8000,
+            max_restarts: 10,
+            min_uptime: 5000,
+            ignore_watch: ["node_modules", "logs"],
+            merge_logs: true,
+            post_update: ["npm install"]
           }
         ]
       }));
@@ -258,9 +265,45 @@ describe("Ecosystem Config Parser", () => {
       expect(app.env).toContain("BASE=1");
       expect(app.env).toContain("NODE_ENV=staging");
       expect(app.env).toContain("API_KEY=from_staging");
+      expect(app.outFile).toContain("logs/out.log");
+      expect(app.errorFile).toContain("logs/err.log");
+      expect(app.killTimeout).toBe("8000");
+      expect(app.maxRestarts).toBe("10");
+      expect(app.minUptime).toBe("5000");
+      expect(app.ignoreWatch).toEqual(["node_modules", "logs"]);
       expect(app.warnings?.length).toBe(2);
-      expect(app.warnings?.[0]).toContain("out_file");
-      expect(app.warnings?.[1]).toContain("merge_logs");
+      expect(app.warnings?.[0]).toContain("merge_logs");
+      expect(app.warnings?.[1]).toContain("post_update");
+    });
+
+    it("should apply killTimeout, maxRestarts, outFile, errorFile, cwd, and args in generateLinuxServiceUnit", () => {
+      const unit = generateLinuxServiceUnit({
+        serviceName: "pm2-migrated",
+        fullPath: join(tempDir, "app.ts"),
+        host: "127.0.0.1",
+        port: "4000",
+        protocol: "http",
+        env: ["NODE_ENV=production"],
+        otel: false,
+        prometheus: false,
+        cwd: join(tempDir, "workdir"),
+        args: ["--port", "4000"],
+        autorestart: false,
+        restartDelay: "5000",
+        killTimeout: "8000",
+        maxRestarts: "12",
+        outFile: join(tempDir, "logs", "out.log"),
+        errorFile: "/dev/null",
+      });
+
+      expect(unit).toContain("Restart=no");
+      expect(unit).toContain("RestartSec=5s");
+      expect(unit).toContain("TimeoutStopSec=8s");
+      expect(unit).toContain("StartLimitBurst=12");
+      expect(unit).toContain(`WorkingDirectory=${join(tempDir, "workdir")}`);
+      expect(unit).toContain(`StandardOutput=append:${join(tempDir, "logs", "out.log")}`);
+      expect(unit).toContain("StandardError=null");
+      expect(unit).toContain("--port");
     });
   });
 });

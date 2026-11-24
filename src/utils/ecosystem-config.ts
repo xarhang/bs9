@@ -49,10 +49,16 @@ export interface PM2AppConfig {
   ignore_watch?: string | string[];
   max_memory_restart?: string | number;
   restart_delay?: number | string;
+  kill_timeout?: number | string;
+  max_restarts?: number | string;
+  min_uptime?: number | string;
   autorestart?: boolean;
   cron_restart?: string;
   cron?: string;
   time?: boolean;
+  out_file?: string;
+  error_file?: string;
+  log_file?: string;
   max_log_size?: string;
   maxLogSize?: string;
   max_log_files?: number | string;
@@ -90,11 +96,17 @@ export interface BS9AppEntry {
   host?: string;
   env?: string[];
   watch?: boolean;
+  ignoreWatch?: string[];
   maxMemoryRestart?: string;
   restartDelay?: string;
+  killTimeout?: string;
+  maxRestarts?: string;
+  minUptime?: string;
   autorestart?: boolean;
   cron?: string;
   time?: boolean;
+  outFile?: string;
+  errorFile?: string;
   maxLogSize?: string;
   maxLogFiles?: string;
   waitReady?: boolean;
@@ -253,14 +265,7 @@ function parseDotEnvFile(envFilePath: string): Record<string, string> {
 }
 
 const UNSUPPORTED_PM2_FIELDS: Record<string, string> = {
-  out_file: "managed automatically by BS9 log directory",
-  error_file: "managed automatically by BS9 log directory",
-  log_file: "managed automatically by BS9 log directory",
   merge_logs: "BS9 separates per-worker logs automatically",
-  kill_timeout: "BS9 uses a fixed 30s stop timeout",
-  max_restarts: "BS9 uses built-in circuit breaker (5 crashes / 60s)",
-  min_uptime: "BS9 uses built-in circuit breaker & exponential backoff",
-  ignore_watch: "BS9 --watch monitors the script directory without ignore globs",
   post_update: "not executed automatically by BS9",
 };
 
@@ -356,10 +361,19 @@ function mapAppToBS9(
     watch = app.watch.length > 0;
   }
 
+  const ignoreWatch = parseArgsList(app.ignore_watch);
+
   const maxMemoryRestart =
     app.max_memory_restart !== undefined ? String(app.max_memory_restart) : undefined;
+  const rawRestartDelay = app.restart_delay ?? app.exp_backoff_restart_delay;
   const restartDelay =
-    app.restart_delay !== undefined ? String(app.restart_delay) : undefined;
+    rawRestartDelay !== undefined ? String(rawRestartDelay) : undefined;
+  const killTimeout =
+    app.kill_timeout !== undefined ? String(app.kill_timeout) : undefined;
+  const maxRestarts =
+    app.max_restarts !== undefined ? String(app.max_restarts) : undefined;
+  const minUptime =
+    app.min_uptime !== undefined ? String(app.min_uptime) : undefined;
   const autorestart =
     typeof app.autorestart === "boolean" ? app.autorestart : undefined;
   const cron =
@@ -369,6 +383,22 @@ function mapAppToBS9(
         ? app.cron
         : undefined;
   const time = typeof app.time === "boolean" ? app.time : undefined;
+
+  const rawOutFile = app.out_file ?? app.log_file;
+  const outFile =
+    typeof rawOutFile === "string" && rawOutFile.trim().length > 0 && rawOutFile !== "/dev/null"
+      ? resolve(configDir, rawOutFile)
+      : rawOutFile === "/dev/null"
+        ? "/dev/null"
+        : undefined;
+
+  const rawErrorFile = app.error_file ?? app.log_file;
+  const errorFile =
+    typeof rawErrorFile === "string" && rawErrorFile.trim().length > 0 && rawErrorFile !== "/dev/null"
+      ? resolve(configDir, rawErrorFile)
+      : rawErrorFile === "/dev/null"
+        ? "/dev/null"
+        : undefined;
 
   const rawMaxLogSize = app.max_log_size ?? app.maxLogSize;
   const maxLogSize = rawMaxLogSize !== undefined ? String(rawMaxLogSize) : undefined;
@@ -403,11 +433,17 @@ function mapAppToBS9(
     host,
     env: env.length > 0 ? env : undefined,
     watch,
+    ignoreWatch,
     maxMemoryRestart,
     restartDelay,
+    killTimeout,
+    maxRestarts,
+    minUptime,
     autorestart,
     cron,
     time,
+    outFile,
+    errorFile,
     maxLogSize,
     maxLogFiles,
     waitReady,

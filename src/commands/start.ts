@@ -80,6 +80,15 @@ export interface StartOptions {
   waitReady?: boolean;
   readyTimeout?: string;
   interpreter?: string;
+  cwd?: string;
+  args?: string[];
+  interpreterArgs?: string[];
+  ignoreWatch?: string[];
+  killTimeout?: string;
+  maxRestarts?: string;
+  minUptime?: string;
+  outFile?: string;
+  errorFile?: string;
   windowsServiceAccount?: "LocalService" | "LocalSystem";
 }
 
@@ -140,9 +149,12 @@ export async function startCommand(files: string[], options: StartOptions): Prom
 /** Handle ecosystem.config.js / bs9.config.json */
 async function handleEcosystemStart(configFile: string, options: StartOptions): Promise<void> {
   console.log(`📋 Loading ecosystem config: ${configFile}`);
+  const envProfile = (options.env || []).find((e) => !e.includes("="));
+  const cliEnvOverrides = (options.env || []).filter((e) => e.includes("="));
+
   let entries;
   try {
-    entries = await parseEcosystemConfig(configFile);
+    entries = await parseEcosystemConfig(configFile, { envProfile });
   } catch (err) {
     console.error(`❌ Failed to parse ecosystem config: ${err}`);
     throw err;
@@ -159,6 +171,10 @@ async function handleEcosystemStart(configFile: string, options: StartOptions): 
           }
         }
         const instanceCount = app.instances ?? resolveInstances(options.instances);
+        const mergedEnv =
+          app.env || cliEnvOverrides.length > 0
+            ? [...(app.env || []), ...cliEnvOverrides]
+            : undefined;
         const appOptions: StartOptions = {
           name: app.name,
           cwd: app.cwd,
@@ -166,13 +182,19 @@ async function handleEcosystemStart(configFile: string, options: StartOptions): 
           interpreterArgs: app.interpreterArgs,
           port: app.port ?? options.port,
           host: app.host ?? options.host,
-          env: app.env ?? options.env,
+          env: mergedEnv,
           watch: app.watch ?? options.watch,
+          ignoreWatch: app.ignoreWatch ?? options.ignoreWatch,
           maxMemoryRestart: app.maxMemoryRestart ?? options.maxMemoryRestart,
           restartDelay: app.restartDelay ?? options.restartDelay,
+          killTimeout: app.killTimeout ?? options.killTimeout,
+          maxRestarts: app.maxRestarts ?? options.maxRestarts,
+          minUptime: app.minUptime ?? options.minUptime,
           autorestart: app.autorestart ?? options.autorestart,
           cron: app.cron ?? options.cron,
           time: app.time ?? options.time,
+          outFile: app.outFile ?? options.outFile,
+          errorFile: app.errorFile ?? options.errorFile,
           maxLogSize: app.maxLogSize ?? options.maxLogSize,
           maxLogFiles: app.maxLogFiles ?? options.maxLogFiles,
           waitReady: app.waitReady ?? options.waitReady,
@@ -626,7 +648,20 @@ async function createLinuxService(serviceName: string, execPath: string, host: s
     env: options.env || [],
     otel: options.otel ?? true,
     prometheus: options.prometheus ?? true,
-    interpreter: options.interpreter
+    interpreter: options.interpreter,
+    cwd: options.cwd,
+    args: options.args,
+    interpreterArgs: options.interpreterArgs,
+    autorestart: options.autorestart,
+    restartDelay: options.restartDelay,
+    killTimeout: options.killTimeout,
+    maxRestarts: options.maxRestarts,
+    minUptime: options.minUptime,
+    ignoreWatch: options.ignoreWatch,
+    outFile: options.outFile,
+    errorFile: options.errorFile,
+    maxLogSize: options.maxLogSize,
+    maxLogFiles: options.maxLogFiles,
   });
 
   const platformInfo = getPlatformInfo();
@@ -711,8 +746,8 @@ async function createMacOSService(serviceName: string, execPath: string, host: s
       env: JSON.stringify(envVars),
       autoStart: true,
       keepAlive: options.autorestart !== false,
-      logOut: `${getPlatformInfo().logDir}/${serviceName}.out.log`,
-      logErr: `${getPlatformInfo().logDir}/${serviceName}.err.log`
+      logOut: options.outFile || `${getPlatformInfo().logDir}/${serviceName}.out.log`,
+      logErr: options.errorFile || `${getPlatformInfo().logDir}/${serviceName}.err.log`
     });
 
     console.log(`Service '${serviceName}' [${runtime.runtimeName}] started successfully`);
@@ -866,6 +901,12 @@ interface SystemdUnitOptions {
   interpreterArgs?: string[];
   autorestart?: boolean;
   restartDelay?: string;
+  killTimeout?: string;
+  maxRestarts?: string;
+  minUptime?: string;
+  ignoreWatch?: string[];
+  outFile?: string;
+  errorFile?: string;
   maxLogSize?: string;
   maxLogFiles?: string;
 }
@@ -886,6 +927,11 @@ export function generateLinuxServiceUnit(opts: SystemdUnitOptions): string {
   }
   if (opts.maxLogSize) envVars.push(`BS9_MAX_LOG_SIZE=${opts.maxLogSize}`);
   if (opts.maxLogFiles) envVars.push(`BS9_MAX_LOG_FILES=${opts.maxLogFiles}`);
+  if (opts.ignoreWatch && opts.ignoreWatch.length > 0) {
+    envVars.push(`BS9_IGNORE_WATCH=${opts.ignoreWatch.join(",")}`);
+  }
+  if (opts.maxRestarts) envVars.push(`BS9_MAX_RESTARTS=${opts.maxRestarts}`);
+  if (opts.minUptime) envVars.push(`BS9_MIN_UPTIME=${opts.minUptime}`);
 
   const envSection = envVars.map((entry) => {
     const separator = entry.indexOf("=");
@@ -896,7 +942,8 @@ export function generateLinuxServiceUnit(opts: SystemdUnitOptions): string {
     }
     return escapeSystemdEnv(key, value);
   }).join("\n");
-  const workingDir = escapeSystemdArg(opts.cwd ? resolve(opts.cwd) : dirname(opts.fullPath));
+  const rawWorkingDir = opts.cwd ? resolve(opts.cwd) : dirname(opts.fullPath);
+  const workingDir = escapeSystemdArg(rawWorkingDir);
 
   const isClusterWorker = opts.env.some(e => e === "BS9_REUSE_PORT=true");
   const preloadTs = resolve(join(dirname(import.meta.path), '..', 'utils', 'cluster-preload.ts'));
@@ -918,25 +965,59 @@ export function generateLinuxServiceUnit(opts: SystemdUnitOptions): string {
       ? `${Math.max(1, Math.round(parsedDelayMs / 1000))}s`
       : "2s";
 
+  const parsedKillMs = opts.killTimeout ? parseInt(opts.killTimeout, 10) : NaN;
+  const stopSec =
+    Number.isFinite(parsedKillMs) && parsedKillMs > 0
+      ? `${Math.max(1, Math.round(parsedKillMs / 1000))}s`
+      : "30s";
+
+  const parsedMaxRestarts = opts.maxRestarts ? parseInt(opts.maxRestarts, 10) : NaN;
+  const startLimitLine =
+    Number.isFinite(parsedMaxRestarts) && parsedMaxRestarts > 0
+      ? `StartLimitBurst=${parsedMaxRestarts}\n`
+      : "";
+
+  const extraReadWritePaths = new Set<string>([rawWorkingDir]);
+  let logLines = "";
+  if (opts.outFile) {
+    if (opts.outFile === "/dev/null") {
+      logLines += "StandardOutput=null\n";
+    } else {
+      logLines += `StandardOutput=append:${escapeSystemdArg(opts.outFile)}\n`;
+      extraReadWritePaths.add(dirname(opts.outFile));
+    }
+  }
+  if (opts.errorFile) {
+    if (opts.errorFile === "/dev/null") {
+      logLines += "StandardError=null\n";
+    } else {
+      logLines += `StandardError=append:${escapeSystemdArg(opts.errorFile)}\n`;
+      extraReadWritePaths.add(dirname(opts.errorFile));
+    }
+  }
+  const readWritePathsLine = Array.from(extraReadWritePaths)
+    .map((p) => escapeSystemdArg(p))
+    .join(" ");
+
   return `[Unit]
 Description=${escapeSystemdValue(`BS9 Service: ${opts.serviceName}`)}
 After=network.target
 Documentation=https://github.com/xarhang/bs9
-
+${startLimitLine}
 [Service]
 Type=simple
 Restart=${restartPolicy}
 RestartSec=${restartSec}
 TimeoutStartSec=30s
-TimeoutStopSec=30s
+TimeoutStopSec=${stopSec}
 WorkingDirectory=${workingDir}
 ExecStart=${execStart}
-${envSection}
+${logLines}${envSection}
 
 # Security hardening (user systemd compatible)
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=${workingDir}
+ReadWritePaths=${readWritePathsLine}
 UMask=0022
 
 # Resource limits
