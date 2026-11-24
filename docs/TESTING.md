@@ -50,3 +50,55 @@ Infrastructure credentials, hosts, traffic sources, and rollback commands are de
 - Zero dropped requests in bounded rolling-reload verification.
 - No orphan or duplicate worker after crash/recovery tests.
 - Successful persisted-state recovery after WAL tail corruption.
+
+## Release & Publishing Workflow (Step-by-Step)
+
+You can run the entire release pipeline with a single command (`bun run publish:patch`, `bun run publish:minor`, `bun run publish:major`, or `bun scripts/auto-publish.js <X.Y.Z>`), or execute the steps manually:
+
+### Option A — Automated One-Command Release
+```bash
+bun run publish:minor   # or publish:patch / publish:major / bun scripts/auto-publish.js 1.8.0
+```
+This script ([scripts/auto-publish.js](../scripts/auto-publish.js) + [scripts/version-manager.js](../scripts/version-manager.js)) automatically executes all 6 steps below.
+
+### Option B — Manual Step-by-Step Checklist
+1. **Sync Version & Documentation Across All Files**:
+   - `package.json` (`"version": "X.Y.Z"`)
+   - `README.md` (Version badge + `### What's New in vX.Y.Z`)
+   - `CHANGELOG.md` (`## [X.Y.Z] - YYYY-MM-DD`)
+   - `docs/index.md` (GitHub Pages hero `Bun Sentinel 9 · vX.Y.Z`)
+   - `docs/COMMANDS.md` (`*BS9 Version: X.Y.Z*`)
+   - `docs/HA_RUNTIME.md` (`BS9 X.Y.Z`)
+   - `llms.txt` (`# BS9 (Bun Sentinel 9) — vX.Y.Z`)
+   - `setup.sh` (`BS9_VERSION="${BS9_VERSION:-X.Y.Z}"`)
+   - `src/mcp/server.ts` (`serverInfo.version: "X.Y.Z"`)
+2. **Type-Check, Build Bundle & Run Tests**:
+   ```bash
+   ./node_modules/.bin/tsc --noEmit
+   bun run build
+   bun test
+   ```
+3. **Commit & Tag**:
+   ```bash
+   git add .
+   git commit -m "🚀 vX.Y.Z: Release vX.Y.Z"
+   git tag vX.Y.Z
+   ```
+4. **Push to GitHub (Triggers CI/CD & GitHub Pages Deployment)**:
+   ```bash
+   git push origin main --tags
+   ```
+   *(Pushing to `main` automatically runs the `docs` job in `.github/workflows/ci.yml` to deploy `./docs` to `gh-pages`.)*
+5. **Create Official GitHub Release**:
+   ```bash
+   gh release create vX.Y.Z --title "vX.Y.Z" --notes-file <release-notes.md>
+   ```
+   *(Creating the GitHub Release triggers `.github/workflows/published-canary.yml` across Linux, macOS, and Windows.)*
+6. **Authenticate & Publish to npm Registry (Browser 2FA)**:
+   ```bash
+   # If not yet logged into npm in this environment, open web login URL:
+   npm login --auth-type=web
+
+   # Publish package with web 2FA approval link:
+   bun publish --auth-type=web
+   ```

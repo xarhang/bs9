@@ -34,7 +34,7 @@
     "test:contracts": "bun test tests/cross-platform-contract-matrix.test.ts",
     "test:resilience": "bun test tests/log-growth-recovery.test.ts tests/wal-chaos-recovery.test.ts tests/violent-crash.test.ts tests/worker-reconnect.test.ts",
     "test:package": "bun scripts/run-packaged-qualification.ts",
-    "test:release": "bunx tsc --noEmit && bun run build && bun test",
+    "test:release": "./node_modules/.bin/tsc --noEmit && bun run build && bun test",
     "version:patch": "bun scripts/version-manager.js patch",
     "version:minor": "bun scripts/version-manager.js minor",
     "version:major": "bun scripts/version-manager.js major",
