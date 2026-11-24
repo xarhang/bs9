@@ -180,5 +180,87 @@ describe("Ecosystem Config Parser", () => {
       const entries = await parseEcosystemConfig(configFile);
       expect(entries[0].name).toBe("microservice-auth");
     });
+
+    it("should map complex PM2 lifecycle, clustering, watch, memory, readiness, and log fields", async () => {
+      const configFile = join(tempDir, "ecosystem.config.json");
+      writeFileSync(configFile, JSON.stringify({
+        apps: [
+          {
+            name: "complex-api",
+            script: "./api.ts",
+            exec_mode: "cluster",
+            node_args: "--smol --max-old-space-size=512",
+            watch: ["src", "config"],
+            max_memory_restart: "512M",
+            restart_delay: 5000,
+            autorestart: false,
+            cron_restart: "0 3 * * *",
+            time: true,
+            max_log_size: "50M",
+            max_log_files: 10,
+            wait_ready: true,
+            listen_timeout: 12000,
+            env: {
+              PORT: 8085,
+              LOG_LEVEL: "info"
+            }
+          }
+        ]
+      }));
+
+      const entries = await parseEcosystemConfig(configFile);
+      const app = entries[0];
+      expect(app.instances).toBe(cpus().length);
+      expect(app.port).toBe("8085");
+      expect(app.interpreterArgs).toEqual(["--smol", "--max-old-space-size=512"]);
+      expect(app.watch).toBe(true);
+      expect(app.maxMemoryRestart).toBe("512M");
+      expect(app.restartDelay).toBe("5000");
+      expect(app.autorestart).toBe(false);
+      expect(app.cron).toBe("0 3 * * *");
+      expect(app.time).toBe(true);
+      expect(app.maxLogSize).toBe("50M");
+      expect(app.maxLogFiles).toBe("10");
+      expect(app.waitReady).toBe(true);
+      expect(app.readyTimeout).toBe("12000");
+    });
+
+    it("should load env_file, apply envProfile overrides, and emit warnings for unsupported PM2 fields", async () => {
+      const envFile = join(tempDir, ".env.staging");
+      writeFileSync(envFile, "# comment\nDB_HOST=staging.db.local\nAPI_KEY=from_file\n");
+
+      const configFile = join(tempDir, "ecosystem.config.json");
+      writeFileSync(configFile, JSON.stringify({
+        apps: [
+          {
+            name: "staging-app",
+            script: "./app.ts",
+            exec_mode: "fork",
+            env_file: ".env.staging",
+            env: {
+              API_KEY: "from_env",
+              BASE: "1"
+            },
+            env_staging: {
+              NODE_ENV: "staging",
+              API_KEY: "from_staging"
+            },
+            out_file: "/var/log/out.log",
+            merge_logs: true
+          }
+        ]
+      }));
+
+      const entries = await parseEcosystemConfig(configFile, { envProfile: "staging" });
+      const app = entries[0];
+      expect(app.instances).toBe(1);
+      expect(app.env).toContain("DB_HOST=staging.db.local");
+      expect(app.env).toContain("BASE=1");
+      expect(app.env).toContain("NODE_ENV=staging");
+      expect(app.env).toContain("API_KEY=from_staging");
+      expect(app.warnings?.length).toBe(2);
+      expect(app.warnings?.[0]).toContain("out_file");
+      expect(app.warnings?.[1]).toContain("merge_logs");
+    });
   });
 });

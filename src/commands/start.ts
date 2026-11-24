@@ -153,12 +153,30 @@ async function handleEcosystemStart(configFile: string, options: StartOptions): 
   const results = await Promise.allSettled(
     entries.map(async (app) => {
       try {
+        if (app.warnings && app.warnings.length > 0) {
+          for (const w of app.warnings) {
+            console.warn(`⚠️  [${app.name || app.file}] ${w}`);
+          }
+        }
         const instanceCount = app.instances ?? resolveInstances(options.instances);
         const appOptions: StartOptions = {
           name: app.name,
+          cwd: app.cwd,
+          args: app.args,
+          interpreterArgs: app.interpreterArgs,
           port: app.port ?? options.port,
           host: app.host ?? options.host,
           env: app.env ?? options.env,
+          watch: app.watch ?? options.watch,
+          maxMemoryRestart: app.maxMemoryRestart ?? options.maxMemoryRestart,
+          restartDelay: app.restartDelay ?? options.restartDelay,
+          autorestart: app.autorestart ?? options.autorestart,
+          cron: app.cron ?? options.cron,
+          time: app.time ?? options.time,
+          maxLogSize: app.maxLogSize ?? options.maxLogSize,
+          maxLogFiles: app.maxLogFiles ?? options.maxLogFiles,
+          waitReady: app.waitReady ?? options.waitReady,
+          readyTimeout: app.readyTimeout ?? options.readyTimeout,
           otel: app.otel ?? options.otel,
           prometheus: app.prometheus ?? options.prometheus,
           https: app.https ?? options.https,
@@ -675,19 +693,24 @@ async function createMacOSService(serviceName: string, execPath: string, host: s
   const preloadTs = resolve(join(dirname(import.meta.path), '..', 'utils', 'cluster-preload.ts'));
   const preloadJs = resolve(join(dirname(import.meta.path), '..', 'utils', 'cluster-preload.js'));
   const preloadPath = existsSync(preloadTs) ? preloadTs : preloadJs;
-  const preloadArgs = isClusterWorker && existsSync(preloadPath) ? ['--preload', preloadPath] : [];
+  const preloadArgs = [
+    ...(options.interpreterArgs || []),
+    ...(isClusterWorker && existsSync(preloadPath) ? ['--preload', preloadPath] : []),
+  ];
 
   const runtime = resolveRuntime(execPath, options.interpreter, preloadArgs);
+  const fullArgs = [...runtime.args, ...(options.args || [])];
+  const workingDir = options.cwd ? resolve(options.cwd) : dirname(execPath);
 
   try {
     await launchdCommand('create', {
       name: `bs9.${serviceName}`,
       file: runtime.executable,
-      args: runtime.args,
-      workingDir: dirname(execPath),
+      args: fullArgs,
+      workingDir,
       env: JSON.stringify(envVars),
       autoStart: true,
-      keepAlive: true,
+      keepAlive: options.autorestart !== false,
       logOut: `${getPlatformInfo().logDir}/${serviceName}.out.log`,
       logErr: `${getPlatformInfo().logDir}/${serviceName}.err.log`
     });
@@ -708,9 +731,14 @@ async function createWindowsService(serviceName: string, execPath: string, host:
   const preloadTs = resolve(join(dirname(import.meta.path), '..', 'utils', 'cluster-preload.ts'));
   const preloadJs = resolve(join(dirname(import.meta.path), '..', 'utils', 'cluster-preload.js'));
   const preloadPath = existsSync(preloadTs) ? preloadTs : preloadJs;
-  const preloadArgs = isClusterWorker && existsSync(preloadPath) ? ['--preload', preloadPath] : [];
+  const preloadArgs = [
+    ...(options.interpreterArgs || []),
+    ...(isClusterWorker && existsSync(preloadPath) ? ['--preload', preloadPath] : []),
+  ];
 
   const runtime = resolveRuntime(execPath, options.interpreter, preloadArgs);
+  const fullArgs = [...runtime.args, ...(options.args || [])];
+  const workingDir = options.cwd ? resolve(options.cwd) : resolve(dirname(execPath));
 
   const envVars: Record<string, string> = {
     PORT: port,
@@ -739,8 +767,8 @@ async function createWindowsService(serviceName: string, execPath: string, host:
       file: runtime.executable,
       displayName: `BS9 Service: ${serviceName}`,
       description: `BS9 managed service: ${serviceName} (${runtime.runtimeName}, port ${port})`,
-      workingDir: resolve(dirname(execPath)),
-      args: runtime.args,
+      workingDir,
+      args: fullArgs,
       env: JSON.stringify(envVars),
       serviceAccount: options.windowsServiceAccount,
       watch: options.watch,
@@ -833,6 +861,13 @@ interface SystemdUnitOptions {
   otel: boolean;
   prometheus: boolean;
   interpreter?: string;
+  cwd?: string;
+  args?: string[];
+  interpreterArgs?: string[];
+  autorestart?: boolean;
+  restartDelay?: string;
+  maxLogSize?: string;
+  maxLogFiles?: string;
 }
 
 export function generateLinuxServiceUnit(opts: SystemdUnitOptions): string {
@@ -849,6 +884,8 @@ export function generateLinuxServiceUnit(opts: SystemdUnitOptions): string {
     envVars.push("OTEL_SERVICE_NAME=" + opts.serviceName);
     envVars.push("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:4318/v1/traces");
   }
+  if (opts.maxLogSize) envVars.push(`BS9_MAX_LOG_SIZE=${opts.maxLogSize}`);
+  if (opts.maxLogFiles) envVars.push(`BS9_MAX_LOG_FILES=${opts.maxLogFiles}`);
 
   const envSection = envVars.map((entry) => {
     const separator = entry.indexOf("=");
@@ -859,16 +896,27 @@ export function generateLinuxServiceUnit(opts: SystemdUnitOptions): string {
     }
     return escapeSystemdEnv(key, value);
   }).join("\n");
-  const workingDir = escapeSystemdArg(dirname(opts.fullPath));
+  const workingDir = escapeSystemdArg(opts.cwd ? resolve(opts.cwd) : dirname(opts.fullPath));
 
   const isClusterWorker = opts.env.some(e => e === "BS9_REUSE_PORT=true");
   const preloadTs = resolve(join(dirname(import.meta.path), '..', 'utils', 'cluster-preload.ts'));
   const preloadJs = resolve(join(dirname(import.meta.path), '..', 'utils', 'cluster-preload.js'));
   const preloadPath = existsSync(preloadTs) ? preloadTs : preloadJs;
-  const preloadArgs = isClusterWorker && existsSync(preloadPath) ? ["--preload", preloadPath] : [];
+  const preloadArgs = [
+    ...(opts.interpreterArgs || []),
+    ...(isClusterWorker && existsSync(preloadPath) ? ["--preload", preloadPath] : []),
+  ];
 
   const runtime = resolveRuntime(opts.fullPath, opts.interpreter, preloadArgs);
-  const execStart = formatSystemdExecStart(runtime.executable, runtime.args);
+  const fullArgs = [...runtime.args, ...(opts.args || [])];
+  const execStart = formatSystemdExecStart(runtime.executable, fullArgs);
+
+  const restartPolicy = opts.autorestart === false ? "no" : "on-failure";
+  const parsedDelayMs = opts.restartDelay ? parseInt(opts.restartDelay, 10) : NaN;
+  const restartSec =
+    Number.isFinite(parsedDelayMs) && parsedDelayMs >= 0
+      ? `${Math.max(1, Math.round(parsedDelayMs / 1000))}s`
+      : "2s";
 
   return `[Unit]
 Description=${escapeSystemdValue(`BS9 Service: ${opts.serviceName}`)}
@@ -877,8 +925,8 @@ Documentation=https://github.com/xarhang/bs9
 
 [Service]
 Type=simple
-Restart=on-failure
-RestartSec=2s
+Restart=${restartPolicy}
+RestartSec=${restartSec}
 TimeoutStartSec=30s
 TimeoutStopSec=30s
 WorkingDirectory=${workingDir}
