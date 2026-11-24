@@ -9,3 +9,4 @@
 
 export * from "./registry.js";
 export * from "./express-session.js";
+export * from "./web-store.js";

@@ -160,17 +160,27 @@ const executed = await lease.runOnce(
 const queue = new Queue();
 await queue.push("email-jobs", { to: "user@example.com", template: "welcome" });
 const job = await queue.pop("email-jobs", { timeoutMs: 5000 });
+// Cluster-safe Map & Set (backed by State Hub with CAS)
+import { SharedMap, SharedSet } from "bs9/runtime";
+const carts = new SharedMap<{ items: string[] }>("carts", { ttlMs: 3600_000 });
+await carts.set("user-123", { items: ["book", "coffee"] });
+const online = new SharedSet<string>("online-users");
+await online.add("user-123");
 ```
 
 #### Strict Fallback Policy
 - **Standalone Mode**: If your application runs outside BS9 (e.g. locally in dev via `bun run app.ts`), `bs9/runtime` gracefully falls back to local in-memory execution without throwing errors.
 - **Cluster Strictness**: When running inside BS9 (`BS9_CLUSTER_NAME`), if the State Hub is unreachable, operations fail loudly with actionable diagnostics to prevent silent split-brain state. (Opt-in degraded local fallback is available via `BS9_ALLOW_DEGRADED_LOCAL=true`).
 
-### 3. Zero-Code Compatibility Adapters (`express-session`)
+### 3. Zero-Code & Web Framework Adapters (`express-session`, `Bun.serve`, Hono, Elysia)
 For existing Express and Connect applications running on Bun, BS9 automatically intercepts `express-session`:
 - **Tested Version Matrix**: `1.17.x` - `1.18.x`.
 - **Zero Configuration**: Calling `session({ secret: "..." })` without an explicit store automatically mounts `Bs9SessionStore`, backed by the State Hub KV engine. Sessions persist seamlessly across worker reloads and crashes.
 - **Standalone Safety**: Automatically falls back to native `MemoryStore` when executed outside BS9.
+
+For `Bun.serve`, Hono, Elysia, and standard Web `Request`/`Response` apps, `bs9/runtime` also provides cluster-safe building blocks:
+- **`Bs9WebSessionStore`**: Shared session store (`get`, `set`, `touch`, `destroy`) with cookie helpers (`parseSessionCookie`, `formatSessionCookie`).
+- **`Bs9RateLimiter`**: Atomic cluster-wide rate limiting backed by `State.incr()`.
 
 ### 4. Verification & Diagnostic Tooling
 BS9 provides built-in tools to inspect and prove high availability before deploying to production:
@@ -403,8 +413,8 @@ bs9 export --service myapp --format csv
 - **High Concurrency**: Exploit all CPU cores with `bs9 start app.ts -i max`
 
 ### 🔄 **Ecosystem Configuration Import**:
-- **Familiar Format**: Run `bs9 start ecosystem.config.js` directly
-- **Supported Fields**: Maps `script`, `instances`, `env`, `port`, `cwd`, and `args`; unsupported PM2-specific behavior is not implied
+- **Familiar Format**: Run `bs9 start ecosystem.config.js` (or `--env staging`) directly
+- **Supported Fields**: Maps `script`/`file`, `name`, `instances`, `exec_mode`, `env`, `env_<profile>`, `env_file`, `port` (or `env.PORT`), `host`, `cwd`, `args`, `node_args`/`interpreter_args`, `interpreter`, `watch`, `ignore_watch`, `max_memory_restart`, `restart_delay`, `exp_backoff_restart_delay`, `kill_timeout`, `max_restarts`, `min_uptime`, `autorestart`, `cron_restart`, `time`, `out_file`/`error_file`/`log_file`, `max_log_size`, `max_log_files`, `wait_ready`, and `listen_timeout`.
 
 ### 🛡️ **Smart Self-Healing & Exponential Backoff**:
 - **Crash Loop Circuit Breaker**: Halts infinite restart storms (5 crashes / 60s trigger)
@@ -647,7 +657,7 @@ BS9 offers familiar lifecycle commands for PM2 users, but it is not a drop-in re
 | `pm2 logs app` | `bs9 logs app` | Reads service-specific output and error logs |
 | `pm2 monit` | `bs9 monit` | Opens the terminal dashboard |
 
-Common ecosystem fields currently mapped by BS9 include `script`, `instances`, `env`, `port`, `cwd`, and `args`. Review the generated service configuration when migrating.
+Ecosystem fields mapped by BS9 include `script`/`file`, `name`, `instances`, `exec_mode`, `env`/`env_<profile>`/`env_file`, `port`, `host`, `cwd`, `args`, `node_args`, `interpreter`, `watch`, `ignore_watch`, `max_memory_restart`, `restart_delay`, `kill_timeout`, `max_restarts`, `min_uptime`, `autorestart`, `cron_restart`, `time`, `out_file`/`error_file`, `max_log_size`, `max_log_files`, `wait_ready`, and `listen_timeout`. Unsupported fields (such as `merge_logs` or `post_update`) emit a migration warning. Review the generated service configuration when migrating.
 
 ---
 

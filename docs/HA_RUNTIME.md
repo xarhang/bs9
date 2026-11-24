@@ -72,13 +72,25 @@ if (leader.acquired) {
 const queue = new Queue();
 await queue.push("email", { userId: "user-123" });
 const job = await queue.pop("email", { timeoutMs: 5_000 });
+// Drop-in cluster-safe Map & Set (backed by State Hub with CAS)
+import { SharedMap, SharedSet, Bs9WebSessionStore, Bs9RateLimiter } from "bs9/runtime";
+
+const carts = new SharedMap<{ items: string[] }>("carts", { ttlMs: 3_600_000 });
+await carts.set("user-123", { items: ["book"] });
+
+const online = new SharedSet<string>("online-users");
+await online.add("user-123");
+
+// Cluster-safe web sessions & rate limiting for Bun.serve / Hono / Elysia
+const webSessions = new Bs9WebSessionStore();
+const rateLimiter = new Bs9RateLimiter({ limit: 100, windowMs: 60_000 });
 ```
 
 `Queue.pop` reserves and acknowledges the returned message through the current high-level client. Use lower-level Hub queue operations when application-controlled acknowledgement is required.
 
 Inside a BS9 cluster, the runtime fails loudly if the State Hub cannot be reached. `BS9_ALLOW_DEGRADED_LOCAL=true` opts into process-local fallback and can produce divergent state; do not enable it for correctness-critical production state.
 
-The supported `express-session` adapter can provide zero-code session persistence when no custom store is configured. Custom stores and other state libraries remain the application's responsibility.
+The supported `express-session` adapter can provide zero-code session persistence when no custom store is configured. For `Bun.serve`, Hono, Elysia, and standard Web `Request`/`Response` apps, use `Bs9WebSessionStore` and `Bs9RateLimiter`. Custom stores and other state libraries remain the application's responsibility.
 
 ## Reload safety
 
