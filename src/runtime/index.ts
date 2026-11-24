@@ -18,6 +18,7 @@ import { State } from "./state.js";
 import { Events } from "./events.js";
 import { Lease, type LeaseAcquireResult } from "./lease.js";
 import { Queue } from "./queue.js";
+import { SharedMap, SharedSet, type SharedCollectionOptions } from "./shared-collections.js";
 import {
   getDefaultRuntimeBackend,
   resetDefaultRuntimeBackend,
@@ -46,10 +47,10 @@ export async function resetRuntime(): Promise<void> {
 }
 
 // Classes
-export { State, Events, Lease, Queue, RuntimeBackend };
+export { State, Events, Lease, Queue, SharedMap, SharedSet, RuntimeBackend };
 
 // Types & Helpers
-export type { RuntimeConfig, StateAdapter, LeaseAcquireResult };
+export type { RuntimeConfig, StateAdapter, LeaseAcquireResult, SharedCollectionOptions };
 export { isBs9Environment };
 
 // Compatibility Adapters
