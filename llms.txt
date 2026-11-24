@@ -1,0 +1,48 @@
+# BS9 (Bun Sentinel 9)
+
+> Self-healing process manager for Bun with zero-downtime `SO_REUSEPORT` clustering, real-time dashboards, TypeScript build support, AI-safe MCP server, and durable same-host state (`bs9/runtime`). Works on Linux (systemd), macOS (launchd), and Windows (Services / background watchdog). Licensed under `AGPL-3.0-or-later`.
+
+## Core CLI Commands
+
+- `bs9 start <file|config>` — Start a service, polyglot runtime (`.py`, `.go`, binary, shell), or ecosystem config (`ecosystem.config.js`, `bs9.config.json`). Supports `-i max|<N>` for `SO_REUSEPORT` clustering.
+- `bs9 deploy <file>` — Zero-config production deployment with health checks (`/healthz`, `/metrics`), OTEL env setup, and restart policies.
+- `bs9 reload <app>` — Replace-first zero-downtime rolling reload with authenticated `READY` signal and 2-phase drain.
+- `bs9 scale <app> <count|+N|-N>` — Scale cluster worker slots.
+- `bs9 inspect-ha <file>` — Static analysis classifying apps into Tier 1 (Stateless HA Ready), Tier 2 (`bs9/runtime`), or Tier 3 (In-Memory State Warning).
+- `bs9 verify-ha <file>` — Isolated sandbox fault-injection (`kill -9` + rolling reload) with availability and latency percentiles.
+- `bs9 mcp [--readonly]` — Launch stdio Model Context Protocol (MCP) server (16 tools) for AI assistants with secret redaction.
+- `bs9 export --format nginx|caddy|grafana` — Generate hardened reverse proxy and observability configs.
+
+## Runtime SDK (`bs9/runtime`)
+
+Import from `"bs9/runtime"` for cluster-safe state across worker processes. Outside BS9 (local dev), operations fall back to pure in-memory execution. Inside BS9, operations route to the local State Hub over Unix Domain Socket / Windows Named Pipe (fails loudly if unreachable unless `BS9_ALLOW_DEGRADED_LOCAL=true`).
+
+- `State` (`state`): Key-Value engine with TTL, `incr()`, and atomic Compare-And-Swap (`cas()`).
+- `Lease` (`lease`): Distributed mutex / singleton cron coordination (`acquire`, `renew`, `release`, `runOnce`) with monotonic fencing tokens.
+- `Queue` (`queue`): Durable FIFO work queues (`push`, `pop`, visibility timeouts, ack/nack).
+- `Events` (`events`): Same-host pub/sub across workers.
+- `SharedMap` / `SharedSet`: Drop-in cluster-safe collection wrappers over `State` using CAS for race-free updates.
+- `Bs9WebSessionStore` & `Bs9RateLimiter`: Cluster-safe session store and atomic rate limiter for `Bun.serve`, Hono, Elysia, and Web `Request`/`Response` handlers (with `parseSessionCookie` / `formatSessionCookie`).
+- Zero-code `express-session` adapter (`1.17.x - 1.18.x`): Automatically mounts `Bs9SessionStore` when no explicit store is configured.
+
+## PM2 Migration (`ecosystem.config.js` / `bs9.config.json`)
+
+Run `bs9 start ecosystem.config.js` or `bs9 start ecosystem.config.js --env staging`.
+
+- Mapped fields: `script`/`file`, `name`, `instances` (`"max"` or number), `exec_mode` (`cluster`/`fork`), `env`, `env_<profile>`, `env_file` (`.env`), `port` (or `env.PORT`), `host`, `cwd`, `args`, `node_args`/`interpreter_args`, `interpreter`, `watch`, `ignore_watch`, `max_memory_restart`, `restart_delay`, `exp_backoff_restart_delay`, `kill_timeout`, `max_restarts`, `min_uptime`, `autorestart`, `cron_restart`, `time`, `out_file`/`error_file`/`log_file`, `max_log_size`, `max_log_files`, `wait_ready`, `listen_timeout`.
+- Ignored PM2 fields (`merge_logs`, `post_update`) emit a migration warning.
+
+## Documentation
+
+- [README.md](README.md): Full feature overview, quick start, CLI reference, and PM2 migration guide.
+- [High-Availability Runtime Guide](docs/HA_RUNTIME.md): Availability model, `bs9/runtime`, reload safety, and single-host boundaries.
+- [CLI Commands](docs/COMMANDS.md): Detailed reference for all 40+ CLI commands.
+- [API Reference](docs/API.md): Programmatic SDK, Web Dashboard API, and MCP tools.
+- [Testing & Qualification](docs/TESTING.md): Automated test suites and cross-platform matrix.
+- [Security Policy](SECURITY.md): Security model, SSRF/injection defenses, and reporting.
+
+## Boundaries & Architecture
+
+- **Same-Host Only**: The bundled State Hub coordinates processes on one host via UDS / Named Pipe; it is not a multi-node consensus database.
+- **No Arbitrary Heap Replication**: Plain JS variables (`let`, `Map`, `Set`) are not shared across OS processes; use `bs9/runtime` (`State`, `SharedMap`, `SharedSet`).
+- **License**: `AGPL-3.0-or-later` (normal CLI usage to run proprietary apps does not require open-sourcing the app; modifying BS9 itself and serving it over a network triggers AGPL-3.0).
